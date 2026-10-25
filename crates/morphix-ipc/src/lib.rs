@@ -7,6 +7,7 @@ use std::io::{self, BufRead, BufReader, ErrorKind, Write};
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -44,18 +45,30 @@ struct WireRequest {
     paths: Vec<String>,
 }
 
-pub fn encode(request: &MenuRequest) -> String {
-    let wire = WireRequest {
-        paths: request
-            .paths
-            .iter()
-            .map(|path| path.to_string_lossy().into_owned())
-            .collect(),
-    };
-    // serde_json escapes newlines inside strings, so the payload always stays on one line.
-    let mut line = serde_json::to_string(&wire).expect("WireRequest of strings always serializes");
+/// Mã hoá yêu cầu thành một dòng JSON. Tên file không phải UTF-8 bị từ chối (`InvalidData`, nêu tên).
+/// WHY: đổi lén sang U+FFFD sẽ cho GUI một đường dẫn không tồn tại và lỗi "không tìm thấy" khó hiểu;
+/// giao diện (chuỗi JavaScript) cũng không giữ được tên như vậy, nên báo rõ ngay từ đầu.
+pub fn encode(request: &MenuRequest) -> io::Result<String> {
+    let paths = request
+        .paths
+        .iter()
+        .map(|path| {
+            path.to_str().map(str::to_string).ok_or_else(|| {
+                io::Error::new(
+                    ErrorKind::InvalidData,
+                    format!(
+                        "tên file không phải UTF-8 nên Morphix chưa mở được: {}; hãy đổi tên file rồi thử lại",
+                        path.display()
+                    ),
+                )
+            })
+        })
+        .collect::<io::Result<Vec<String>>>()?;
+    // WHY: serde_json thoát ký tự xuống dòng trong chuỗi, nên cả yêu cầu luôn nằm trên một dòng.
+    let mut line = serde_json::to_string(&WireRequest { paths })
+        .expect("WireRequest of strings always serializes");
     line.push('\n');
-    line
+    Ok(line)
 }
 
 pub fn decode(line: &str) -> Result<MenuRequest, String> {
@@ -93,7 +106,7 @@ fn current_user() -> String {
 
 #[cfg(not(windows))]
 fn socket_directory() -> PathBuf {
-    // XDG_RUNTIME_DIR is already per-user and cleared on logout, so it is the preferred home.
+    // WHY: XDG_RUNTIME_DIR đã riêng cho từng người dùng và bị xoá khi đăng xuất, nên ưu tiên đặt socket ở đây.
     if let Some(dir) = std::env::var_os("XDG_RUNTIME_DIR") {
         return PathBuf::from(dir);
     }
@@ -141,7 +154,7 @@ impl Batcher {
 
     /// Trả snapshot của toàn bộ lô hiện tại để GUI hiện trạng thái "đang nhận file" ngay lập tức.
     pub fn push(&mut self, paths: Vec<PathBuf>, now: Instant) -> Vec<PathBuf> {
-        // The window is anchored to the first push so a steady trickle cannot postpone the batch forever.
+        // WHY: cửa sổ tính từ lần đẩy đầu, để dòng yêu cầu nhỏ giọt liên tục không hoãn lô mãi.
         if self.window_opened_at.is_none() && !paths.is_empty() {
             self.window_opened_at = Some(now);
         }
@@ -174,8 +187,10 @@ impl Batcher {
 }
 
 pub fn send_request(name: &str, request: &MenuRequest) -> io::Result<()> {
+    // WHY encode trước connect: tên file hỏng là lỗi của yêu cầu, không phải do GUI chưa chạy.
+    let line = encode(request)?;
     let mut stream = Stream::connect(local_socket_name(name)?)?;
-    stream.write_all(encode(request).as_bytes())?;
+    stream.write_all(line.as_bytes())?;
     stream.flush()
 }
 
@@ -190,7 +205,7 @@ impl IpcServer {
         on_pending: impl Fn(Vec<PathBuf>) + Send + Sync + 'static,
         on_batch: impl Fn(Vec<PathBuf>) + Send + Sync + 'static,
     ) -> io::Result<Self> {
-        // Binding happens on the caller's thread so a busy or unwritable name is reported to the caller.
+        // WHY: bind trên luồng của bên gọi, để tên đang bận hay không ghi được báo thẳng cho bên gọi.
         let listener = bind_listener(name)?;
         let stop_requested = Arc::new(AtomicBool::new(false));
         let worker_stop = Arc::clone(&stop_requested);
@@ -223,14 +238,14 @@ impl IpcServer {
 }
 
 impl Drop for IpcServer {
-    // Safety net only: a dropped server stops its loop, but the thread is not joined here.
+    // WHY: chỉ là lưới an toàn; server bị drop thì dừng vòng lặp, nhưng không join luồng ở đây.
     fn drop(&mut self) {
         self.stop_requested.store(true, Ordering::SeqCst);
     }
 }
 
 fn create_listener(name: &str) -> io::Result<Listener> {
-    // Non-blocking accept lets the loop poll the stop flag instead of blocking forever in accept().
+    // WHY: accept không chặn để vòng lặp kiểm được cờ dừng thay vì kẹt mãi trong accept().
     ListenerOptions::new()
         .name(local_socket_name(name)?)
         .nonblocking(ListenerNonblockingMode::Accept)
@@ -248,12 +263,12 @@ fn bind_listener(name: &str) -> io::Result<Listener> {
         Ok(listener) => return Ok(listener),
         Err(error) => error,
     };
-    // A live server keeps the name. Only a socket file nobody answers on is stale, and only Unix
-    // leaves such files behind: named pipes vanish with their process.
+    // WHY: server còn sống thì giữ tên. Chỉ file socket không ai trả lời mới là cũ, và chỉ Unix để lại
+    // file như vậy: named pipe biến mất cùng tiến trình.
     if error.kind() != ErrorKind::AddrInUse || !cfg!(unix) || send_probe_connects(name) {
         return Err(error);
     }
-    // A crash skips Drop, so interprocess's name reclamation never ran and the file lingers.
+    // WHY: tiến trình sập thì bỏ qua Drop, nên interprocess chưa kịp thu hồi tên và file còn nằm lại.
     tracing::warn!(
         path = name,
         "xoá socket IPC cũ do tiến trình trước bị dừng đột ngột"
@@ -279,22 +294,30 @@ fn run_accept_loop(
     on_pending: &impl Fn(Vec<PathBuf>),
     on_batch: &impl Fn(Vec<PathBuf>),
 ) {
+    let (requests, received): (Sender<Vec<PathBuf>>, Receiver<Vec<PathBuf>>) = mpsc::channel();
     while !stop_requested.load(Ordering::SeqCst) {
         match listener.accept() {
-            Ok(stream) => handle_connection(stream, &mut batcher, on_pending),
+            Ok(stream) => spawn_reader(stream, requests.clone()),
             Err(error) if error.kind() == ErrorKind::WouldBlock => {}
             Err(error) => tracing::warn!(error = %error, "accept socket IPC thất bại"),
+        }
+        while let Ok(paths) = received.try_recv() {
+            on_pending(batcher.push(paths, Instant::now()));
         }
         if let Some(batch) = batcher.take_ready(Instant::now()) {
             on_batch(batch);
         }
         thread::sleep(POLL_INTERVAL);
     }
-    // WHY: a batch still inside its window at shutdown would otherwise vanish without a trace.
+    // WHY: yêu cầu đã đọc xong nhưng chưa vào lô, hay lô còn trong cửa sổ, sẽ mất nếu không gom nốt.
+    // ponytail: client còn đang gửi dở lúc thoát thì vẫn mất; chờ luồng đọc nếu có người gặp.
+    while let Ok(paths) = received.try_recv() {
+        batcher.push(paths, Instant::now());
+    }
     if let Some(batch) = batcher.drain() {
         on_batch(batch);
     }
-    // Listener drops here, which reclaims the socket name for the next server.
+    // WHY: listener bị drop ở đây, trả tên socket cho server kế tiếp.
 }
 
 /// Đọc một dòng yêu cầu trong tổng thời gian `deadline` và tối đa `MAX_REQUEST_LINE_BYTES` byte.
@@ -312,9 +335,9 @@ fn read_request_line(stream: Stream, deadline: Instant) -> io::Result<Vec<u8>> {
                     "client IPC vượt quá hạn chót đọc yêu cầu",
                 )
             })?;
-        // Re-arming the per-read timeout with the time left turns it into a total deadline.
+        // WHY: đặt lại timeout từng lần đọc bằng thời gian còn lại biến nó thành hạn chót tổng.
         reader.get_ref().set_recv_timeout(Some(remaining))?;
-        // Interrupted reads are retried, as `read_line` would, so a signal does not drop a valid request.
+        // WHY: lần đọc bị ngắt được thử lại như `read_line`, để tín hiệu không làm rơi yêu cầu hợp lệ.
         let chunk = match reader.fill_buf() {
             Ok(chunk) => chunk,
             Err(error) if error.kind() == ErrorKind::Interrupted => continue,
@@ -342,25 +365,46 @@ fn read_request_line(stream: Stream, deadline: Instant) -> io::Result<Vec<u8>> {
     }
 }
 
-fn handle_connection(stream: Stream, batcher: &mut Batcher, on_pending: &impl Fn(Vec<PathBuf>)) {
+/// Đọc yêu cầu của một client trên luồng riêng rồi gửi đường dẫn về vòng accept.
+/// WHY: đọc ngay trên vòng accept thì một client im lặng giữ mọi yêu cầu khác (và việc chốt lô) tới
+/// hết hạn chót đọc. Mỗi luồng sống tối đa `CLIENT_READ_DEADLINE`.
+fn spawn_reader(stream: Stream, requests: Sender<Vec<PathBuf>>) {
+    let spawned = thread::Builder::new()
+        .name("morphix-ipc-client".to_string())
+        .spawn(move || {
+            if let Some(paths) = read_request(stream) {
+                if requests.send(paths).is_err() {
+                    tracing::warn!("server IPC đã dừng, bỏ yêu cầu vừa đọc");
+                }
+            }
+        });
+    if let Err(error) = spawned {
+        tracing::error!(error = %error, "không tạo được luồng đọc yêu cầu IPC");
+    }
+}
+
+fn read_request(stream: Stream) -> Option<Vec<PathBuf>> {
     let deadline = Instant::now() + CLIENT_READ_DEADLINE;
     let line_bytes = match read_request_line(stream, deadline) {
         Ok(bytes) => bytes,
         Err(error) => {
             tracing::warn!(error = %error, "đọc yêu cầu từ client IPC thất bại");
-            return;
+            return None;
         }
     };
     let line = match String::from_utf8(line_bytes) {
         Ok(text) => text,
         Err(error) => {
             tracing::warn!(error = %error, "yêu cầu IPC không phải UTF-8");
-            return;
+            return None;
         }
     };
     match decode(&line) {
-        Ok(request) => on_pending(batcher.push(request.paths, Instant::now())),
-        Err(reason) => tracing::warn!(reason = %reason, "bỏ qua yêu cầu IPC sai định dạng"),
+        Ok(request) => Some(request.paths),
+        Err(reason) => {
+            tracing::warn!(reason = %reason, "bỏ qua yêu cầu IPC sai định dạng");
+            None
+        }
     }
 }
 

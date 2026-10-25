@@ -1,8 +1,8 @@
-use interprocess::local_socket::{prelude::*, Stream};
 #[cfg(unix)]
 use interprocess::local_socket::GenericFilePath;
 #[cfg(not(unix))]
 use interprocess::local_socket::GenericNamespaced;
+use interprocess::local_socket::{prelude::*, Stream};
 use morphix_ipc::{decode, encode, Batcher, IpcServer, MenuRequest};
 use std::io::{self, ErrorKind, Write};
 use std::path::PathBuf;
@@ -19,9 +19,13 @@ fn round_trip_keeps_unicode_quotes_spaces_and_newlines_in_names() {
             PathBuf::from("/home/a/ghi\nchú.jpg"),
         ],
     };
-    let line = encode(&req);
+    let line = encode(&req).unwrap();
     assert!(line.ends_with('\n'));
-    assert_eq!(line.matches('\n').count(), 1, "xuống dòng trong tên phải được thoát");
+    assert_eq!(
+        line.matches('\n').count(),
+        1,
+        "xuống dòng trong tên phải được thoát"
+    );
     assert_eq!(decode(line.trim_end()).unwrap(), req);
 }
 
@@ -33,11 +37,12 @@ fn decode_rejects_garbage_with_a_reason() {
 
 #[cfg(unix)]
 #[test]
-fn non_utf8_path_is_lossy_only_at_the_ipc_boundary() {
+fn non_utf8_path_is_rejected_with_its_name_instead_of_silently_rewritten() {
     use std::os::unix::ffi::OsStringExt;
     let path = PathBuf::from(std::ffi::OsString::from_vec(vec![b'/', b'a', 0xff]));
-    let decoded = decode(encode(&MenuRequest { paths: vec![path] }).trim_end()).unwrap();
-    assert_eq!(decoded.paths, vec![PathBuf::from("/a\u{fffd}")]);
+    let error = encode(&MenuRequest { paths: vec![path] }).unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::InvalidData);
+    assert!(error.to_string().contains("UTF-8"), "{error}");
 }
 
 #[test]
@@ -52,7 +57,11 @@ fn batcher_merges_requests_inside_the_window_and_dedups() {
     assert!(b.take_ready(t0 + Duration::from_millis(250)).is_none());
     assert_eq!(
         b.take_ready(t0 + Duration::from_millis(350)).unwrap(),
-        vec![PathBuf::from("a.jpg"), PathBuf::from("b.jpg"), PathBuf::from("c.jpg")]
+        vec![
+            PathBuf::from("a.jpg"),
+            PathBuf::from("b.jpg"),
+            PathBuf::from("c.jpg")
+        ]
     );
 }
 
@@ -61,7 +70,9 @@ fn batcher_keeps_forty_files_from_two_fast_clicks() {
     let t0 = Instant::now();
     let mut b = Batcher::new(Duration::from_millis(300));
     let first: Vec<_> = (0..20).map(|i| PathBuf::from(format!("{i}.jpg"))).collect();
-    let second: Vec<_> = (20..40).map(|i| PathBuf::from(format!("{i}.jpg"))).collect();
+    let second: Vec<_> = (20..40)
+        .map(|i| PathBuf::from(format!("{i}.jpg")))
+        .collect();
     b.push(first, t0);
     b.push(second, t0 + Duration::from_millis(50));
     assert_eq!(b.take_ready(t0 + Duration::from_secs(1)).unwrap().len(), 40);
@@ -77,10 +88,16 @@ fn server_and_client_talk_over_a_real_local_socket() {
         &name,
         move |paths| pending_sink.lock().unwrap().push((false, paths)),
         move |paths| final_sink.lock().unwrap().push((true, paths)),
-    ).unwrap();
+    )
+    .unwrap();
     let deadline = Instant::now() + Duration::from_secs(3);
     loop {
-        let sent = morphix_ipc::send_request(&name, &MenuRequest { paths: vec![PathBuf::from("x.png")] });
+        let sent = morphix_ipc::send_request(
+            &name,
+            &MenuRequest {
+                paths: vec![PathBuf::from("x.png")],
+            },
+        );
         if sent.is_ok() {
             break;
         }
@@ -88,13 +105,19 @@ fn server_and_client_talk_over_a_real_local_socket() {
         std::thread::sleep(Duration::from_millis(50));
     }
     while !got.lock().unwrap().iter().any(|(is_final, _)| !is_final) {
-        assert!(Instant::now() < deadline + Duration::from_secs(3), "lô không tới");
+        assert!(
+            Instant::now() < deadline + Duration::from_secs(3),
+            "lô không tới"
+        );
         std::thread::sleep(Duration::from_millis(20));
     }
     let pending = got.lock().unwrap()[0].1.clone();
     assert_eq!(pending, vec![PathBuf::from("x.png")]);
     while !got.lock().unwrap().iter().any(|(is_final, _)| *is_final) {
-        assert!(Instant::now() < deadline + Duration::from_secs(3), "lô chưa được chốt");
+        assert!(
+            Instant::now() < deadline + Duration::from_secs(3),
+            "lô chưa được chốt"
+        );
         std::thread::sleep(Duration::from_millis(20));
     }
     assert_eq!(got.lock().unwrap().last().unwrap().1, pending);
@@ -138,12 +161,8 @@ fn wait_until(deadline: Instant, condition: impl Fn() -> bool) -> bool {
 fn start_pending_recorder(name: &str) -> (IpcServer, Arc<Mutex<Vec<Vec<PathBuf>>>>) {
     let received = Arc::new(Mutex::new(Vec::new()));
     let sink = Arc::clone(&received);
-    let server = IpcServer::start(
-        name,
-        move |paths| sink.lock().unwrap().push(paths),
-        |_| {},
-    )
-    .unwrap();
+    let server =
+        IpcServer::start(name, move |paths| sink.lock().unwrap().push(paths), |_| {}).unwrap();
     (server, received)
 }
 
@@ -173,7 +192,10 @@ fn oversized_line_without_newline_is_dropped_quickly_and_server_keeps_serving() 
             Err(error) => panic!("unexpected write error: {error}"),
         }
     }
-    assert!(written < total_bytes, "server must close the oversized connection");
+    assert!(
+        written < total_bytes,
+        "server must close the oversized connection"
+    );
 
     let valid = menu_request(&["ok.png"]);
     morphix_ipc::send_request(&name, &valid).unwrap();
@@ -182,7 +204,11 @@ fn oversized_line_without_newline_is_dropped_quickly_and_server_keeps_serving() 
     });
     // Without the cap the server would wait out the full read deadline, so anything near it means the cap failed.
     assert!(answered, "valid request must be served after the rejection");
-    assert!(started.elapsed() < SERVER_READ_DEADLINE, "rejection took {:?}", started.elapsed());
+    assert!(
+        started.elapsed() < SERVER_READ_DEADLINE,
+        "rejection took {:?}",
+        started.elapsed()
+    );
     server.shutdown().unwrap();
 }
 
@@ -210,10 +236,13 @@ fn slow_trickling_client_does_not_hold_the_server_past_the_deadline() {
         received.lock().unwrap().contains(&valid.paths)
     });
     let elapsed = started.elapsed();
-    assert!(answered, "valid request must be served once the trickler is cut off");
-    // The deadline is measured from accept, so the valid request waits roughly one deadline; the slack covers poll and CI load.
     assert!(
-        elapsed < SERVER_READ_DEADLINE + Duration::from_secs(1),
+        answered,
+        "valid request must be served once the trickler is cut off"
+    );
+    // Each client is read on its own thread, so the trickler must not delay the valid request at all.
+    assert!(
+        elapsed < SERVER_READ_DEADLINE / 2,
         "valid request waited {elapsed:?}"
     );
     trickle.join().unwrap();
