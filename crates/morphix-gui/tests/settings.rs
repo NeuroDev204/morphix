@@ -1,4 +1,4 @@
-use morphix_gui::settings::{load, save, validate, QualityChoice, Settings};
+use morphix_gui::settings::{load, load_reporting, save, validate, QualityChoice, Settings};
 
 #[test]
 fn missing_file_gives_defaults() {
@@ -7,12 +7,21 @@ fn missing_file_gives_defaults() {
 }
 
 #[test]
-fn corrupt_file_gives_defaults_and_is_left_untouched() {
+fn corrupt_file_gives_defaults_is_kept_aside_and_reported() {
     let d = tempfile::tempdir().unwrap();
     let path = d.path().join("settings.json");
     std::fs::write(&path, b"{ not json").unwrap();
-    assert_eq!(load(&path), Settings::default());
-    assert_eq!(std::fs::read(&path).unwrap(), b"{ not json");
+    let (settings, warning) = load_reporting(&path);
+    assert_eq!(settings, Settings::default());
+    assert!(warning
+        .expect("phải báo người dùng")
+        .contains("Cài đặt bị hỏng"));
+    let kept = std::fs::read_dir(d.path())
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| p.to_string_lossy().contains(".hong-"))
+        .expect("bản hỏng được cất riêng");
+    assert_eq!(std::fs::read(kept).unwrap(), b"{ not json");
 }
 
 #[test]
@@ -101,4 +110,3 @@ fn json_serialization_lowercase_quality() {
     let json = serde_json::to_string(&s).unwrap();
     assert!(json.contains(r#""quality":"balanced""#));
 }
-

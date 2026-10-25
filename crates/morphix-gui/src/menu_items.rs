@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use morphix_core::kind::{ArchiveFormat, MediaFormat};
+use morphix_core::kind::{ArchiveFormat, MediaFormat, TextFormat};
 use morphix_core::{actions_for, ActionKind, FileKind, ImgFormat, Operation, Quality, ResizeSpec};
 use serde::{Deserialize, Serialize};
 
@@ -54,14 +54,10 @@ pub fn wheel_items(kinds: &[FileKind]) -> Vec<WheelItem> {
     let mut suggested_found = false;
 
     for action in actions {
-        // WHY: giao diện chưa nối được việc văn bản (Task 4); hiện múi sẽ bấm ra lỗi "không hỗ trợ".
         // WHY: cắt, đổi tốc độ và tách âm thanh chỉ có ở CLI trong bản này (spec mục 2a), nên không hiện múi.
         if matches!(
             action.kind,
-            ActionKind::ConvertText(_)
-                | ActionKind::CutMedia
-                | ActionKind::ChangeSpeed
-                | ActionKind::ExtractAudio(_)
+            ActionKind::CutMedia | ActionKind::ChangeSpeed | ActionKind::ExtractAudio(_)
         ) {
             continue;
         }
@@ -96,6 +92,7 @@ pub fn wheel_items(kinds: &[FileKind]) -> Vec<WheelItem> {
 /// - `strip` → `StripMetadata`
 /// - `resize` → `ResizeImage(ResizeSpec::Percent(settings.default_resize_percent))`
 /// - `media:<đuôi>` → `ConvertMedia { to }`; `compress-media` → `CompressMedia`
+/// - `text:<đuôi>` → `ConvertText { to }`
 /// - `pdf-to-text` → `PdfToText`
 /// - `archive:<đuôi>` → `CreateArchive { format }`; `extract` → `ExtractArchive`
 /// - Các mã khác hoặc định dạng không nhận dạng được trả về `Err`.
@@ -117,6 +114,11 @@ pub fn operation_for(
             _ => return Err(format!("Định dạng file nén không được hỗ trợ: {ext}")),
         };
         return Ok(Operation::CreateArchive { format });
+    }
+    if let Some(ext) = id.strip_prefix("text:") {
+        let to = TextFormat::from_extension(ext)
+            .ok_or_else(|| format!("Định dạng văn bản không được hỗ trợ: {ext}"))?;
+        return Ok(Operation::ConvertText { to });
     }
     if let Some(ext) = id.strip_prefix("media:") {
         let to = MediaFormat::from_extension(ext)

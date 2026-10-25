@@ -12,6 +12,15 @@ use x11rb::{
 pub struct X11Session {
     connection: RustConnection,
     root: u32,
+    /// Bảng keysym của bàn phím, đọc một lần lúc kết nối.
+    /// WHY: mỗi lần Alt+C gửi khoảng sáu sự kiện phím; đọc lại cả bảng cho từng sự kiện là thừa.
+    keymap: Keymap,
+}
+
+struct Keymap {
+    min_keycode: u8,
+    keysyms_per_keycode: u8,
+    keysyms: Vec<u32>,
 }
 
 fn failed(error: impl std::fmt::Display) -> CaptureError {
@@ -27,7 +36,23 @@ impl X11Session {
             .map_err(failed)?
             .reply()
             .map_err(failed)?;
-        Ok(Self { connection, root })
+        let setup = connection.setup();
+        let min_keycode = setup.min_keycode;
+        let mapping = connection
+            .get_keyboard_mapping(min_keycode, setup.max_keycode - min_keycode + 1)
+            .map_err(failed)?
+            .reply()
+            .map_err(failed)?;
+        let keymap = Keymap {
+            min_keycode,
+            keysyms_per_keycode: mapping.keysyms_per_keycode,
+            keysyms: mapping.keysyms,
+        };
+        Ok(Self {
+            connection,
+            root,
+            keymap,
+        })
     }
 
     fn atom(&self, name: &str) -> Result<u32, CaptureError> {
@@ -97,18 +122,11 @@ impl X11Session {
             Key::C => 0x63,
             Key::F7 => 0xffc4,
         };
-        let setup = self.connection.setup();
-        let mapping = self
-            .connection
-            .get_keyboard_mapping(setup.min_keycode, setup.max_keycode - setup.min_keycode + 1)
-            .map_err(failed)?
-            .reply()
-            .map_err(failed)?;
-        mapping
+        self.keymap
             .keysyms
-            .chunks(usize::from(mapping.keysyms_per_keycode))
+            .chunks(usize::from(self.keymap.keysyms_per_keycode))
             .position(|symbols| symbols.contains(&symbol))
-            .map(|offset| setup.min_keycode + offset as u8)
+            .map(|offset| self.keymap.min_keycode + offset as u8)
             .ok_or_else(|| failed(format!("Không tìm thấy phím {key:?}")))
     }
 }

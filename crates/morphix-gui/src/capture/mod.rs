@@ -126,6 +126,46 @@ pub fn press_with_gaps(
     result.and(release_result)
 }
 
+/// Lệnh hỏi phiên bản Nautilus theo từng trình quản lý gói, như `morphix doctor`.
+/// WHY không chạy `nautilus --version`: lệnh đó khởi động GTK/Tracker và ghi vào thư mục dữ liệu.
+const NAUTILUS_VERSION_QUERIES: &[(&str, &[&str])] = &[
+    ("dpkg-query", &["-W", "-f=${Version}", "nautilus"]),
+    ("rpm", &["-q", "--qf", "%{VERSION}", "nautilus"]),
+    ("pacman", &["-Q", "nautilus"]),
+];
+
+/// Phiên bản chính của Nautilus từ trình quản lý gói đầu tiên trả lời được; không có thì `None`.
+fn nautilus_version_major() -> Option<u32> {
+    NAUTILUS_VERSION_QUERIES.iter().find_map(|(program, args)| {
+        match std::process::Command::new(program).args(*args).output() {
+            Ok(output) if output.status.success() => {
+                nautilus_major(&String::from_utf8_lossy(&output.stdout))
+            }
+            Ok(output) => {
+                tracing::debug!(program, status = ?output.status, "trình quản lý gói không biết gói nautilus");
+                None
+            }
+            Err(error) => {
+                tracing::debug!(program, %error, "không có trình quản lý gói này");
+                None
+            }
+        }
+    })
+}
+
+/// Số phiên bản chính: `1:46.4-0ubuntu1` (dpkg), `46.4` (rpm), `nautilus 46.4-1` (pacman) đều cho 46.
+fn nautilus_major(output: &str) -> Option<u32> {
+    output
+        .split_whitespace()
+        .last()?
+        .rsplit(':')
+        .next()?
+        .split('.')
+        .next()?
+        .parse()
+        .ok()
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum Plan {
     WaitForNautilusScript,
@@ -152,16 +192,22 @@ pub fn run(app: &tauri::AppHandle) {
     }
     let handle = app.clone();
     std::thread::spawn(move || {
-        let result = capture(&handle);
+        // WHY catch_unwind: panic giữa chừng (GTK, x11rb) mà không trả cờ thì mọi Alt+C sau bị bỏ qua
+        // im lặng tới khi khởi động lại, và wait còn sót sẽ kéo lô file kế tiếp vào Khay.
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| capture(&handle)))
+            .unwrap_or_else(|_| {
+                Err(CaptureError::Other(
+                    "lỗi nội bộ khi lấy file đang chọn, hãy thử lại".into(),
+                ))
+            });
+        let state = handle.state::<crate::state::AppState>();
+        state.khay_wait_guard().take();
+        state.capturing.store(false, Ordering::SeqCst);
         if let Err(error) = result {
             if let Err(reason) = crate::windows::open_khay_with_error(&handle, error.to_string()) {
                 tracing::error!(%reason, "không hiện được lỗi lấy file");
             }
         }
-        handle
-            .state::<crate::state::AppState>()
-            .capturing
-            .store(false, Ordering::SeqCst);
     });
 }
 
@@ -185,23 +231,7 @@ fn capture(app: &tauri::AppHandle) -> Result<(), CaptureError> {
     )?;
     let target = session.active_window_target()?;
     let major = if target == Target::Files {
-        // WHY `nautilus --version`: có trên mọi distro, dpkg-query chỉ có trên Debian/Ubuntu.
-        match std::process::Command::new("nautilus")
-            .arg("--version")
-            .output()
-        {
-            Ok(output) if output.status.success() => {
-                nautilus_major(&String::from_utf8_lossy(&output.stdout))
-            }
-            Ok(output) => {
-                tracing::warn!(status = ?output.status, stderr = %String::from_utf8_lossy(&output.stderr), "không đọc được phiên bản Nautilus");
-                None
-            }
-            Err(error) => {
-                tracing::warn!(%error, "không chạy được nautilus --version");
-                None
-            }
-        }
+        nautilus_version_major()
     } else {
         None
     };
@@ -271,17 +301,6 @@ fn capture(app: &tauri::AppHandle) -> Result<(), CaptureError> {
     Ok(())
 }
 
-/// Số phiên bản chính từ `nautilus --version` ("GNOME nautilus 46.4" → 46).
-fn nautilus_major(output: &str) -> Option<u32> {
-    output
-        .split_whitespace()
-        .last()?
-        .split('.')
-        .next()?
-        .parse()
-        .ok()
-}
-
 fn ensure_target(session: &mut x11::X11Session, expected: Target) -> Result<(), CaptureError> {
     if session.active_window_target()? != expected || session.modifiers_held()? {
         return Err(CaptureError::Other(
@@ -295,6 +314,14 @@ fn ensure_target(session: &mut x11::X11Session, expected: Target) -> Result<(), 
 mod tests {
     use super::*;
     use std::collections::VecDeque;
+
+    #[test]
+    fn nautilus_major_reads_dpkg_rpm_and_pacman_versions() {
+        assert_eq!(nautilus_major("1:46.4-0ubuntu1"), Some(46));
+        assert_eq!(nautilus_major("47.1"), Some(47));
+        assert_eq!(nautilus_major("nautilus 46.2-1\n"), Some(46));
+        assert_eq!(nautilus_major(""), None);
+    }
 
     struct FakeKeys {
         modifiers: VecDeque<bool>,
@@ -352,13 +379,6 @@ mod tests {
         assert_eq!(waited, Duration::from_secs(3));
         assert!(keys.events.is_empty());
     }
-    #[test]
-    fn nautilus_major_reads_version_output_of_any_distro() {
-        assert_eq!(nautilus_major("GNOME nautilus 46.4\n"), Some(46));
-        assert_eq!(nautilus_major("GNOME nautilus 47.beta"), Some(47));
-        assert_eq!(nautilus_major("bash: nautilus: not found"), None);
-    }
-
     #[test]
     fn poll_until_stops_early_or_at_max() {
         let mut slept = Duration::ZERO;

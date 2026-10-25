@@ -1,6 +1,6 @@
+use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use serde::{Deserialize, Serialize};
 
 /// Số lượng bản ghi lịch sử tối đa được lưu trữ.
 pub const MAX_ENTRIES: usize = 50;
@@ -93,16 +93,41 @@ impl HistoryEntry {
 pub struct History {
     path: PathBuf,
     entries: Vec<HistoryEntry>,
+    /// Lỗi lúc đọc file, chờ giao diện lấy ra để báo người dùng.
+    load_warning: Option<String>,
+}
+
+/// Cất file JSON hỏng sang `<tên>.hong-<giây unix>` rồi trả câu báo cho người dùng.
+/// WHY: giữ file hỏng tại chỗ thì lần lưu kế tiếp ghi đè mất; người dùng cũng phải biết dữ liệu đã
+/// được bắt đầu lại, không chỉ có dòng log.
+pub fn set_aside_corrupt(path: &Path, what: &str, error: &dyn std::fmt::Display) -> String {
+    let unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_secs());
+    let mut backup = path.as_os_str().to_owned();
+    backup.push(format!(".hong-{unix}"));
+    let backup = PathBuf::from(backup);
+    tracing::warn!(path = %path.display(), %error, "{what} bị hỏng, cất sang {}", backup.display());
+    match std::fs::rename(path, &backup) {
+        Ok(()) => format!(
+            "{what} bị hỏng ({error}) nên Morphix bắt đầu lại từ đầu; bản cũ được giữ ở {}.",
+            backup.display()
+        ),
+        Err(rename_error) => format!(
+            "{what} bị hỏng ({error}) và không cất riêng được ({rename_error}); lần lưu tới sẽ ghi đè {}.",
+            path.display()
+        ),
+    }
 }
 
 impl History {
     /// Mở hoặc khởi tạo lịch sử từ đường dẫn `path`.
     ///
     /// - Nếu file chưa tồn tại: bắt đầu với danh sách rỗng mà không báo lỗi.
-    /// - Nếu file bị hỏng hoặc sai cú pháp JSON: ghi cảnh báo qua `tracing::warn!`,
-    ///   giữ nguyên file hỏng trên đĩa (không tự động xoá để người dùng có thể cứu dữ liệu),
-    ///   và trả về danh sách rỗng trong bộ nhớ. File chỉ bị ghi đè khi có thao tác ghi mới (`push` hoặc `clear`).
+    /// - Nếu file bị hỏng hoặc sai cú pháp JSON: cất file hỏng sang tên khác (xem `set_aside_corrupt`),
+    ///   bắt đầu với danh sách rỗng và giữ câu báo cho `take_load_warning`.
     pub fn open(path: &Path) -> Self {
+        let mut load_warning = None;
         let entries = match std::fs::read_to_string(path) {
             Ok(content) => match serde_json::from_str::<Vec<HistoryEntry>>(&content) {
                 Ok(mut list) => {
@@ -110,12 +135,7 @@ impl History {
                     list
                 }
                 Err(err) => {
-                    tracing::warn!(
-                        path = %path.display(),
-                        error = %err,
-                        "File lịch sử tại {} bị hỏng hoặc sai định dạng: {err}",
-                        path.display()
-                    );
+                    load_warning = Some(set_aside_corrupt(path, "Lịch sử", &err));
                     Vec::new()
                 }
             },
@@ -134,7 +154,13 @@ impl History {
         Self {
             path: path.to_path_buf(),
             entries,
+            load_warning,
         }
+    }
+
+    /// Lấy (một lần) câu báo lỗi lúc đọc file lịch sử, nếu có.
+    pub fn take_load_warning(&mut self) -> Option<String> {
+        self.load_warning.take()
     }
 
     /// Thêm một bản ghi mới lên đầu danh sách, cắt bớt nếu vượt quá `MAX_ENTRIES` (50),
@@ -207,9 +233,12 @@ impl History {
             .flush()
             .map_err(|e| format!("Không thể đẩy dữ liệu lịch sử ra đĩa: {e}"))?;
 
-        temp_file
-            .persist(&self.path)
-            .map_err(|e| format!("Không thể lưu file lịch sử tại {}: {e}", self.path.display()))?;
+        temp_file.persist(&self.path).map_err(|e| {
+            format!(
+                "Không thể lưu file lịch sử tại {}: {e}",
+                self.path.display()
+            )
+        })?;
 
         Ok(())
     }

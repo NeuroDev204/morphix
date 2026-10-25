@@ -100,7 +100,7 @@ fn history_entry_for_report_success_names_first_output_and_sums_bytes() {
     };
     let entry = morphix_gui::commands::history_entry_for_report(&convert_job(inputs), &report);
     assert_eq!(entry.status, EntryStatus::Done);
-    assert_eq!(entry.title, "2 ảnh → a.jpg");
+    assert_eq!(entry.title, "2 file → a.jpg");
     assert_eq!(entry.path, outputs[0].to_string_lossy());
     assert_eq!(
         entry.detail,
@@ -136,7 +136,7 @@ fn history_entry_for_report_mixed_is_failed_and_counts_only_successes_in_output(
     };
     let entry = morphix_gui::commands::history_entry_for_report(&convert_job(inputs), &report);
     assert_eq!(entry.status, EntryStatus::Failed);
-    assert_eq!(entry.title, "3 ảnh → a.jpg");
+    assert_eq!(entry.title, "3 file → a.jpg");
     assert_eq!(entry.path, out_a.to_string_lossy());
     assert!(
         entry
@@ -167,7 +167,7 @@ fn history_entry_for_report_all_failed_uses_input_name_and_reports_no_output() {
     let entry =
         morphix_gui::commands::history_entry_for_report(&convert_job(inputs.clone()), &report);
     assert_eq!(entry.status, EntryStatus::Failed);
-    assert_eq!(entry.title, "2 ảnh → b.png");
+    assert_eq!(entry.title, "2 file → b.png");
     assert_eq!(entry.path, inputs[0].to_string_lossy());
     assert!(
         entry.detail.contains("0 thành công, 2 lỗi"),

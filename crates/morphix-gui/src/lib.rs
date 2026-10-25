@@ -140,15 +140,13 @@ fn show_menu_for(app: &AppHandle, paths: Vec<PathBuf>, collecting: bool) {
         );
         return;
     }
-    let (route, expired) = {
+    let route = {
         let mut wait = state.khay_wait_guard();
         // WHY: callback lô đang gom không được tiêu thụ yêu cầu chờ; Khay cần toàn bộ lô cuối.
         if wait.is_some() && collecting {
             return;
         }
-        let now = std::time::Instant::now();
-        let expired = wait.as_ref().is_some_and(|wait| now >= wait.deadline);
-        (state::route_for_batch(&mut wait, now), expired)
+        state::route_for_batch(&mut wait)
     };
     let result = match route {
         state::BatchRoute::Khay => windows::open_khay_with_files(app, paths),
@@ -156,15 +154,6 @@ fn show_menu_for(app: &AppHandle, paths: Vec<PathBuf>, collecting: bool) {
     };
     if let Err(reason) = result {
         tracing::error!(%reason, collecting, "không mở được Menu nhanh");
-    }
-    // WHY: lô tới trễ có thể xoá wait ngay trước luồng timeout; nhánh này vẫn phải báo lỗi trong Khay.
-    if expired {
-        if let Err(reason) = windows::open_khay_with_error(
-            app,
-            "Không nhận được file nào trong thời gian chờ. Hãy chọn file rồi thử lại.".into(),
-        ) {
-            tracing::error!(%reason, "không hiện được lỗi hết hạn lấy file");
-        }
     }
 }
 
@@ -235,6 +224,13 @@ pub fn run(startup: StartupRequest) -> Result<(), String> {
         tracing::error!(error = %error, "không xác định được đường dẫn file từ dòng lệnh");
         format!("không xác định được đường dẫn file: {error}")
     })?;
+    // WHY kiểm sớm: tên file không phải UTF-8 không gửi qua IPC được; để tới setup thì app khởi động hỏng.
+    if let Err(error) = morphix_ipc::encode(&MenuRequest {
+        paths: initial_paths.clone(),
+    }) {
+        tracing::error!(%error, "tên file không gửi được tới Menu nhanh");
+        return Err(error.to_string());
+    }
     let show_khay = startup.show_khay;
     let capture_selection_requested = startup.capture_selection;
     let unsupported_selection_requested = startup.unsupported_selection;
@@ -294,7 +290,9 @@ pub fn run(startup: StartupRequest) -> Result<(), String> {
                     |error| tracing::error!(error = %error, "không gửi được file vào Menu nhanh"),
                 )?;
             }
-            if capture_selection_requested { capture_selection(app.handle()); }
+            if capture_selection_requested {
+                capture_selection(app.handle());
+            }
             if unsupported_selection_requested {
                 if let Err(reason) = windows::open_khay_with_error(
                     app.handle(),
@@ -306,6 +304,19 @@ pub fn run(startup: StartupRequest) -> Result<(), String> {
                 // WHY sau setup: cửa sổ cấu hình đã được Tauri tạo trước hook này; Khay là đường mở phụ nên lỗi chỉ được log.
                 if let Err(reason) = windows::open_khay(app.handle()) {
                     tracing::error!(%reason, "không mở được Khay khi khởi động");
+                }
+            }
+            let warnings: Vec<String> = std::mem::take(
+                &mut *app
+                    .state::<AppState>()
+                    .startup_warnings
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()),
+            );
+            // WHY Khay: lịch sử hay cài đặt bị đặt lại là việc người dùng phải biết, không chỉ nằm trong log.
+            if !warnings.is_empty() {
+                if let Err(reason) = windows::open_khay_with_error(app.handle(), warnings.join("\n")) {
+                    tracing::error!(%reason, "không hiện được cảnh báo khi khởi động");
                 }
             }
             Ok(())

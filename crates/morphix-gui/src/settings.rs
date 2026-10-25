@@ -1,6 +1,6 @@
+use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use serde::{Deserialize, Serialize};
 
 /// Lựa chọn chất lượng xuất hình ảnh ở giao diện người dùng.
 ///
@@ -64,14 +64,17 @@ impl Default for Settings {
 ///
 /// Nguyên tắc an toàn:
 /// - Nếu file chưa tồn tại: trả về `Settings::default()` mà không báo lỗi (lần đầu khởi chạy).
-/// - Nếu file bị hỏng hoặc JSON sai cú pháp: ghi log cảnh báo bằng `tracing::warn!`,
-///   giữ nguyên file hỏng (không tự ý xoá hay ghi đè để người dùng có thể cứu dữ liệu),
-///   và trả về `Settings::default()`.
+/// - Nếu file bị hỏng hoặc JSON sai cú pháp: cất file hỏng sang tên khác và trả về `Settings::default()`.
 pub fn load(path: &Path) -> Settings {
+    load_reporting(path).0
+}
+
+/// Như `load`, kèm câu báo cho người dùng khi file hỏng (đã được cất riêng, xem `set_aside_corrupt`).
+pub fn load_reporting(path: &Path) -> (Settings, Option<String>) {
     let content = match std::fs::read_to_string(path) {
         Ok(c) => c,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Settings::default();
+            return (Settings::default(), None);
         }
         Err(e) => {
             tracing::warn!(
@@ -80,21 +83,22 @@ pub fn load(path: &Path) -> Settings {
                 "Không thể đọc file cài đặt tại {}: {e}",
                 path.display()
             );
-            return Settings::default();
+            return (
+                Settings::default(),
+                Some(format!(
+                    "Không đọc được cài đặt ở {} ({e}), đang dùng cài đặt mặc định.",
+                    path.display()
+                )),
+            );
         }
     };
 
     match serde_json::from_str::<Settings>(&content) {
-        Ok(settings) => settings,
-        Err(e) => {
-            tracing::warn!(
-                path = %path.display(),
-                error = %e,
-                "File cài đặt tại {} bị hỏng hoặc sai định dạng: {e}",
-                path.display()
-            );
-            Settings::default()
-        }
+        Ok(settings) => (settings, None),
+        Err(e) => (
+            Settings::default(),
+            Some(crate::history::set_aside_corrupt(path, "Cài đặt", &e)),
+        ),
     }
 }
 
@@ -147,12 +151,8 @@ pub fn validate(settings: &Settings) -> Result<(), String> {
     }
 
     if let Some(ref dir) = settings.output_dir {
-        std::fs::create_dir_all(dir).map_err(|e| {
-            format!(
-                "Không thể tạo thư mục đầu ra tại {}: {e}",
-                dir.display()
-            )
-        })?;
+        std::fs::create_dir_all(dir)
+            .map_err(|e| format!("Không thể tạo thư mục đầu ra tại {}: {e}", dir.display()))?;
     }
 
     Ok(())

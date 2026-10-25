@@ -1,8 +1,8 @@
-// Quick menu window: a circular wheel of actions for the current file batch, driven by the commands and events in commands.rs and windows.rs.
+// Cửa sổ Menu nhanh: vòng tròn việc cho lô file hiện tại, điều khiển bằng lệnh và sự kiện trong commands.rs và windows.rs.
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { shouldHideOnBlur } from "./focus";
+import { ownsJobEvent, shouldHideOnBlur } from "./focus";
 import { hasMixedExtensions, progressPercent, summaryLine, truncateName } from "./format";
 import { actionForKey, isNavigationKey, nextIndex, type NavigationKey } from "./keys";
 import { S } from "./strings";
@@ -34,7 +34,7 @@ type Mode = "idle" | "collecting" | "ready" | "running" | "error";
 const TOOLS_TAB: string = "cong-cu";
 const BASIC_TAB: string = "chuyen";
 const SVG_NS = "http://www.w3.org/2000/svg";
-// WHY: 600 ms lets the user see the ring reach 100% before the window disappears.
+// WHY: 600 ms để người dùng thấy vòng tiến độ chạm 100% trước khi cửa sổ biến mất.
 const CLOSE_DELAY_MS: number = 600;
 // WHY: X11 can report focus loss before it dispatches the click that starts a conversion.
 const BLUR_CLICK_DELAY_MS: number = 180;
@@ -60,7 +60,7 @@ let closeTimer: ReturnType<typeof setTimeout> | undefined;
 let altHeld: boolean = false;
 // WHY: Rust hiện cửa sổ ngay trước khi gửi lô, nên lúc nhận lô là mốc "vừa hiện" để bỏ qua blur sớm.
 let shownAtMs: number | null = null;
-// Parallel arrays: the sector at index i is the item at index i of the visible list.
+// Hai mảng song song: múi thứ i ứng với mục thứ i của danh sách đang hiện.
 let visibleItems: WheelItem[] = [];
 let sectorNodes: SVGPathElement[] = [];
 
@@ -90,7 +90,7 @@ function svgElement<K extends keyof SVGElementTagNameMap>(
   return node;
 }
 
-// WHY: Tauri rejects with the Rust error string; anything else still gets a visible reason.
+// WHY: Tauri từ chối kèm chuỗi lỗi của Rust; lỗi kiểu khác vẫn phải có lý do hiện ra.
 function reasonOf(error: unknown): string {
   if (typeof error === "string" && error.trim() !== "") {
     return error;
@@ -106,7 +106,7 @@ function visibleFor(items: readonly WheelItem[], currentTab: string): WheelItem[
   return items.filter((item) => item.is_tool === wantTools);
 }
 
-// WHY: a name list in the hole stays short; the full names live in the file list, not here.
+// WHY: danh sách tên ở giữa vòng tròn phải ngắn; tên đầy đủ nằm ở danh sách file, không ở đây.
 function shortNames(files: readonly FileSummary[]): string {
   const shown: string[] = files
     .slice(0, NAME_PREVIEW_COUNT)
@@ -178,7 +178,7 @@ function drawSectors(items: WheelItem[]): void {
       "text-anchor": "middle",
     });
     lines.forEach((line, lineIndex) => {
-      // WHY: the first line is lifted by (lines - 1) half-steps so the block stays centred on the anchor.
+      // WHY: dòng đầu được nâng (số dòng - 1) nửa bước để cả khối nằm giữa điểm neo.
       const dy: string = lineIndex === 0 ? `${-(lines.length - 1) * 0.55}em` : "1.1em";
       const span: SVGTSpanElement = svgElement("tspan", {
         x: String(anchor.x),
@@ -309,7 +309,7 @@ function moveFocus(key: NavigationKey, shift: boolean): void {
   sectorNodes[nextIndex(current, sectorNodes.length, key, shift)]?.focus();
 }
 
-// WHY: the request is stored before the first load, so a later batch can tell stale results apart by revision.
+// WHY: lưu yêu cầu trước lần tải đầu, để lô sau phân biệt được kết quả cũ theo revision.
 function acceptRequest(next: MenuRequestState): void {
   if (next.revision < latestRevision) {
     return;
@@ -337,12 +337,13 @@ async function loadPayload(current: MenuRequestState): Promise<void> {
     }
     payload = loaded;
     mode = "ready";
-    // WHY: a job may still be running from before this window was opened; show its progress, not the wheel.
+    // WHY: việc do chính Menu này chạy trước khi cửa sổ ẩn thì hiện lại tiến độ. Việc của Khay thì không:
+    // nhận nó sẽ che vòng tròn của lô vừa gửi và ẩn cửa sổ khi việc đó xong.
     const active: JobSnapshot | null = await invoke<JobSnapshot | null>("active_job");
     if (current.revision !== latestRevision) {
       return;
     }
-    if (active !== null) {
+    if (active !== null && active.id === job.id) {
       adoptRunningJob(active);
     }
   } catch (error: unknown) {
@@ -377,12 +378,13 @@ async function runItem(item: WheelItem): Promise<void> {
   render();
   try {
     const id: number = await invoke<number>("run_action", { id: item.id, paths });
-    // WHY: job events can arrive before this reply, so the id is only filled in when still unknown.
+    // WHY: sự kiện việc có thể đến trước câu trả lời này, nên chỉ điền id khi còn chưa biết.
     if (job.id === null) {
       job.id = id;
     }
   } catch (error: unknown) {
     mode = "ready";
+    job = { id: null, done: 0, total: 0 };
     banner = reasonOf(error);
     render();
   }
@@ -402,21 +404,27 @@ async function cancelRunningJob(): Promise<void> {
 }
 
 function onJobUpdate(snapshot: JobSnapshot): void {
+  if (!ownsJobEvent(snapshot.id, job.id, mode === "running")) {
+    return;
+  }
   mode = "running";
   job = { id: snapshot.id, done: snapshot.done, total: snapshot.total };
   render();
 }
 
 function onJobFinished(snapshot: JobSnapshot): void {
+  if (!ownsJobEvent(snapshot.id, job.id, mode === "running")) {
+    return;
+  }
   const outcome: JobOutcome = snapshot.state;
-  // WHY: a failed batch returns to the wheel with the error, so the user can retry or pick another action.
+  // WHY: lô có lỗi quay về vòng tròn kèm lỗi, để người dùng thử lại hoặc chọn việc khác.
   if (outcome.kind === "finished" && outcome.failed > 0) {
     mode = "ready";
     banner = S.failedFiles(outcome.failed);
     render();
     return;
   }
-  // WHY: success and cancel both close the window; only a failure needs the user to read a message.
+  // WHY: xong hay huỷ đều đóng cửa sổ; chỉ khi lỗi người dùng mới cần đọc thông báo.
   mode = "running";
   job = { id: snapshot.id, done: snapshot.done, total: snapshot.total };
   render();
@@ -440,8 +448,8 @@ async function discardRequest(): Promise<void> {
   }
 }
 
-// WHY: Alt is hold-to-reveal. Releasing it must always return to the basic tab, even if the
-// keyup is lost (for example Alt+Tab moves focus away), so blur also releases it.
+// WHY: giữ Alt để hiện Công cụ. Thả Alt luôn phải về tab cơ bản, kể cả khi mất sự kiện
+// keyup (ví dụ Alt+Tab chuyển focus đi), nên blur cũng tính là thả.
 function releaseAlt(): void {
   if (altHeld) {
     altHeld = false;
@@ -456,7 +464,7 @@ function onKeyDown(event: KeyboardEvent): void {
     return;
   }
   if (action === "tools") {
-    // WHY: an auto-repeat keydown would re-enter the same state, so only the first press counts.
+    // WHY: keydown lặp tự động sẽ vào lại cùng trạng thái, nên chỉ tính lần bấm đầu.
     if (!event.repeat && !altHeld) {
       altHeld = true;
       setTab(TOOLS_TAB);
@@ -485,7 +493,7 @@ function onKeyUp(event: KeyboardEvent): void {
   }
 }
 
-// WHY: the window hides on blur only when no job is running; a running job must keep its progress visible.
+// WHY: chỉ ẩn khi mất focus lúc không có việc chạy; việc đang chạy phải giữ tiến độ hiển thị.
 async function hideUnlessRunning(): Promise<void> {
   // WHY: lấy giờ trước khi chờ invoke, để độ trễ IPC không đẩy blur sớm ra ngoài khoảng ân hạn.
   const blurAtMs: number = Date.now();
@@ -505,7 +513,7 @@ async function hideUnlessRunning(): Promise<void> {
 }
 
 async function start(): Promise<void> {
-  // WHY: listeners go first, so no event is lost between the initial read and registration.
+  // WHY: đăng ký lắng nghe trước, để không mất sự kiện nào giữa lần đọc đầu và lúc đăng ký.
   await listen<MenuRequestState>("menu-request", (event) => acceptRequest(event.payload));
   await listen<JobSnapshot>("job-update", (event) => onJobUpdate(event.payload));
   await listen<JobSnapshot>("job-finished", (event) => onJobFinished(event.payload));

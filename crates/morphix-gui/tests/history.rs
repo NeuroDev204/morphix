@@ -30,15 +30,26 @@ fn survives_reopen_with_unicode_titles() {
 }
 
 #[test]
-fn corrupt_file_starts_empty_and_is_not_deleted_until_first_write() {
+fn corrupt_file_starts_empty_is_set_aside_and_reported() {
     let d = tempfile::tempdir().unwrap();
     let path = d.path().join("history.json");
     std::fs::write(&path, b"[[[").unwrap();
     let mut h = History::open(&path);
     assert!(h.recent(10).is_empty());
-    assert_eq!(std::fs::read(&path).unwrap(), b"[[[");
+    let warning = h
+        .take_load_warning()
+        .expect("phải có câu báo cho người dùng");
+    assert!(warning.contains("Lịch sử bị hỏng"), "{warning}");
     h.push(entry(1)).unwrap();
     assert_eq!(History::open(&path).recent(10).len(), 1);
+    // WHY: bản hỏng không được bị lần ghi mới đè mất.
+    let backups: Vec<Vec<u8>> = std::fs::read_dir(d.path())
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.to_string_lossy().contains(".hong-"))
+        .map(|p| std::fs::read(p).unwrap())
+        .collect();
+    assert_eq!(backups, vec![b"[[[".to_vec()]);
 }
 
 #[test]
@@ -100,7 +111,6 @@ fn handles_relative_path_without_parent_directory() {
     assert_eq!(History::open(relative_path).recent(1)[0].title, "việc 99");
     std::env::set_current_dir(original).unwrap();
 }
-
 
 #[test]
 fn format_size_vn_uses_one_decimal_below_ten_megabytes() {

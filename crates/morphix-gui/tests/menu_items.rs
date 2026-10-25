@@ -127,12 +127,25 @@ fn quality_for_reflects_settings_choice() {
 }
 
 #[test]
-fn subtitle_selection_has_no_wheel_yet() {
-    // WHY: giao diện chưa có luồng chuyển văn bản, nên vòng tròn chỉ còn múi nén (không phải file nén nào cũng nén được gộp).
+fn subtitle_selection_offers_text_slices_that_map_to_convert_text() {
     let items = wheel_items(&[FileKind::Text(TextFormat::Srt)]);
+    let ids: Vec<&str> = items.iter().map(|i| i.id.as_str()).collect();
     assert!(
-        items.iter().all(|i| i.id.starts_with("archive:")),
-        "{items:?}"
+        ids.contains(&"text:vtt") && ids.contains(&"text:txt"),
+        "{ids:?}"
+    );
+    assert!(
+        items
+            .iter()
+            .find(|i| i.id == "text:vtt")
+            .unwrap()
+            .is_suggested
+    );
+    assert_eq!(
+        operation_for("text:vtt", &[], &Settings::default()),
+        Ok(Operation::ConvertText {
+            to: TextFormat::Vtt
+        })
     );
 }
 

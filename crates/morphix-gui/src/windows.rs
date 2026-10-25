@@ -158,6 +158,10 @@ pub fn open_settings(app: &AppHandle) -> Result<(), String> {
         // WHY: không lấy được focus thì cửa sổ vẫn hiện và dùng được bằng chuột.
         tracing::warn!(error = %error, "không đưa được cửa sổ Cài đặt lên trước: {error}");
     }
+    // WHY: luôn-ở-trên chỉ để kéo cửa sổ lên lúc mở; giữ mãi thì Cài đặt đè lên mọi ứng dụng khác.
+    if let Err(error) = window.set_always_on_top(false) {
+        tracing::warn!(error = %error, "không bỏ được luôn-ở-trên của cửa sổ Cài đặt: {error}");
+    }
     Ok(())
 }
 

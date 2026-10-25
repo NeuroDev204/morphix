@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
-use morphix_core::{run_job, CancelToken, Job, JobReport, MorphixError, Operation, Progress};
+use morphix_core::{item_count, run_job, CancelToken, Job, JobReport, MorphixError, Progress};
 use serde::{Deserialize, Serialize};
 
 /// Trạng thái của một tác vụ đang chạy hoặc đã kết thúc.
@@ -114,12 +114,8 @@ impl JobRunner {
 
         let id = self.inner.next_id.fetch_add(1, Ordering::SeqCst);
 
-        // Đối với MergeImagesToPdf, mọi file đầu vào gộp thành 1 đầu ra nên tổng số mục là 1;
-        // các thao tác khác xử lý độc lập từng file đầu vào.
-        let total = match job.operation {
-            Operation::MergeImagesToPdf => 1,
-            _ => job.inputs.len(),
-        };
+        // WHY lấy từ lõi: gộp PDF và tạo file nén là một mục; tự đếm ở đây sẽ lệch khi lõi thêm việc mới.
+        let total = item_count(&job);
 
         let cancel_token = CancelToken::new();
         let initial_snapshot = JobSnapshot {
@@ -151,8 +147,7 @@ impl JobRunner {
                     let on_update = Arc::clone(&on_update);
                     move |progress: Progress| {
                         let snapshot = {
-                            let mut guard =
-                                inner.active.lock().unwrap_or_else(|p| p.into_inner());
+                            let mut guard = inner.active.lock().unwrap_or_else(|p| p.into_inner());
                             if let Some(active) = guard.as_mut() {
                                 active.snapshot.done = progress.done;
                                 active.snapshot.total = progress.total;
@@ -168,15 +163,7 @@ impl JobRunner {
 
                 let report = run_job(&job, &cancel_clone, &on_progress);
 
-                let is_cancelled = cancel_clone.is_cancelled();
-                let final_state = if is_cancelled {
-                    JobState::Cancelled
-                } else {
-                    JobState::Finished {
-                        ok: report.succeeded(),
-                        failed: report.failed(),
-                    }
-                };
+                let final_state = final_state(&report);
 
                 let final_snapshot = {
                     let mut active_guard =
@@ -186,10 +173,7 @@ impl JobRunner {
 
                     *report_guard = Some((id, report));
 
-                    let total = active_guard
-                        .as_ref()
-                        .map(|a| a.snapshot.total)
-                        .unwrap_or(0);
+                    let total = active_guard.as_ref().map(|a| a.snapshot.total).unwrap_or(0);
                     let done = active_guard
                         .as_ref()
                         .map(|a| a.snapshot.done)
@@ -212,8 +196,7 @@ impl JobRunner {
 
         match spawn_res {
             Ok(handle) => {
-                let mut worker_guard =
-                    self.inner.worker.lock().unwrap_or_else(|p| p.into_inner());
+                let mut worker_guard = self.inner.worker.lock().unwrap_or_else(|p| p.into_inner());
                 *worker_guard = Some(handle);
                 Ok(id)
             }
@@ -301,6 +284,23 @@ impl JobRunner {
     }
 }
 
+/// Trạng thái cuối theo báo cáo. WHY không đọc cờ huỷ: bấm Huỷ đúng lúc mục cuối vừa xong thì mọi file
+/// đã được ghi; báo "Đã huỷ" khi đó sẽ ngược với lịch sử (lập từ báo cáo) ghi tất cả là xong.
+fn final_state(report: &JobReport) -> JobState {
+    if report
+        .items
+        .iter()
+        .any(|item| matches!(item.result, Err(MorphixError::Cancelled)))
+    {
+        JobState::Cancelled
+    } else {
+        JobState::Finished {
+            ok: report.succeeded(),
+            failed: report.failed(),
+        }
+    }
+}
+
 /// Định dạng thông báo lỗi cho người dùng.
 ///
 /// Nếu lỗi từ lõi đã kèm đường dẫn file (Io, Unsupported, Corrupt, NotSmaller), ta giữ nguyên thông báo của lõi.
@@ -322,5 +322,40 @@ pub fn describe_error(error: &MorphixError, input: &Path) -> String {
                 format!("{name}: {error}")
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use morphix_core::ItemReport;
+    use std::path::PathBuf;
+
+    fn item(result: morphix_core::Result<PathBuf>) -> ItemReport {
+        ItemReport {
+            inputs: vec![PathBuf::from("a.jpg")],
+            result,
+        }
+    }
+
+    #[test]
+    fn job_whose_items_all_finished_is_finished_even_if_cancel_came_late() {
+        let report = JobReport {
+            items: vec![
+                item(Ok(PathBuf::from("a.png"))),
+                item(Ok(PathBuf::from("b.png"))),
+            ],
+        };
+        assert_eq!(
+            final_state(&report),
+            JobState::Finished { ok: 2, failed: 0 }
+        );
+        let cancelled = JobReport {
+            items: vec![
+                item(Ok(PathBuf::from("a.png"))),
+                item(Err(MorphixError::Cancelled)),
+            ],
+        };
+        assert_eq!(final_state(&cancelled), JobState::Cancelled);
     }
 }

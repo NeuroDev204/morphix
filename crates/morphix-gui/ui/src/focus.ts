@@ -14,3 +14,12 @@ export function shouldHideOnBlur(nowMs: number, shownAtMs: number | null, keepVi
   }
   return nowMs - shownAtMs >= BLUR_GRACE_MS;
 }
+
+// WHY: Khay và Menu nhanh cùng nhận sự kiện việc. Menu chỉ xử lý việc của chính nó; id chưa biết
+// (sự kiện đến trước câu trả lời `run_action`) thì nhận khi Menu đang chạy việc, vì mỗi lúc chỉ có một việc.
+export function ownsJobEvent(eventJobId: number, ownJobId: number | null, menuRunning: boolean): boolean {
+  if (ownJobId !== null) {
+    return eventJobId === ownJobId;
+  }
+  return menuRunning;
+}

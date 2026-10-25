@@ -338,7 +338,8 @@ pub fn history_entry_for_report(job: &Job, report: &JobReport) -> HistoryEntry {
 
     HistoryEntry::new(
         anchor,
-        format!("{} ảnh → {anchor_name}", job.inputs.len()),
+        // WHY "file": lịch sử có cả video, PDF, văn bản, file nén; "ảnh" sai với mọi việc không phải ảnh.
+        format!("{} file → {anchor_name}", job.inputs.len()),
         parts.join(" · "),
         status,
         unix_now(),

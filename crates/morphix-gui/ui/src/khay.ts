@@ -32,6 +32,8 @@ let selectionView: SelectionView = { kind: "empty" };
 let selectionToken: number = 0;
 let startingAction: boolean = false;
 let activeJob: JobSnapshot | null = null;
+// WHY: đếm sự kiện việc để `refresh` biết ảnh chụp `active_job` nó đọc đã cũ hơn sự kiện vừa tới.
+let jobEventCount: number = 0;
 let history: HistoryEntry[] = [];
 let listState: ListState = { kind: "loading" };
 let integrationState: IntegrationState = { kind: "loading" };
@@ -307,20 +309,24 @@ async function quitApp(): Promise<void> {
   }
 }
 
-// WHY active_job before history: a job already running when the khay opens must show up even though its event was missed.
+// WHY đọc active_job: việc đã chạy trước khi Khay mở vẫn phải hiện dù Khay lỡ mất sự kiện của nó.
 async function refresh(): Promise<void> {
   const token: number = ++refreshToken;
+  const eventsBefore: number = jobEventCount;
   listState = { kind: "loading" };
   render();
   try {
-    const job: JobSnapshot | null = await invoke<JobSnapshot | null>("active_job");
-    const entries: HistoryEntry[] = await invoke<HistoryEntry[]>("recent_history", {
-      limit: RECENT_LIMIT,
-    });
+    const [job, entries] = await Promise.all([
+      invoke<JobSnapshot | null>("active_job"),
+      invoke<HistoryEntry[]>("recent_history", { limit: RECENT_LIMIT }),
+    ]);
     if (token !== refreshToken) {
       return;
     }
-    activeJob = job;
+    // WHY: sự kiện tới trong lúc chờ mới hơn ảnh chụp vừa đọc; ghi đè sẽ kéo thanh tiến độ lùi lại.
+    if (jobEventCount === eventsBefore) {
+      activeJob = job;
+    }
     history = entries;
     listState = { kind: "ready", rows: composeRecentRows(activeJob, history, RECENT_LIMIT) };
   } catch (error: unknown) {
@@ -347,6 +353,7 @@ async function refreshIntegration(): Promise<void> {
 }
 
 function applyJobUpdate(snapshot: JobSnapshot): void {
+  jobEventCount += 1;
   activeJob = snapshot;
   if (listState.kind === "ready") {
     listState = { kind: "ready", rows: composeRecentRows(activeJob, history, RECENT_LIMIT) };
@@ -367,9 +374,10 @@ function wireDropZone(): void {
 }
 
 async function start(): Promise<void> {
-  // WHY subscribe first: a job that finishes during the initial load must still reach the list.
+  // WHY đăng ký trước: việc xong trong lúc tải lần đầu vẫn phải vào danh sách.
   await listen<JobSnapshot>(JOB_UPDATE_EVENT, (event) => applyJobUpdate(event.payload));
   await listen<JobSnapshot>(JOB_FINISHED_EVENT, () => {
+    jobEventCount += 1;
     activeJob = null;
     void refresh();
   });

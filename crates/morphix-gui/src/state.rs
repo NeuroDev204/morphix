@@ -78,10 +78,14 @@ pub enum BatchRoute {
     Wheel,
 }
 
-pub fn route_for_batch(wait: &mut Option<KhayWait>, now: Instant) -> BatchRoute {
+/// Lô đến khi Alt+C còn đang chờ thì vào Khay, kể cả khi trễ hơn hạn chót.
+/// WHY: luồng lấy file chưa kịp báo "không nhận được file" thì file trễ vẫn là câu trả lời cho Alt+C;
+/// mở vòng tròn kèm lỗi hết hạn trong Khay sẽ cho hai thông báo ngược nhau. Luồng lấy file luôn
+/// dọn wait khi kết thúc (kể cả panic), nên wait không bao giờ bị kẹt.
+pub fn route_for_batch(wait: &mut Option<KhayWait>) -> BatchRoute {
     match wait.take() {
-        Some(wait) if now < wait.deadline => BatchRoute::Khay,
-        _ => BatchRoute::Wheel,
+        Some(_) => BatchRoute::Khay,
+        None => BatchRoute::Wheel,
     }
 }
 
@@ -126,6 +130,8 @@ pub struct AppState {
     pub ipc_server: Mutex<Option<morphix_ipc::IpcServer>>,
     /// Đặt khi bắt đầu thoát, trước khi join luồng IPC, để callback không chạm cửa sổ nữa.
     pub exiting: AtomicBool,
+    /// Lỗi lúc nạp lịch sử và cài đặt; hiện trong Khay sau khi app khởi động xong.
+    pub startup_warnings: Mutex<Vec<String>>,
 }
 
 impl AppState {
@@ -142,8 +148,13 @@ impl AppState {
                 paths.data_dir.display()
             );
         }
-        let history = History::open(&paths.history);
-        let settings = settings::load(&paths.settings);
+        let mut history = History::open(&paths.history);
+        let (settings, settings_warning) = settings::load_reporting(&paths.settings);
+        let startup_warnings: Vec<String> = history
+            .take_load_warning()
+            .into_iter()
+            .chain(settings_warning)
+            .collect();
         Self {
             history: Mutex::new(history),
             settings: Mutex::new(settings),
@@ -154,6 +165,7 @@ impl AppState {
             capturing: AtomicBool::new(false),
             ipc_server: Mutex::new(None),
             exiting: AtomicBool::new(false),
+            startup_warnings: Mutex::new(startup_warnings),
             paths,
         }
     }
@@ -283,16 +295,17 @@ mod selection_tests {
     use std::time::Duration;
 
     #[test]
-    fn route_for_batch_consumes_only_unexpired_wait() {
+    fn route_for_batch_sends_even_a_late_batch_to_the_waiting_khay() {
         let now = Instant::now();
         let mut wait = Some(KhayWait {
             deadline: now + Duration::from_secs(2),
         });
-        assert_eq!(route_for_batch(&mut wait, now), BatchRoute::Khay);
+        assert_eq!(route_for_batch(&mut wait), BatchRoute::Khay);
         assert!(wait.is_none());
-        assert_eq!(route_for_batch(&mut wait, now), BatchRoute::Wheel);
+        assert_eq!(route_for_batch(&mut wait), BatchRoute::Wheel);
+        // WHY: lô trễ vẫn là kết quả của Alt+C; không mở vòng tròn kèm lỗi hết hạn.
         wait = Some(KhayWait { deadline: now });
-        assert_eq!(route_for_batch(&mut wait, now), BatchRoute::Wheel);
+        assert_eq!(route_for_batch(&mut wait), BatchRoute::Khay);
         assert!(wait.is_none());
     }
 
