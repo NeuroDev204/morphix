@@ -681,13 +681,18 @@ fn file_manager_path(sandbox: &Path, present: &[&str]) -> std::path::PathBuf {
     fs::create_dir_all(&fake).unwrap();
     for name in present {
         let program = fake.join(name);
-        // WHY in phiên bản: accel Nautilus đọc `nautilus --version`; máy chạy test (CI) có thể không có Nautilus.
         fs::write(&program, "#!/bin/sh\necho 'GNOME nautilus 46.4'\n").unwrap();
         fs::set_permissions(
             &program,
             std::os::unix::fs::PermissionsExt::from_mode(0o755),
         )
         .unwrap();
+    }
+    if present.contains(&"nautilus") {
+        // WHY: accel Nautilus hỏi phiên bản qua trình quản lý gói; máy chạy test (CI) không có gói nautilus.
+        let dpkg = fake.join("dpkg-query");
+        fs::write(&dpkg, "#!/bin/sh\necho 1:46.4-0ubuntu1\n").unwrap();
+        fs::set_permissions(&dpkg, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
     }
     fake
 }

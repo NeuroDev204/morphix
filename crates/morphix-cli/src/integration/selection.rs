@@ -63,19 +63,23 @@ pub(super) fn accelerator(
     let id = ComponentId::NautilusAccel;
     let path = roots.config_home.join("nautilus/scripts-accels");
     if action != Action::Uninstall {
+        // WHY dừng ở trình quản lý gói đầu tiên có trên máy: Ubuntu có thể cài cả `rpm`, và `rpm -q`
+        // tự tạo ~/.rpmdb; hỏi tiếp sau dpkg sẽ làm `doctor` ghi vào thư mục nhà.
         let supported = NAUTILUS_VERSION_QUERIES
             .iter()
             .find_map(|(program, args)| {
                 let args: Vec<&OsStr> = args.iter().map(OsStr::new).collect();
                 match tools(program, &args) {
+                    ToolOutcome::NotFound => None,
                     ToolOutcome::Exited {
                         code: Some(0),
                         stdout,
                         ..
-                    } => nautilus_major(&stdout),
-                    _ => None,
+                    } => Some(nautilus_major(&stdout)),
+                    _ => Some(None),
                 }
             })
+            .flatten()
             .is_some_and(|v| v >= 46);
         if !supported {
             return report(
@@ -443,6 +447,37 @@ mod tests {
         collections::HashMap,
         rc::Rc,
     };
+
+    #[test]
+    fn version_probe_stops_at_the_first_package_manager_present() {
+        let calls: Rc<std::cell::RefCell<Vec<String>>> = Rc::default();
+        let log = calls.clone();
+        let tools = move |program: &str, _: &[&OsStr]| {
+            log.borrow_mut().push(program.to_string());
+            match program {
+                // WHY: dpkg có mặt nhưng không có gói nautilus; rpm trả lời "47" mà không được hỏi tới.
+                "dpkg-query" => ToolOutcome::Exited {
+                    code: Some(1),
+                    stdout: String::new(),
+                    stderr: "no packages found".into(),
+                },
+                "rpm" => ToolOutcome::Exited {
+                    code: Some(0),
+                    stdout: "47.1".into(),
+                    stderr: String::new(),
+                },
+                _ => ToolOutcome::NotFound,
+            }
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let roots = XdgRoots {
+            data_home: dir.path().join("data"),
+            config_home: dir.path().join("config"),
+        };
+        let report = accelerator(&roots, &tools, Action::Install);
+        assert_eq!(report.status, ComponentStatus::NotApplicable);
+        assert_eq!(*calls.borrow(), vec!["dpkg-query".to_string()]);
+    }
 
     fn nautilus(program: &str, _: &[&OsStr]) -> ToolOutcome {
         if program == "dpkg-query" {

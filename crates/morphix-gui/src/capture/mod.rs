@@ -134,23 +134,28 @@ const NAUTILUS_VERSION_QUERIES: &[(&str, &[&str])] = &[
     ("pacman", &["-Q", "nautilus"]),
 ];
 
-/// Phiên bản chính của Nautilus từ trình quản lý gói đầu tiên trả lời được; không có thì `None`.
+/// Phiên bản chính của Nautilus theo trình quản lý gói đầu tiên có trên máy; không biết thì `None`.
+/// WHY dừng ở trình đầu tiên có mặt: Ubuntu có thể cài cả `rpm`, và `rpm -q` tự tạo ~/.rpmdb.
 fn nautilus_version_major() -> Option<u32> {
-    NAUTILUS_VERSION_QUERIES.iter().find_map(|(program, args)| {
-        match std::process::Command::new(program).args(*args).output() {
-            Ok(output) if output.status.success() => {
-                nautilus_major(&String::from_utf8_lossy(&output.stdout))
+    NAUTILUS_VERSION_QUERIES
+        .iter()
+        .find_map(|(program, args)| {
+            match std::process::Command::new(program).args(*args).output() {
+                Ok(output) if output.status.success() => {
+                    Some(nautilus_major(&String::from_utf8_lossy(&output.stdout)))
+                }
+                Ok(output) => {
+                    tracing::warn!(program, status = ?output.status, "trình quản lý gói không biết gói nautilus");
+                    Some(None)
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                Err(error) => {
+                    tracing::warn!(program, %error, "không chạy được trình quản lý gói");
+                    Some(None)
+                }
             }
-            Ok(output) => {
-                tracing::debug!(program, status = ?output.status, "trình quản lý gói không biết gói nautilus");
-                None
-            }
-            Err(error) => {
-                tracing::debug!(program, %error, "không có trình quản lý gói này");
-                None
-            }
-        }
-    })
+        })
+        .flatten()
 }
 
 /// Số phiên bản chính: `1:46.4-0ubuntu1` (dpkg), `46.4` (rpm), `nautilus 46.4-1` (pacman) đều cho 46.
