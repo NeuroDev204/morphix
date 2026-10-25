@@ -108,6 +108,11 @@ impl JobReport {
     }
 }
 
+/// Số mục `run_job` sẽ báo trong `Progress::total`. Giao diện dùng để vẽ tiến trình từ đầu cho đúng.
+pub fn item_count(job: &Job) -> usize {
+    item_groups(job).len()
+}
+
 /// Chia đầu vào thành các mục độc lập: gộp PDF là một mục chứa tất cả, các việc khác mỗi file một mục.
 fn item_groups(job: &Job) -> Vec<Vec<PathBuf>> {
     match job.operation {
@@ -174,8 +179,8 @@ fn pdf_to_txt(input: &Path, out_dir: Option<&Path>) -> Result<PathBuf> {
 pub fn require_ffmpeg() -> Result<PathBuf> {
     find_ffmpeg().ok_or_else(|| {
         MorphixError::InvalidInput(
-            "chưa có ffmpeg: cài bằng `sudo apt install ffmpeg` trên Linux, hoặc tải bản ffmpeg \
-             cho Windows rồi thêm thư mục chứa ffmpeg.exe vào PATH"
+            "chưa có ffmpeg: tải bản ffmpeg dựng sẵn rồi đặt ffmpeg (ffmpeg.exe trên Windows) vào một \
+             thư mục trong PATH của bạn, ví dụ ~/.local/bin, hoặc cài ffmpeg qua trình quản lý gói"
                 .to_string(),
         )
     })
@@ -266,6 +271,15 @@ pub fn run_job(job: &Job, cancel: &CancelToken, on_progress: &dyn Fn(Progress)) 
     JobReport { items }
 }
 
+/// Đuôi đầu ra của việc media giữ định dạng gốc: các việc này ghi theo `MediaFormat::extension`
+/// (`.MP4` thành `.mp4`), nên dry-run cũng phải vậy. Không đọc được loại thì lùi về đuôi gốc.
+fn media_extension(input: &Path) -> String {
+    match detect(input) {
+        Ok(FileKind::Media(format)) => format.extension().to_string(),
+        _ => kept_extension(input),
+    }
+}
+
 /// Đuôi file đầu ra khi giữ nguyên định dạng: đuôi gốc, hoặc đuôi theo nội dung nếu file không có đuôi.
 fn kept_extension(input: &Path) -> String {
     let fallback = match detect(input) {
@@ -305,13 +319,13 @@ fn planned_output(job: &Job, inputs: &[PathBuf]) -> PathBuf {
             desired_output(input, "", to.extension(), out_dir)
         }
         Operation::CompressMedia => {
-            desired_output(input, SUFFIX_COMPRESSED, &kept_extension(input), out_dir)
+            desired_output(input, SUFFIX_COMPRESSED, &media_extension(input), out_dir)
         }
         Operation::CutMedia { .. } => {
-            desired_output(input, SUFFIX_CUT, &kept_extension(input), out_dir)
+            desired_output(input, SUFFIX_CUT, &media_extension(input), out_dir)
         }
         Operation::ChangeSpeed { .. } => {
-            desired_output(input, SUFFIX_SPEED, &kept_extension(input), out_dir)
+            desired_output(input, SUFFIX_SPEED, &media_extension(input), out_dir)
         }
         Operation::ResizeImage(spec) => {
             let suffix = display_dimensions(input)

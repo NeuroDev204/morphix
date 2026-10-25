@@ -92,7 +92,9 @@ fn resize_never_upscales_and_rejects_bad_specs() {
 fn recompressed_outputs_keep_the_source_icc_profile() {
     let d = tempdir().unwrap();
     let src = noisy_jpeg(d.path(), "p3.jpg", 400, 300, 98);
-    let profile = vec![7u8; 128];
+    let mut profile = vec![7u8; 128];
+    // WHY: chỉ hồ sơ RGB được chép sang ảnh đầu ra (luôn RGB), nên header giả phải khai không gian RGB.
+    profile[16..20].copy_from_slice(b"RGB ");
     let mut jpeg = Jpeg::from_bytes(Bytes::from(std::fs::read(&src).unwrap())).unwrap();
     jpeg.set_icc_profile(Some(Bytes::from(profile.clone())));
     let mut bytes = Vec::new();

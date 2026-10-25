@@ -13,11 +13,36 @@ use crate::{
     cancel::CancelToken,
     error::{MorphixError, Result},
     kind::ArchiveFormat,
-    naming::{desired_output, write_output},
+    naming::{desired_output, numbered_name, with_leftover, write_output, MAX_COLLISION_SUFFIX},
 };
 
-/// Giới hạn số lần thử ` (n)` cho tên thư mục đích, như `naming.rs`.
-const MAX_FOLDER_SUFFIX: u32 = 9999;
+/// WHY: chặn bom nén (vài KB nở ra hàng chục GB làm đầy ổ). Tổng dữ liệu giải ra được tối đa gấp
+/// `MAX_EXPANSION_RATIO` lần file nén, nhưng không dưới `MIN_EXTRACT_BUDGET`.
+/// ponytail: ngưỡng cố định, đổi sang kiểm dung lượng trống của ổ nếu người dùng gặp file thật bị chặn.
+const MAX_EXPANSION_RATIO: u64 = 100;
+const MIN_EXTRACT_BUDGET: u64 = 1 << 30;
+/// WHY: hàng triệu mục rỗng không tốn byte nhưng vẫn làm cạn inode và treo trình quản lý file.
+const MAX_ENTRIES: u64 = 1_000_000;
+
+/// Phần còn được ghi của một lần giải nén.
+struct Budget {
+    bytes_left: u64,
+    entries_left: u64,
+}
+
+impl Budget {
+    fn for_archive(archive: &Path) -> Result<Self> {
+        let len: u64 = std::fs::metadata(archive)
+            .map_err(|source| io_err(archive, source))?
+            .len();
+        Ok(Self {
+            bytes_left: len
+                .saturating_mul(MAX_EXPANSION_RATIO)
+                .max(MIN_EXTRACT_BUDGET),
+            entries_left: MAX_ENTRIES,
+        })
+    }
+}
 
 /// Hậu tố của file nén tạo ra: `bundle.jpg` thành `bundle-nen.zip`.
 pub const SUFFIX_ARCHIVE: &str = "-nen";
@@ -101,8 +126,15 @@ fn write_zip(
     let options: zip::write::SimpleFileOptions = zip::write::SimpleFileOptions::default();
     for (input, name) in inputs.iter().zip(names) {
         cancel.check()?;
-        zip.start_file(name.as_str(), options)
-            .map_err(|e| write_failed(dest, e))?;
+        let len: u64 = std::fs::metadata(input)
+            .map_err(|source| io_err(input, source))?
+            .len();
+        // WHY: không bật ZIP64 thì thư viện zip từ chối ghi mục từ 4 GiB trở lên giữa chừng.
+        zip.start_file(
+            name.as_str(),
+            options.large_file(len >= u64::from(u32::MAX)),
+        )
+        .map_err(|e| write_failed(dest, e))?;
         copy_file(input, &mut zip, dest)?;
     }
     zip.finish().map_err(|e| write_failed(dest, e))?;
@@ -193,8 +225,16 @@ pub fn extract(
     std::fs::create_dir_all(base).map_err(|source| io_err(base, source))?;
     // WHY: thư mục tạm nằm cùng cấp với đích để đổi tên là thao tác trên cùng ổ đĩa. TempDir tự xoá
     // khi hàm trả lỗi hoặc bị huỷ, nên không cần dọn tay ở từng nhánh.
-    let work = tempfile::Builder::new()
-        .prefix(".morphix-")
+    let mut builder = tempfile::Builder::new();
+    builder.prefix(".morphix-");
+    // WHY: TempDir mặc định 0700 và thư mục tạm được đổi tên thành thư mục kết quả, nên người khác
+    // (Samba, máy chủ web) không đọc được. 0777 qua umask cho đúng quyền như `mkdir` thường.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        builder.permissions(std::fs::Permissions::from_mode(0o777));
+    }
+    let work = builder
         .tempdir_in(base)
         .map_err(|source| io_err(base, source))?;
     unpack(archive, work.path(), cancel)?;
@@ -204,12 +244,13 @@ pub fn extract(
     let kept: PathBuf = work.keep();
     match std::fs::rename(&kept, &dest) {
         Ok(()) => Ok(dest),
-        Err(source) => {
-            if let Err(cleanup) = std::fs::remove_dir_all(&kept) {
-                tracing::warn!(path = %kept.display(), %cleanup, "không xoá được thư mục giải nén dở");
-            }
-            Err(io_err(&dest, source))
-        }
+        Err(source) => Err(io_err(
+            &dest,
+            match std::fs::remove_dir_all(&kept) {
+                Ok(()) => source,
+                Err(cleanup) => with_leftover(source, &kept, cleanup),
+            },
+        )),
     }
 }
 
@@ -253,12 +294,9 @@ fn folder_name(archive: &Path, format: ArchiveFormat) -> Result<String> {
 
 /// Thư mục `name` nếu còn trống tên, không thì `name (1)`, `name (2)`... Không đụng vào thư mục đã có.
 fn free_folder(base: &Path, name: &str) -> Result<PathBuf> {
-    for attempt in 0..=MAX_FOLDER_SUFFIX {
-        let candidate: PathBuf = if attempt == 0 {
-            base.join(name)
-        } else {
-            base.join(format!("{name} ({attempt})"))
-        };
+    let desired: PathBuf = base.join(name);
+    for attempt in 0..=MAX_COLLISION_SUFFIX {
+        let candidate: PathBuf = numbered_name(&desired, base, name, None, attempt);
         match std::fs::symlink_metadata(&candidate) {
             Err(source) if source.kind() == io::ErrorKind::NotFound => return Ok(candidate),
             Ok(_) => {}
@@ -271,6 +309,7 @@ fn free_folder(base: &Path, name: &str) -> Result<PathBuf> {
 }
 
 fn unpack_zip(archive: &Path, root: &Path, cancel: &CancelToken) -> Result<()> {
+    let mut budget: Budget = Budget::for_archive(archive)?;
     let file: File = File::open(archive).map_err(|source| io_err(archive, source))?;
     let mut zip = zip::ZipArchive::new(BufReader::new(file))
         .map_err(|e| corrupt(archive, format!("không đọc được mục lục file nén: {e}")))?;
@@ -286,12 +325,13 @@ fn unpack_zip(archive: &Path, root: &Path, cancel: &CancelToken) -> Result<()> {
                 .as_ref(),
         );
         let is_dir: bool = entry.is_dir();
-        write_entry(root, archive, &name, is_dir, &mut entry)?;
+        write_entry(root, archive, &name, is_dir, &mut entry, &mut budget)?;
     }
     Ok(())
 }
 
 fn unpack_tar_gz(archive: &Path, root: &Path, cancel: &CancelToken) -> Result<()> {
+    let mut budget: Budget = Budget::for_archive(archive)?;
     let file: File = File::open(archive).map_err(|source| io_err(archive, source))?;
     let mut tar = tar::Archive::new(GzDecoder::new(BufReader::new(file)));
     let entries = tar
@@ -321,12 +361,13 @@ fn unpack_tar_gz(archive: &Path, root: &Path, cancel: &CancelToken) -> Result<()
                 ),
             ));
         }
-        write_entry(root, archive, &name, kind.is_dir(), &mut entry)?;
+        write_entry(root, archive, &name, kind.is_dir(), &mut entry, &mut budget)?;
     }
     Ok(())
 }
 
 fn unpack_7z(archive: &Path, root: &Path, cancel: &CancelToken) -> Result<()> {
+    let mut budget: Budget = Budget::for_archive(archive)?;
     let file: File = File::open(archive).map_err(|source| io_err(archive, source))?;
     let mut reader = sevenz_rust2::ArchiveReader::new(file, sevenz_rust2::Password::empty())
         .map_err(|e| corrupt(archive, format!("không đọc được mục lục file nén: {e}")))?;
@@ -341,6 +382,7 @@ fn unpack_7z(archive: &Path, root: &Path, cancel: &CancelToken) -> Result<()> {
                 Path::new(entry.name()),
                 entry.is_directory(),
                 data,
+                &mut budget,
             )
         });
         match step {
@@ -357,14 +399,22 @@ fn unpack_7z(archive: &Path, root: &Path, cancel: &CancelToken) -> Result<()> {
     result.map_err(|e| corrupt(archive, format!("không giải nén được file 7z: {e}")))
 }
 
-/// Ghi một entry vào `root`, sau khi đường dẫn đã được kiểm.
+/// Ghi một entry vào `root`, sau khi đường dẫn đã được kiểm. Vượt `budget` thì dừng bằng `Corrupt`;
+/// thư mục tạm bị xoá ở `extract` nên không còn dữ liệu dở.
 fn write_entry(
     root: &Path,
     archive: &Path,
     name: &Path,
     is_dir: bool,
     data: &mut dyn Read,
+    budget: &mut Budget,
 ) -> Result<()> {
+    budget.entries_left = budget.entries_left.checked_sub(1).ok_or_else(|| {
+        corrupt(
+            archive,
+            format!("có hơn {MAX_ENTRIES} mục, nghi là bom nén nên dừng giải nén"),
+        )
+    })?;
     let Some(target) = entry_target(root, archive, name)? else {
         return Ok(());
     };
@@ -375,7 +425,16 @@ fn write_entry(
         std::fs::create_dir_all(parent).map_err(|source| io_err(parent, source))?;
     }
     let mut out = File::create(&target).map_err(|source| io_err(&target, source))?;
-    io::copy(data, &mut out).map_err(|source| io_err(&target, source))?;
+    // WHY: đọc tối đa phần còn lại + 1 byte: thừa byte nào là đã vượt ngưỡng, khỏi ghi tiếp.
+    let written: u64 = io::copy(&mut data.take(budget.bytes_left + 1), &mut out)
+        .map_err(|source| io_err(&target, source))?;
+    budget.bytes_left = budget.bytes_left.checked_sub(written).ok_or_else(|| {
+        corrupt(
+            archive,
+            "dữ liệu giải ra lớn bất thường so với file nén, nghi là bom nén nên dừng giải nén"
+                .to_string(),
+        )
+    })?;
     Ok(())
 }
 
@@ -428,5 +487,69 @@ fn io_err(path: &Path, source: io::Error) -> MorphixError {
     MorphixError::Io {
         path: path.to_path_buf(),
         source,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn budget(bytes_left: u64, entries_left: u64) -> Budget {
+        Budget {
+            bytes_left,
+            entries_left,
+        }
+    }
+
+    #[test]
+    fn entry_over_byte_budget_is_rejected_after_budget_plus_one_byte() {
+        let root = tempfile::tempdir().expect("thư mục tạm");
+        let archive = Path::new("bom.zip");
+        let mut left = budget(4, 10);
+        write_entry(
+            root.path(),
+            archive,
+            Path::new("a"),
+            false,
+            &mut &b"1234"[..],
+            &mut left,
+        )
+        .expect("vừa đủ ngưỡng");
+        assert_eq!(left.bytes_left, 0);
+        let err = write_entry(
+            root.path(),
+            archive,
+            Path::new("b"),
+            false,
+            &mut &b"5"[..],
+            &mut left,
+        )
+        .expect_err("vượt ngưỡng");
+        assert!(matches!(err, MorphixError::Corrupt { .. }), "{err:?}");
+    }
+
+    #[test]
+    fn too_many_entries_are_rejected() {
+        let root = tempfile::tempdir().expect("thư mục tạm");
+        let mut left = budget(100, 1);
+        write_entry(
+            root.path(),
+            Path::new("x.zip"),
+            Path::new("d"),
+            true,
+            &mut &b""[..],
+            &mut left,
+        )
+        .expect("mục đầu");
+        let err = write_entry(
+            root.path(),
+            Path::new("x.zip"),
+            Path::new("e"),
+            true,
+            &mut &b""[..],
+            &mut left,
+        )
+        .expect_err("quá số mục");
+        assert!(matches!(err, MorphixError::Corrupt { .. }), "{err:?}");
     }
 }

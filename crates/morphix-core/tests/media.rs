@@ -339,6 +339,8 @@ mod ffmpeg_ops {
             "-n",
             "-i",
             input_arg.as_str(),
+            "-sn",
+            "-dn",
             "-c:v",
             "libx264",
             "-preset",
@@ -596,4 +598,27 @@ fn user_files(dir: &Path) -> Vec<String> {
         .collect();
     names.sort();
     names
+}
+
+#[test]
+fn argv_selects_only_streams_the_target_can_hold() {
+    let flags = |target: MediaFormat, out: &str| -> Vec<String> {
+        argv_strings(
+            &convert_args(Path::new("/tmp/in.mkv"), target, Path::new(out)).expect("có encoder"),
+        )
+    };
+    // WHY: phụ đề ảnh làm hỏng MP4; bìa album thành video trong OGG; video sang MP3 phải bỏ hình.
+    let mp4 = flags(MediaFormat::Mp4, "/tmp/o.mp4");
+    assert!(mp4.contains(&"-sn".to_string()) && !mp4.contains(&"-vn".to_string()));
+    for (target, out) in [
+        (MediaFormat::Mp3, "/tmp/o.mp3"),
+        (MediaFormat::Ogg, "/tmp/o.ogg"),
+    ] {
+        let argv = flags(target, out);
+        assert!(
+            argv.contains(&"-vn".to_string()) && argv.contains(&"-sn".to_string()),
+            "{target:?}"
+        );
+    }
+    assert!(flags(MediaFormat::Gif, "/tmp/o.gif").contains(&"-an".to_string()));
 }

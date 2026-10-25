@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use assert_cmd::{assert::Assert, cargo::cargo_bin_cmd};
 use image::{codecs::jpeg::JpegEncoder, Rgb, RgbImage};
 use pdf_writer::{Content, Finish, Name, Pdf, Rect, Ref, Str};
-use predicates::str::contains;
+use predicates::{prelude::PredicateBooleanExt, str::contains};
 use tempfile::{tempdir, TempDir};
 
 /// Thư mục làm việc tạm kèm thư mục dữ liệu riêng, để test không đụng dữ liệu thật của người dùng.
@@ -589,7 +589,7 @@ fn media_command_without_ffmpeg_exits_1_and_suggests_apt() {
         .args(["cut", "a.mp4", "--from", "2", "--to", "5"])
         .assert()
         .code(1)
-        .stderr(contains("sudo apt install ffmpeg"));
+        .stderr(contains("chưa có ffmpeg").and(contains("sudo").not()));
 }
 
 #[test]

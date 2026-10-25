@@ -11,7 +11,9 @@ pub mod quality;
 pub use cancel::CancelToken;
 pub use catalog::{actions_for, Action, ActionKind};
 pub use error::{MorphixError, Result};
-pub use job::{planned_outputs, run_job, ItemReport, Job, JobReport, Operation, Progress};
+pub use job::{
+    item_count, planned_outputs, run_job, ItemReport, Job, JobReport, Operation, Progress,
+};
 pub use kind::{detect, FileKind, ImgFormat};
 pub use ops::compress::{compress_image, resize_image, ResizeSpec};
 pub use ops::image_io::{convert_image, encode_image, load_oriented};

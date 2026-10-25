@@ -26,13 +26,13 @@ const UTF8_BOM_BYTES: &[u8] = &[0xEF, 0xBB, 0xBF];
 const MOC_SAI: &str = "mốc thời gian sai";
 const MOC_QUA_LON: &str = "mốc thời gian quá lớn";
 
-/// Đọc phụ đề SRT hoặc VTT. VTT bỏ header `WEBVTT` và khối `NOTE`.
+/// Đọc phụ đề SRT hoặc VTT. VTT bỏ header `WEBVTT` và các khối `NOTE`, `STYLE`, `REGION`.
 pub fn read_cues(path: &Path) -> Result<Vec<Cue>> {
     let text: String = read_utf8(path)?;
     let mut cues: Vec<Cue> = Vec::new();
     for block in blocks(&text) {
-        // WHY: header VTT và khối NOTE là chú thích, không phải đoạn phụ đề nên bỏ qua.
-        if is_vtt_comment(block[0]) {
+        // WHY: header VTT và khối NOTE/STYLE/REGION không phải đoạn phụ đề nên bỏ qua.
+        if is_vtt_metadata(&block) {
             continue;
         }
         let Some(timing_index) = block.iter().position(|line| line.contains("-->")) else {
@@ -225,10 +225,15 @@ fn blocks(text: &str) -> Vec<Vec<&str>> {
     out
 }
 
-/// Khối VTT bắt đầu bằng `WEBVTT` hoặc `NOTE` (đúng cả từ) là chú thích.
-/// WHY: so khớp cả từ đầu tiên, nếu không `NOTE-1` (id của cue) sẽ bị bỏ mất âm thầm.
-fn is_vtt_comment(line: &str) -> bool {
-    matches!(line.split_whitespace().next(), Some("WEBVTT" | "NOTE"))
+/// Khối VTT không phải đoạn phụ đề: bắt đầu bằng `WEBVTT`, `NOTE`, `STYLE` hoặc `REGION` (đúng cả từ).
+/// WHY: so khớp cả từ đầu tiên, nếu không `NOTE-1` (id của cue) sẽ bị bỏ mất âm thầm. Id cue cũng có
+/// thể là `STYLE`, nên STYLE/REGION chỉ bị bỏ khi khối không có mốc thời gian.
+fn is_vtt_metadata(block: &[&str]) -> bool {
+    match block[0].split_whitespace().next() {
+        Some("WEBVTT" | "NOTE") => true,
+        Some("STYLE" | "REGION") => !block.iter().any(|line| line.contains("-->")),
+        _ => false,
+    }
 }
 
 /// Đọc dòng `start --> end [cài đặt VTT]`. Lỗi là lý do để báo cho người dùng.

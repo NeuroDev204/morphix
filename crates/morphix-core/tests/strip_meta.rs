@@ -36,6 +36,15 @@ fn jpeg_with_secrets(dir: &Path, name: &str, orientation: Option<u16>) -> PathBu
         1,
         JpegSegment::new_with_contents(markers::COM, Bytes::from_static(b"SECRET-COM")),
     );
+    // WHY: APP2 không chỉ chứa ICC; MPF (ảnh phụ của máy ảnh) và APP12 (Ducky) cũng phải bị xoá.
+    jpeg.segments_mut().insert(
+        1,
+        JpegSegment::new_with_contents(markers::APP2, Bytes::from_static(b"MPF\0SECRET-MPF")),
+    );
+    jpeg.segments_mut().insert(
+        1,
+        JpegSegment::new_with_contents(markers::APP12, Bytes::from_static(b"Ducky\0SECRET-APP12")),
+    );
     jpeg.set_icc_profile(Some(Bytes::from(vec![7u8; 128])));
     let mut out = Vec::new();
     jpeg.encoder().write_to(&mut out).unwrap();

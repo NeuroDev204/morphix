@@ -604,3 +604,24 @@ fn mixed_kinds_offer_archive_targets() {
     ]);
     assert_eq!(archive_labels(&actions).len(), 3);
 }
+
+#[cfg(unix)]
+#[test]
+fn extracted_folder_gets_normal_mkdir_permissions_not_0700() {
+    use std::os::unix::fs::PermissionsExt;
+    let (root, out) = layout();
+    let archive = root.path().join("photos.zip");
+    write_zip(&archive, &[("a.txt", b"x")]);
+    let dest = extract(
+        &archive,
+        ArchiveFormat::Zip,
+        Some(&out),
+        &CancelToken::new(),
+    )
+    .expect("giải nén zip");
+    // WHY: so với thư mục tạo bằng `mkdir` thường, để test không phụ thuộc umask của máy chạy.
+    let plain = root.path().join("plain");
+    std::fs::create_dir(&plain).expect("tạo thư mục thường");
+    let mode = |p: &Path| std::fs::metadata(p).expect("metadata").permissions().mode() & 0o777;
+    assert_eq!(mode(&dest), mode(&plain));
+}

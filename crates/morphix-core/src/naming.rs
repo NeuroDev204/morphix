@@ -10,7 +10,7 @@ use tempfile::NamedTempFile;
 use crate::error::{MorphixError, Result};
 
 /// Giới hạn số lần thử ` (n)`; tránh vòng lặp vô hạn khi thư mục đầy file trùng tên.
-const MAX_COLLISION_SUFFIX: u32 = 9999;
+pub(crate) const MAX_COLLISION_SUFFIX: u32 = 9999;
 
 /// Tên đầu ra mong muốn: cùng thư mục với file gốc (hoặc `out_dir`), `stem` + hậu tố + đuôi mới.
 /// Không đụng đến đĩa; việc xử lý trùng tên nằm ở `write_output`.
@@ -60,15 +60,7 @@ where
 
     let (stem, extension) = split_for_collision(desired);
     for attempt in 0..=MAX_COLLISION_SUFFIX {
-        let candidate = if attempt == 0 {
-            desired.to_path_buf()
-        } else {
-            let name = match &extension {
-                Some(ext) => format!("{stem} ({attempt}).{ext}"),
-                None => format!("{stem} ({attempt})"),
-            };
-            dir.join(name)
-        };
+        let candidate = numbered_name(desired, dir, &stem, extension.as_deref(), attempt);
         match temp.persist_noclobber(&candidate) {
             Ok(_) => return Ok(candidate),
             // PersistError trả lại file tạm, nên thử số kế tiếp mà không phải ghi lại từ đầu.
@@ -80,6 +72,40 @@ where
         "quá nhiều file trùng tên với {}",
         desired.display()
     )))
+}
+
+/// Ứng viên thứ `attempt`: lần 0 là chính `desired`, sau đó `stem (n).ext` trong `dir`. Nguồn duy
+/// nhất của định dạng ` (n)` cho file và thư mục, để mọi đường ghi đặt tên giống nhau.
+pub(crate) fn numbered_name(
+    desired: &Path,
+    dir: &Path,
+    stem: &str,
+    extension: Option<&str>,
+    attempt: u32,
+) -> PathBuf {
+    if attempt == 0 {
+        return desired.to_path_buf();
+    }
+    dir.join(match extension {
+        Some(ext) => format!("{stem} ({attempt}).{ext}"),
+        None => format!("{stem} ({attempt})"),
+    })
+}
+
+/// Lỗi chính kèm ghi chú về thứ còn sót lại khi dọn dẹp cũng hỏng. WHY: chỉ ghi log thì người dùng
+/// không biết có file hay thư mục tạm nằm lại cạnh file của họ.
+pub(crate) fn with_leftover(
+    error: std::io::Error,
+    leftover: &Path,
+    cleanup: std::io::Error,
+) -> std::io::Error {
+    std::io::Error::new(
+        error.kind(),
+        format!(
+            "{error}; còn sót {} vì không xoá được ({cleanup}), có thể xoá tay",
+            leftover.display()
+        ),
+    )
 }
 
 /// Tên gốc và đuôi để đánh số ` (n)`. `.tar.gz` là một đuôi kép: nếu tách theo `Path::extension`
@@ -133,24 +159,9 @@ where
     };
     write(&encoded)?;
 
-    let stem = desired
-        .file_stem()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .into_owned();
-    let extension = desired
-        .extension()
-        .map(|e| e.to_string_lossy().into_owned());
+    let (stem, extension) = split_for_collision(desired);
     for attempt in 0..=MAX_COLLISION_SUFFIX {
-        let candidate: PathBuf = if attempt == 0 {
-            desired.to_path_buf()
-        } else {
-            let name = match &extension {
-                Some(ext) => format!("{stem} ({attempt}).{ext}"),
-                None => format!("{stem} ({attempt})"),
-            };
-            dir.join(name)
-        };
+        let candidate: PathBuf = numbered_name(desired, dir, &stem, extension.as_deref(), attempt);
         // WHY: tạo file giữ chỗ với create_new là cách không ghi đè trên mọi hệ điều hành (kể cả
         // FAT, nơi không có hard link). File giữ chỗ là của mình nên đổi tên đè lên nó là an toàn.
         match OpenOptions::new()
@@ -162,11 +173,11 @@ where
                 // WHY: Windows không đổi tên được file đang mở, nên đóng trước khi đổi tên.
                 drop(placeholder);
                 if let Err(source) = std::fs::rename(&encoded, &candidate) {
-                    // Lỗi đổi tên là lỗi chính; file giữ chỗ còn sót thì ghi log để người dùng biết.
-                    if let Err(cleanup) = std::fs::remove_file(&candidate) {
-                        tracing::warn!(path = %candidate.display(), %cleanup, "không xoá được file giữ chỗ");
-                    }
-                    return Err(io_error(source));
+                    // Lỗi đổi tên là lỗi chính; file giữ chỗ còn sót thì nói luôn trong lỗi đó.
+                    return Err(io_error(match std::fs::remove_file(&candidate) {
+                        Ok(()) => source,
+                        Err(cleanup) => with_leftover(source, &candidate, cleanup),
+                    }));
                 }
                 return Ok(candidate);
             }

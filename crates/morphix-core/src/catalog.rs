@@ -1,4 +1,5 @@
 use crate::kind::{ArchiveFormat, FileKind, ImgFormat, MediaFormat, TextFormat};
+use crate::ops::media::encoder_for;
 
 /// Các đích nén, theo thứ tự hiện trên vòng tròn. Nhãn nằm ở đây để giữ một nguồn chữ hiển thị.
 const ARCHIVE_TARGETS: &[(ArchiveFormat, &str)] = &[
@@ -199,7 +200,13 @@ fn media_actions(formats: &[MediaFormat]) -> Vec<Action> {
             action(ActionKind::ConvertMedia(*target), target.label(), false)
         })
         .collect();
-    actions.push(action(ActionKind::CompressMedia, "Nén", true));
+    // WHY: nén mã hoá lại theo định dạng gốc; WMA/WMV không có bộ mã hoá nên việc nén luôn hỏng.
+    if formats
+        .iter()
+        .all(|f: &MediaFormat| encoder_for(*f).is_some())
+    {
+        actions.push(action(ActionKind::CompressMedia, "Nén", true));
+    }
     actions
 }
 
@@ -275,6 +282,17 @@ mod tests {
             labels(&actions_for(&[FileKind::Image(ImgFormat::Gif)]), true),
             ["Đổi kích thước"]
         );
+    }
+
+    #[test]
+    fn compress_is_offered_only_for_media_with_an_encoder() {
+        assert!(labels(&actions_for(&[FileKind::Media(MediaFormat::Mp4)]), true).contains(&"Nén"));
+        for format in [MediaFormat::Wmv, MediaFormat::Wma] {
+            assert!(
+                !labels(&actions_for(&[FileKind::Media(format)]), true).contains(&"Nén"),
+                "{format:?}"
+            );
+        }
     }
 
     #[test]

@@ -5,14 +5,14 @@ use std::collections::HashSet;
 use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 use crate::cancel::CancelToken;
 use crate::error::{MorphixError, Result};
 use crate::kind::{detect, FileKind, MediaFormat};
 use crate::naming::{desired_output, write_output_path};
 use crate::ops::compress::SUFFIX_COMPRESSED;
-use crate::ops::ffmpeg::run_ffmpeg;
+use crate::ops::ffmpeg::{command, run_ffmpeg};
 
 /// Hậu tố của file đã cắt, đổi tốc độ. WHY: khác với hậu tố ảnh để người dùng phân biệt được file.
 pub const SUFFIX_CUT: &str = "-cat";
@@ -124,15 +124,29 @@ pub fn convert_args(input: &Path, target: MediaFormat, output: &Path) -> Option<
         .map(OsString::from)
         .collect();
     args.push(OsString::from(input));
+    args.extend(stream_selection(target).iter().map(OsString::from));
     args.extend(encoder.iter().map(|arg: &&str| OsString::from(arg)));
     args.push(OsString::from(output));
     Some(args)
 }
 
+/// Luồng được giữ cho đích. WHY: để ffmpeg tự chọn thì phụ đề ảnh (PGS) làm hỏng MP4, bìa album
+/// thành luồng video trong OGG, và video sang MP3 mã hoá từng khung thành ảnh. Phụ đề và luồng dữ liệu
+/// luôn bị bỏ; đích âm thanh bỏ hình, GIF bỏ tiếng.
+fn stream_selection(target: MediaFormat) -> &'static [&'static str] {
+    if target.is_audio() {
+        &["-vn", "-sn", "-dn"]
+    } else if target == MediaFormat::Gif {
+        &["-an", "-sn", "-dn"]
+    } else {
+        &["-sn", "-dn"]
+    }
+}
+
 /// Liệt kê tên encoder mà ffmpeg đang cài báo ra. Lỗi chạy ffmpeg được trả lên kèm đường dẫn,
 /// không trả tập rỗng để tránh báo "không có encoder" khi thật ra ffmpeg hỏng.
 pub fn available_encoders(ffmpeg: &Path) -> Result<HashSet<String>> {
-    let output: std::process::Output = Command::new(ffmpeg)
+    let output: std::process::Output = command(ffmpeg)
         .args(["-hide_banner", "-encoders"])
         .stdin(Stdio::null())
         .output()
@@ -208,7 +222,7 @@ pub fn ensure_encoders(target: MediaFormat, ffmpeg: &Path) -> Result<()> {
 /// WHY: `ffmpeg -i` không có đầu ra nên luôn thoát khác 0; chỉ đọc stderr. Không có dòng luồng nào
 /// nghĩa là ffmpeg không đọc được file, nên báo `Corrupt` chứ không kết luận "không có âm thanh".
 pub fn has_audio_stream(ffmpeg: &Path, input: &Path) -> Result<bool> {
-    let output: std::process::Output = Command::new(ffmpeg)
+    let output: std::process::Output = command(ffmpeg)
         .args(["-hide_banner", "-nostdin", "-i"])
         .arg(input)
         .stdin(Stdio::null())

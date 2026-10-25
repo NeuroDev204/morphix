@@ -26,7 +26,7 @@ pub fn run_ffmpeg(
 ) -> Result<()> {
     // WHY: kiểm trước khi spawn để huỷ sớm không phải khởi động một tiến trình ffmpeg.
     cancel.check()?;
-    let mut child: Child = Command::new(ffmpeg)
+    let mut child: Child = command(ffmpeg)
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -77,6 +77,21 @@ pub fn run_ffmpeg(
         path: ffmpeg.to_path_buf(),
         reason,
     })
+}
+
+/// `Command` cho ffmpeg. Mọi nơi chạy ffmpeg đi qua đây.
+/// WHY: bản GUI trên Windows là tiến trình không có console; thiếu `CREATE_NO_WINDOW` thì mỗi lần
+/// gọi ffmpeg lại nháy một cửa sổ đen.
+pub(crate) fn command(ffmpeg: &Path) -> Command {
+    #[allow(unused_mut)]
+    let mut command = Command::new(ffmpeg);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    command
 }
 
 /// Đọc `time=HH:MM:SS.xx` từ một dòng tiến trình của ffmpeg và trả về mili-giây.

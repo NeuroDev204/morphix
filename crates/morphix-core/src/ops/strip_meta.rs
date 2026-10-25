@@ -55,6 +55,18 @@ fn read_exif_orientation(path: &Path) -> u16 {
     }
 }
 
+/// Đoạn JPEG còn giữ khi xoá metadata: mọi đoạn không phải APPn, cộng JFIF (APP0), hồ sơ màu ICC (APP2)
+/// và Adobe (APP14). WHY: thiếu đoạn Adobe thì ảnh CMYK/YCCK giải mã sai màu.
+fn keep_jpeg_segment(segment: &img_parts::jpeg::JpegSegment) -> bool {
+    let contents: &[u8] = segment.contents();
+    match segment.marker() {
+        markers::APP0 => contents.starts_with(b"JFIF\0"),
+        markers::APP2 => contents.starts_with(b"ICC_PROFILE\0"),
+        markers::APP14 => contents.starts_with(b"Adobe"),
+        marker => !(markers::APP1..=markers::APP15).contains(&marker),
+    }
+}
+
 /// Xoá metadata (EXIF kể cả GPS, XMP, IPTC, chú thích, văn bản PNG) **mà không mã hoá lại ảnh**, nên
 /// điểm ảnh giữ nguyên. Giữ lại hồ sơ màu ICC để màu không đổi, và giữ hướng xoay của ảnh chụp.
 pub fn strip_metadata(input: &Path, out_dir: Option<&Path>) -> Result<PathBuf> {
@@ -85,10 +97,10 @@ pub fn strip_metadata(input: &Path, out_dir: Option<&Path>) -> Result<PathBuf> {
     match format {
         ImgFormat::Jpeg => {
             let mut jpeg = Jpeg::from_bytes(bytes).map_err(|e| corrupt(e.to_string()))?;
-            // APP1 chứa cả EXIF lẫn XMP; APP13 là IPTC; COM là chú thích. APP2 (ICC) được giữ.
-            for marker in [markers::APP1, markers::APP13, markers::COM] {
-                jpeg.remove_segments_by_marker(marker);
-            }
+            // WHY: mọi APPn và COM đều có thể chứa metadata hay ảnh nhúng (EXIF/XMP ở APP1, MPF ở APP2,
+            // IPTC ở APP13...). Chỉ giữ những đoạn cần để giải mã đúng màu.
+            jpeg.segments_mut().retain(keep_jpeg_segment);
+            jpeg.remove_segments_by_marker(markers::COM);
             keep_orientation(&mut jpeg);
             jpeg.encoder()
                 .write_to(&mut stripped)

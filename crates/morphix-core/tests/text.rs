@@ -492,3 +492,19 @@ fn csv_to_tsv_with_tab_in_cell_fails_with_row_and_leaves_no_file() {
     }
     assert_eq!(dir_names(&d), ["a.csv"]);
 }
+
+#[test]
+fn vtt_style_and_region_blocks_are_skipped_but_a_cue_named_style_is_kept() {
+    let dir: TempDir = tempdir().expect("thư mục tạm");
+    let path: PathBuf = write_bytes(
+        &dir,
+        "a.vtt",
+        "WEBVTT\n\nSTYLE\n::cue { color: yellow }\n\nREGION\nid:fred width:40%\n\n\
+         STYLE\n00:01.000 --> 00:02.000\nHi\n"
+            .as_bytes(),
+    );
+    assert_eq!(
+        read_cues(&path).expect("đọc VTT"),
+        vec![cue(1000, 2000, "Hi")]
+    );
+}

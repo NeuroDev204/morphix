@@ -120,3 +120,34 @@ fn outputs_inherit_the_source_file_permissions() {
         assert_eq!(mode, 0o644, "{operation:?} -> {out:?}");
     }
 }
+
+#[test]
+fn item_count_counts_merge_and_archive_as_one_item() {
+    use morphix_core::{item_count, kind::ArchiveFormat};
+    let inputs = vec!["a.jpg".into(), "b.jpg".into(), "c.jpg".into()];
+    assert_eq!(
+        item_count(&job(inputs.clone(), Operation::MergeImagesToPdf)),
+        1
+    );
+    let archive = Operation::CreateArchive {
+        format: ArchiveFormat::Zip,
+    };
+    assert_eq!(item_count(&job(inputs.clone(), archive)), 1);
+    assert_eq!(item_count(&job(inputs, Operation::CompressImage)), 3);
+}
+
+#[test]
+fn dry_run_media_names_use_the_written_lowercase_extension() {
+    let d = tempdir().unwrap();
+    // WHY: chỉ cần header `ftyp` để nhận diện MP4 theo nội dung; dry-run không chạy ffmpeg.
+    let clip = d.path().join("clip.MP4");
+    std::fs::write(&clip, b"\0\0\0\x18ftypisom\0\0\x02\0isomiso2avc1mp41").unwrap();
+    let plan = planned_outputs(&job(
+        vec![clip],
+        Operation::CutMedia {
+            start_ms: 0,
+            end_ms: 1000,
+        },
+    ));
+    assert_eq!(plan[0].1, d.path().join("clip-cat.mp4"));
+}
