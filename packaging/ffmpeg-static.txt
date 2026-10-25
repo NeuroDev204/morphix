@@ -1,0 +1,17 @@
+ffmpeg đi kèm bản cài bằng lệnh curl (morphix-x86_64-linux.tar.gz)
+====================================================================
+
+Bản dựng: BtbN/FFmpeg-Builds, biến thể linux64-gpl (FFmpeg n8.1.3-9-g29e619e767), liên kết tĩnh mọi
+thư viện trừ glibc/libgcc_s, có libx264. Cấu hình: --enable-gpl --enable-version3 (GPL-3.0).
+
+URL:    https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n8.1.3-9-g29e619e767-linux64-gpl-8.1.tar.xz
+SHA256: 97ce978979194b5cf7e06a5e68020dbdaa7a4f3294c5452b6a1bc347100dbb79
+
+Mã nguồn tương ứng:
+- FFmpeg: https://github.com/FFmpeg/FFmpeg/tree/29e619e767
+- Script dựng và mã nguồn các thư viện đi kèm: https://github.com/BtbN/FFmpeg-Builds (release autobuild-2026-09-30-13-08)
+Theo GPL, ai nhận bản ffmpeg này có thể yêu cầu mã nguồn tương ứng qua trang dự án Morphix
+(https://github.com/NeuroDev204/morphix/issues) trong ít nhất ba năm kể từ ngày phát hành.
+
+WHY ghim tag cuối tháng: BtbN xoá các autobuild hằng ngày sau vài tuần nhưng giữ bản cuối tháng.
+Đổi phiên bản: sửa URL và SHA256 ở trên (scripts/build-tarball.sh đọc hai dòng này).

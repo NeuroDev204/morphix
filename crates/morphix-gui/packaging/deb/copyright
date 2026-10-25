@@ -1,0 +1,8 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: Morphix
+
+Files: *
+Copyright: Morphix (tác giả dự án)
+License: Chưa chọn giấy phép. Không phát hành công khai cho đến khi chọn.
+ Các thành phần đi kèm có giấy phép riêng, liệt kê trong
+ /usr/share/doc/morphix/LICENSES-THIRD-PARTY.md và thư mục third-party/.

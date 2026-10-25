@@ -1,0 +1,66 @@
+#!/bin/sh
+set -eu
+
+DING_ROOT='/usr/share/gnome-shell/extensions/ding@rastersoft.com'
+DING_PACKAGE='gnome-shell-extension-desktop-icons-ng'
+DING_VERSION='@DING_VERSION@'
+
+fail() { printf 'Morphix DING setup: %s\n' "$1" >&2; exit 1; }
+source_hash() {
+    case "$1" in
+        app/fileItemMenu.js) printf '%s' '@SOURCE_FILE_MENU_SHA256@' ;;
+        app/desktopManager.js) printf '%s' '@SOURCE_DESKTOP_MENU_SHA256@' ;;
+        *) fail "unexpected DING path: $1" ;;
+    esac
+}
+check_hash() {
+    expected=$(source_hash "$2") || fail "missing expected hash for $2"
+    actual=$(sha256sum -- "$1") || fail "cannot hash $1"
+    actual=${actual%% *}
+    [ "$actual" = "$expected" ] || fail "SHA-256 mismatch: $1"
+}
+validate_file() {
+    relative=$1
+    path="$DING_ROOT/$relative"
+    backup="$path.morphix-original"
+    [ ! -L "$DING_ROOT" ] && [ ! -L "$DING_ROOT/app" ] || fail 'DING path traverses a symlink'
+    owner=$(dpkg-divert --listpackage "$path") || fail "cannot inspect diversion: $path"
+    target=$(dpkg-divert --truename "$path") || fail "cannot inspect diversion target: $path"
+    if [ "$owner" = morphix ]; then
+        [ "$target" = "$backup" ] || fail "unexpected diversion target: $path"
+        [ -f "$backup" ] && [ ! -L "$backup" ] || fail "missing regular DING backup: $backup"
+        check_hash "$backup" "$relative"
+        [ -f "$path" ] && [ ! -L "$path" ] || fail "missing Morphix menu file: $path"
+        changed=$(dpkg --verify morphix) || fail 'cannot verify the installed Morphix package'
+        case "$changed" in *"$path"*) fail "installed Morphix menu file was modified: $path" ;; esac
+    elif [ -z "$owner" ]; then
+        [ "$target" = "$path" ] || fail "unexpected diversion target: $path"
+        [ ! -e "$backup" ] && [ ! -L "$backup" ] || fail "unowned backup path exists: $backup"
+        [ -f "$path" ] && [ ! -L "$path" ] || fail "missing regular DING source file: $path"
+        check_hash "$path" "$relative"
+    else
+        fail "DING file is diverted by $owner: $path"
+    fi
+}
+
+case "${1:-}" in
+    install|upgrade) ;;
+    *) exit 0 ;;
+esac
+
+[ ! -L "$DING_ROOT" ] && [ ! -L "$DING_ROOT/app" ] || fail 'DING path traverses a symlink'
+installed_version=$(dpkg-query -W -f='${Version}' "$DING_PACKAGE" 2>/dev/null) || fail "required package is not installed: $DING_PACKAGE"
+[ "$installed_version" = "$DING_VERSION" ] || fail "unsupported DING version $installed_version (expected $DING_VERSION)"
+
+# Validate both files before changing either diversion.
+validate_file app/fileItemMenu.js
+validate_file app/desktopManager.js
+for relative in app/fileItemMenu.js app/desktopManager.js; do
+    path="$DING_ROOT/$relative"
+    backup="$path.morphix-original"
+    owner=$(dpkg-divert --listpackage "$path") || fail "cannot inspect diversion: $path"
+    if [ -z "$owner" ]; then
+        dpkg-divert --add --rename --package morphix --divert "$backup" "$path" \
+            || fail "cannot preserve original DING file: $path"
+    fi
+done

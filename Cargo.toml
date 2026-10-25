@@ -1,0 +1,13 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/morphix-core",
+    "crates/morphix-cli",
+    "crates/morphix-gui",
+    "crates/morphix-ipc",
+]
+
+[workspace.package]
+version = "0.1.1"
+edition = "2021"
+license = "GPL-3.0-or-later"

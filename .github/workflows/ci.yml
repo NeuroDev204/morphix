@@ -1,0 +1,27 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # WHY: release.yml chạy lại đúng bộ test này trước khi dựng gói.
+  workflow_call:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: scripts/ci/setup-build-deps.sh
+      # WHY không chạy cargo fmt --check toàn workspace: còn drift đã biết (CLAUDE.md), sửa riêng.
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+      - run: npm ci && npm run check && npm test
+        working-directory: crates/morphix-gui/ui
+      - run: python3 -m unittest discover -s scripts/tests
+      - run: python3 -m unittest discover -s integration/tests

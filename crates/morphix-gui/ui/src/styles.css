@@ -1,0 +1,673 @@
+@import "tailwindcss";
+/* Only the latin and vietnamese subsets: all UI copy is Vietnamese or ASCII, and the
+   other subsets would add about 300 kB of font files to the bundle. */
+@import "@fontsource/inter/latin-400.css";
+@import "@fontsource/inter/latin-500.css";
+@import "@fontsource/inter/latin-600.css";
+@import "@fontsource/inter/vietnamese-400.css";
+@import "@fontsource/inter/vietnamese-500.css";
+@import "@fontsource/inter/vietnamese-600.css";
+
+/* Token values come from the approved wireframe and the ui-ux skill tokens.css
+   (light theme). Brand primary is #0f766e, overriding the skill's near-black default. */
+:root {
+  --app-font: "Inter", ui-sans-serif, system-ui, sans-serif;
+
+  /* wireframe: --background / --surface / --foreground / --muted */
+  --background: #f4f4f6;
+  --surface: #ffffff;
+  --surface-overlay: #ffffff;
+  --foreground: #2c2c2c;
+  --muted: #707070;
+
+  /* wireframe: --border (decorative hairline) and --border-strong (input and outline buttons) */
+  --border: #f7f7f8;
+  --border-strong: #eaeaea;
+
+  /* wireframe: brand primary (Xanh ngọc); hover is mixed toward the background so it stays readable */
+  --primary: #0f766e;
+  --primary-hover: color-mix(in oklab, var(--primary) 85%, var(--background));
+  --primary-foreground: #ffffff;
+
+  /* wireframe: --item-hover applies to list rows; --button-hover-surface is the outline button hover on cards */
+  --item-hover: #f4f4f6;
+  --button-hover-surface: #f1f1f3;
+
+  /* wireframe: --secondary */
+  --secondary: #e7e8ec;
+
+  /* wireframe: danger text and tinted danger background */
+  --danger: #c70036;
+  --danger-bg: rgb(255 32 86 / 0.1);
+
+  /* wireframe: error banner colours (--error-*) */
+  --error-text: #e7000b;
+  --error-strong: #c10007;
+  --error-bg: #fef2f2;
+  --error-border: #ffc9c9;
+
+  /* wireframe: --radius */
+  --radius: 0.75rem;
+
+  /* wireframe: --elevation-popover */
+  --elevation-popover: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+
+  /* wireframe: --shadow-segment-track (sunken rail) and --shadow-segment-thumb (raised selected tab) */
+  --shadow-segment-track: inset 0 0 0 1px rgb(0 0 0 / 0.05), inset 0 1px 2px rgb(0 0 0 / 0.04);
+  --shadow-segment-thumb: 0 0 0 1px rgb(0 0 0 / 0.04), 0 1px 2px rgb(0 0 0 / 0.06), 0 2px 6px -2px rgb(0 0 0 / 0.08);
+}
+
+/* Tailwind maps the tokens above onto utility classes such as bg-primary and text-muted. */
+@theme inline {
+  --font-sans: var(--app-font);
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-overlay: var(--surface-overlay);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-item-hover: var(--item-hover);
+  --color-secondary: var(--secondary);
+  --color-danger: var(--danger);
+  --color-danger-bg: var(--danger-bg);
+  --color-error-text: var(--error-text);
+  --color-error-strong: var(--error-strong);
+  --color-error-bg: var(--error-bg);
+  --color-error-border: var(--error-border);
+  --shadow-elevation-popover: var(--elevation-popover);
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--app-font);
+}
+
+/* wireframe: .wheel-sector: idle sectors are a faint tint, hover deepens it, suggested sector takes the primary colour */
+.wheel-sector {
+  fill: rgb(0 0 0 / 0.05);
+  stroke: var(--surface-overlay);
+  stroke-width: 3;
+  cursor: pointer;
+  transition: fill 150ms;
+}
+
+.wheel-sector:hover {
+  fill: rgb(0 0 0 / 0.1);
+}
+
+/* wireframe: suggested sector (multi-select first item) uses fill-primary */
+.wheel-sector.is-suggested {
+  fill: var(--primary);
+}
+
+.wheel-sector.is-suggested:hover {
+  fill: var(--primary-hover);
+}
+
+/* wireframe: .segmented: rail is bg-background p-1 rounded-xl with a sunken shadow; the selected tab is raised on bg-surface */
+.segmented {
+  display: inline-flex;
+  gap: 0.25rem;
+  max-width: 100%;
+  padding: 0.25rem;
+  border-radius: 0.75rem;
+  background: var(--background);
+  box-shadow: var(--shadow-segment-track);
+}
+
+.segmented > button {
+  height: 2rem;
+  padding: 0 0.75rem;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: color-mix(in oklab, var(--foreground) 70%, transparent);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 150ms, background-color 150ms, box-shadow 150ms;
+}
+
+.segmented > button:hover {
+  color: var(--foreground);
+}
+
+.segmented > button[aria-selected="true"] {
+  background: var(--surface);
+  color: var(--foreground);
+  box-shadow: var(--shadow-segment-thumb);
+}
+
+/* wireframe: BTN base plus VAR.outline / VAR.primary / VAR.ghost */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 2.5rem;
+  max-width: 100%;
+  padding: 0.5rem 1rem;
+  border: 1px solid transparent;
+  border-radius: 0.75rem;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.25;
+  text-align: center;
+  cursor: pointer;
+  transition: background-color 150ms, color 150ms;
+}
+
+.btn-outline {
+  border-color: var(--border-strong);
+  background: var(--surface);
+  color: var(--foreground);
+}
+
+.btn-outline:hover {
+  background: var(--button-hover-surface);
+}
+
+.btn-primary {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.btn-primary:hover {
+  background: var(--primary-hover);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--muted);
+}
+
+.btn-ghost:hover {
+  background: rgb(44 44 44 / 0.05);
+  color: var(--foreground);
+}
+
+/* wireframe: dashed drop area "border-2 border-dashed border-foreground/15" */
+.drop-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1.5rem 1rem;
+  border: 2px dashed rgb(0 0 0 / 0.15);
+  border-radius: 0.75rem;
+  text-align: center;
+}
+
+/* wireframe: list row "h-11 w-full gap-3 rounded-lg px-3 text-sm hover:bg-item-hover" */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  height: 2.75rem;
+  padding: 0 0.75rem;
+  border-radius: 0.5rem;
+  color: var(--foreground);
+  font-size: 0.875rem;
+  text-align: left;
+  transition: background-color 150ms;
+}
+
+.row:hover {
+  background: var(--item-hover);
+}
+
+/* wireframe: errorBanner "rounded-xl border-(--error-border) bg-(--error-bg) text-(--error-strong)" */
+.banner-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--error-border);
+  border-radius: 0.75rem;
+  background: var(--error-bg);
+  color: var(--error-strong);
+  font-size: 0.875rem;
+}
+
+/* Menu window: a 320 px disc with the sectors, centre summary and the segmented tabs below it. */
+.menu-shell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding-top: 0.5rem;
+}
+
+.wheel {
+  position: relative;
+  width: 320px;
+  height: 320px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface-overlay);
+  box-shadow: var(--elevation-popover);
+}
+
+.wheel-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.wheel-label {
+  fill: var(--foreground);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  pointer-events: none;
+}
+
+.wheel-label.is-suggested {
+  fill: var(--primary-foreground);
+}
+
+/* WHY: keyboard focus must be visible on a sector, which has no native focus ring in SVG. */
+.wheel-sector:focus-visible {
+  outline: none;
+  stroke: var(--primary);
+  stroke-width: 3;
+}
+
+.wheel-center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  width: 104px;
+  transform: translate(-50%, -50%);
+  text-align: center;
+}
+
+.wheel-title {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.wheel-sub {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.wheel-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.progress {
+  position: relative;
+  width: 96px;
+  height: 96px;
+}
+
+.progress-track {
+  fill: none;
+  stroke: rgb(0 0 0 / 0.08);
+}
+
+.progress-bar {
+  fill: none;
+  stroke: var(--primary);
+  stroke-linecap: round;
+  transition: stroke-dashoffset 150ms;
+}
+
+.progress-value {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.warn-mark {
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.75rem;
+  background: var(--error-bg);
+  color: var(--error-strong);
+  font-weight: 700;
+}
+
+.menu-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+/* App window: the recent list scrolls inside its fixed height instead of growing the window. */
+.khay-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  height: 100vh;
+  padding: 0.5rem 0.75rem;
+  box-sizing: border-box;
+  background: var(--surface-overlay);
+  color: var(--foreground);
+  font-family: var(--app-font);
+  font-size: 0.875rem;
+}
+
+.khay-header,
+.khay-recent-head,
+.khay-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.khay-brand,
+.khay-recent-title {
+  margin: 0;
+  font-weight: 600;
+}
+
+.khay-recent-title {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.integration-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.integration-title,
+.integration-message,
+.integration-guidance,
+.integration-note {
+  margin: 0;
+}
+
+.integration-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.integration-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.integration-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.05rem 0.5rem;
+  font-size: 0.7rem;
+}
+
+.integration-label {
+  font-weight: 500;
+}
+
+.integration-status {
+  color: var(--muted);
+}
+
+.integration-status[data-status="installed"],
+.integration-status[data-status="already_installed"] {
+  color: var(--primary);
+}
+
+.integration-status[data-status="missing"],
+.integration-status[data-status="stale"],
+.integration-status[data-status="conflict"],
+.integration-status[data-status="failed"] {
+  color: var(--error-strong);
+}
+
+.integration-message,
+.integration-guidance,
+.integration-note {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 0.65rem;
+}
+
+.integration-guidance,
+.integration-note.is-failed {
+  color: var(--error-strong);
+}
+
+.khay-drop {
+  padding: 1rem;
+}
+
+.khay-drop .drop-title {
+  margin: 0;
+  font-weight: 500;
+}
+
+.khay-drop .drop-hint,
+.khay-privacy {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.khay-drop.is-over {
+  border-color: var(--primary);
+  background: color-mix(in oklab, var(--primary) 6%, transparent);
+}
+
+.khay-list {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.125rem;
+  margin: 0;
+  padding: 0;
+  min-height: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.row-stack {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  height: auto;
+  min-height: 2.75rem;
+  gap: 0.125rem;
+  position: relative;
+}
+
+.row-title,
+.row-detail {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-title {
+  font-weight: 500;
+}
+
+.row-detail {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.row-detail.is-failed {
+  color: var(--error-text);
+}
+
+.row-time {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.75rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.row-open-directory {
+  align-self: flex-start;
+  font-size: 0.7rem;
+}
+
+.bar-track {
+  height: 4px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.08);
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--primary);
+  transition: width 150ms;
+}
+
+.skeleton-line {
+  height: 0.75rem;
+  border-radius: 0.25rem;
+  background: rgb(0 0 0 / 0.05);
+}
+
+.skeleton-wide {
+  width: 75%;
+}
+
+.skeleton-narrow {
+  width: 50%;
+}
+
+.empty-state {
+  margin: 0;
+  padding: 1.5rem 0;
+  text-align: center;
+  color: var(--muted);
+}
+
+.khay-banner:empty {
+  display: none;
+}
+
+/* WHY: .btn sets display, which would otherwise win over the hidden attribute on "Xoá lịch sử". */
+.khay-shell [hidden] {
+  display: none !important;
+}
+
+/* Settings window: a plain column; the folder path wraps instead of pushing the Save button out of view. */
+.settings-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-height: 100vh;
+  padding: 1rem 1.25rem;
+  box-sizing: border-box;
+  background: var(--surface-overlay);
+  color: var(--foreground);
+  font-family: var(--app-font);
+  font-size: 0.875rem;
+}
+
+.settings-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.settings-label {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.settings-folder {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.settings-path {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.settings-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.settings-percent {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.field-input {
+  width: 6rem;
+  height: 2.5rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 0.75rem;
+  background: var(--surface);
+  color: var(--foreground);
+  font: inherit;
+}
+
+.settings-suffix {
+  color: var(--muted);
+}
+
+.settings-footer {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: auto;
+}
+
+.settings-saved {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.khay-selection { overflow-y: auto; max-height: 55vh; flex-shrink: 0; }
+.selection-name { margin: 0.2rem 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.selection-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; padding: 0.4rem 0; }

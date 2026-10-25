@@ -1,0 +1,60 @@
+#!/bin/sh
+set -eu
+
+DING_ROOT='/usr/share/gnome-shell/extensions/ding@rastersoft.com'
+ACTION="${1:-}"
+
+fail() { printf 'Morphix DING restore: %s\n' "$1" >&2; exit 1; }
+source_hash() {
+    case "$1" in
+        app/fileItemMenu.js) printf '%s' '@SOURCE_FILE_MENU_SHA256@' ;;
+        app/desktopManager.js) printf '%s' '@SOURCE_DESKTOP_MENU_SHA256@' ;;
+        *) fail "unexpected DING path: $1" ;;
+    esac
+}
+check_hash() {
+    expected=$(source_hash "$2") || fail "missing expected hash for $2"
+    actual=$(sha256sum -- "$1") || fail "cannot hash $1"
+    actual=${actual%% *}
+    [ "$actual" = "$expected" ] || fail "SHA-256 mismatch: $1"
+}
+validate_restore() {
+    relative=$1
+    path="$DING_ROOT/$relative"
+    backup="$path.morphix-original"
+    [ ! -L "$DING_ROOT" ] && [ ! -L "$DING_ROOT/app" ] || fail 'DING path traverses a symlink'
+    owner=$(dpkg-divert --listpackage "$path") || fail "cannot inspect diversion: $path"
+    target=$(dpkg-divert --truename "$path") || fail "cannot inspect diversion target: $path"
+    if [ "$owner" = morphix ]; then
+        [ "$target" = "$backup" ] || fail "unexpected diversion target: $path"
+        [ -f "$backup" ] && [ ! -L "$backup" ] || fail "missing regular DING backup: $backup"
+        check_hash "$backup" "$relative"
+        [ ! -e "$path" ] && [ ! -L "$path" ] || fail "refusing to overwrite an existing path: $path"
+    elif [ -z "$owner" ]; then
+        [ "$target" = "$path" ] || fail "unexpected diversion target: $path"
+        [ ! -e "$backup" ] && [ ! -L "$backup" ] || fail "unowned backup path exists: $backup"
+        [ "$ACTION" != abort-install ] || return 0
+        [ -f "$path" ] && [ ! -L "$path" ] || fail "missing regular DING source file: $path"
+        check_hash "$path" "$relative"
+    else
+        fail "DING file is diverted by $owner: $path"
+    fi
+}
+
+case "$ACTION" in
+    remove|purge|abort-install) ;;
+    *) exit 0 ;;
+esac
+
+# Validate both backups before restoring either one.
+validate_restore app/fileItemMenu.js
+validate_restore app/desktopManager.js
+for relative in app/fileItemMenu.js app/desktopManager.js; do
+    path="$DING_ROOT/$relative"
+    backup="$path.morphix-original"
+    owner=$(dpkg-divert --listpackage "$path") || fail "cannot inspect diversion: $path"
+    if [ "$owner" = morphix ]; then
+        dpkg-divert --remove --rename --package morphix --divert "$backup" "$path" \
+            || fail "cannot restore original DING file: $path"
+    fi
+done

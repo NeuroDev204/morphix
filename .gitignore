@@ -1,0 +1,4 @@
+/target
+
+# PDFium (libpdfium.so) tải từ bblanchon/pdfium-binaries để phát triển và kiểm thử, không commit.
+/third_party/

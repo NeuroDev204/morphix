@@ -1,0 +1,3 @@
+# Thư viện PDFium cho lúc phát triển và kiểm thử. Đường dẫn tương đối với thư mục workspace này.
+[env]
+MORPHIX_PDFIUM_DIR = { value = "third_party/pdfium/lib", relative = true }

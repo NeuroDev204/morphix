@@ -1,0 +1,864 @@
+<!doctype html>
+<html lang="vi" data-mau="xam" data-nhan="cam">
+<head>
+<meta charset="utf-8"><link rel="icon" href="data:,">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Morphix — wireframe</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap&subset=vietnamese" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.1.11"></script>
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<style type="text/tailwindcss">
+@import "tailwindcss";
+/* Bộ token khởi đầu. Đặt trong globals.css hoặc index.css.
+
+   ĐỔI THƯƠNG HIỆU: màu nhấn có HAI chỗ phải sửa, font chỉ có MỘT dòng.
+   Ngoài các khối đánh dấu bên dưới, không rải mã màu ở bất kỳ đâu.
+
+   `.force-light` / `.force-dark`: vùng khoá theme (trang chia sẻ luôn sáng, khối hero luôn tối).
+   Đặt class lên khung ngoài cùng của vùng, mọi component con đọc lại bộ token đó. Luật M33. */
+
+:root,
+.force-light {
+  /* Thanh cuộn gốc, ô chọn ngày, autofill, <select> của trình duyệt vẽ theo theme. Luật M31. */
+  color-scheme: light;
+
+  /* ===== FONT, KHAI MỘT LẦN, DÙNG CHUNG CHO CẢ SÁNG LẪN TỐI =====
+     Một font cho cả app. Phân vai bằng weight, không bằng font thứ hai:
+     heading 600, body 400, nhãn phụ 500. tracking-tight chỉ cho chữ có dấu từ
+     text-3xl trở lên, xem T2 trong rules-type.md. */
+  --app-font: "Inter", ui-sans-serif, system-ui, sans-serif;  /* Tailwind đọc qua --font-sans, khối @theme bên dưới */
+  /* ============================================================== */
+
+  /* ===== MÀU NHẤN, CHỖ 1 TRONG 2: NỀN SÁNG ===== */
+  --primary: #181818;          /* mặc định gần đen. Màu riêng thì thay vào đây */
+  --primary-hover: #2e2e2e;    /* lệch về phía NỀN một bậc (1.31:1 với --primary): nền sáng thì nhạt đi */
+  --primary-foreground: #ffffff;  /* màu chữ ĐỨNG TRÊN nền nhấn. Bắt buộc phải
+                                     có, vì ở nền tối màu nhấn thành gần trắng,
+                                     lúc đó viết cứng `text-white` là mất chữ. */
+  --primary-light: #1818180d;  /* CHỈ dùng khi --primary có sắc.
+                                  Màu nhấn trung tính như mặc định thì biến này
+                                  ra xám bẩn gần như vô hình, badge phải dùng
+                                  --background làm nền và --foreground làm chữ. */
+  /* ============================================= */
+
+  --background: #f4f4f6;   /* nền trang, xám nhạt, không bao giờ trắng */
+  --surface: #ffffff;      /* nền card, input, header */
+  --foreground: #2c2c2c;   /* chữ chính */
+  --muted: #707070;        /* chữ phụ, label, placeholder, icon phụ. Xám trung tính
+                              nhạt nhất còn qua WCAG AA 4.5 trên cả hai nền: 4.95:1
+                              trên --surface, 4.51:1 trên --background */
+  /* Đường tóc trang trí: viền card, viền khung dropdown, đường chia trong danh
+     sách và trong menu. Nhạt đến mức chỉ đủ vạch ranh giới. Xem luật M13, M14. */
+  --border: #f7f7f8;
+  /* Đậm hơn ĐÚNG một bậc. Cho viền Ô NHẬP và NÚT OUTLINE (viền là thứ duy nhất
+     báo "đây là chỗ gõ / chỗ bấm", vì cả hai cùng nền trắng với card), đường kẻ
+     khung app và viền card khi hover. Đây là token viền thứ hai và cũng là token
+     cuối, xem luật M14, M16. ~1.2:1 với nền trắng: đánh đổi thẩm mỹ có chủ ý,
+     xem P3 trong styles.md. */
+  --border-strong: #eaeaea;   /* #f2f2f2 (1.1:1) mờ quá, radio gần như vô hình;
+                                 #e4e4e7 (1.27:1) thì đường kẻ sidebar đậm. Chốt ở giữa. */
+
+  /* Lớp nổi nhỏ: dropdown, popover, menu, select, toast, command palette. Nền sáng bằng card;
+     nền tối sáng hơn card một bậc (M21). Đi cùng `border border-border` + `shadow-popover`.
+     Modal, panel trượt giữ --surface (+ viền + `shadow-modal`): bên trong có header dính, tab
+     dính, card trắng trên thân --background, đều ăn theo --surface; đổi nền khung là lệch từng mảnh. */
+  --surface-overlay: #ffffff;
+  /* Bóng lớp nổi, hai bậc: popover (dropdown, menu, toast) < modal. Bằng shadow-lg / shadow-xl
+     của Tailwind ở nền sáng; nền tối đậm hơn, xem khối .dark (M15, M23). Class `shadow-popover`,
+     `shadow-modal`. Không đặt tên --shadow-*: trùng namespace Tailwind (W3). */
+  --elevation-popover: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --elevation-modal: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+
+  /* Vùng tô (nút phụ, mục đang chọn, nền rê) là LỚP PHỦ trên nền phía sau: nền sáng tối đi,
+     nền tối sáng lên. Thứ giữ qua hai theme là độ chênh với nền, không phải chiều (M21). */
+  /* Vùng tô nhạt nhất. Nền rê của mục thụt vào: mục menu, link sidebar, nút cây thư mục, dòng
+     danh sách trong widget (I10); mục đang sáng trong select / bảng lệnh; dải giữa khoảng ngày, dải
+     chọn giờ (components/choice-controls.md). Nền sáng bằng đúng --background; nền tối là trắng phủ mờ, vì --background
+     tối hơn card nên rê vào sẽ chìm xuống gần như không thấy (1.07:1). */
+  --item-hover: #f4f4f6;
+
+  /* Mảng dữ liệu của biểu đồ (cột, vùng tô, phần donut). Nền sáng bằng --primary; nền tối hạ
+     còn 70%, xem khối .dark. Thang nhiều chuỗi viết `bg-chart-fill/45`… (components/charts.md).
+     Thanh mảnh (thanh tiến độ) vẫn `bg-primary`. */
+  --chart-fill: var(--primary);
+
+  /* Bề mặt của nút phụ, mục sidebar / tab đang chọn. Đậm hơn --item-hover một bậc. */
+  --secondary: #e7e8ec;
+  --secondary-hover: #dbdce2;
+
+  /* Nền của ô trạng thái nhỏ nằm trong hàng có hover: ô ngày, ô vuông chuỗi, ô
+     rỗng. Đừng dùng --background cho chúng, vì hàng hover cũng về --item-hover (= --background) thì
+     con tan vào nền. Không phải hover của nút phụ (--secondary-hover) hay của dòng
+     (--background, --surface-hover, luật I10). Xem luật M18. */
+  --background-hover: #e7e7ea;
+
+  /* Hover và dòng đang chọn của BẢNG / danh sách tràn hết bề ngang khung trắng.
+     Không dùng --background ở đây: dòng chạm hai mép khung mà tô đúng màu nền
+     trang thì trông như khung bị khoét một lỗ. Chỉ nhỉnh
+     hơn --surface một chút. Xem luật I10. */
+  --surface-hover: #f8f8fa;
+
+  /* Hover của nút viền (outline): CHỈ đổi nền, viền giữ nguyên (chủ dự án chốt).
+     Màu ĐẶC, và **theo nền ngay sau nút**, không một màu cho mọi chỗ:
+     - trên card trắng (--button-hover-surface #f1f1f3): thấy rõ, viền vẫn còn;
+     - thẳng trên nền trang, hoặc trong dòng đang rê (dòng chìm về #f4f4f6)
+       (--button-hover-page #e4e4e7): #f1f1f3 ở đây chỉ lệch nền 3 mức, nút như tan vào trang.
+     Biến đổi tự động bằng khối "NỀN RÊ CỦA NÚT VIỀN" bên dưới, class vẫn là
+     `hover:bg-button-hover`. Không dùng --surface-hover (#f8f8fa: trên card gần như không đổi),
+     không dùng lớp phủ foreground/5 (trong suốt, trên nền trang ra #e9e9eb trùng viền). */
+  --button-hover-surface: #f1f1f3;
+  --button-hover-page: #e4e4e7;   /* đậm hơn viền #eaeaea 6 mức: #e7e7ea chỉ 3 mức, nút thành mảng không viền */
+  --button-hover: var(--button-hover-page);
+
+  /* Tab segmented dạng phím nổi: rãnh CHÌM (bóng trong), ô đang chọn NỔI (bóng
+     ngoài rất mờ + viền tóc). Ngoại lệ có tên của luật M15, chỉ dùng ở đây.
+     Xem "Thanh tab" trong components/small-controls.md. */
+  --shadow-segment-track: inset 0 0 0 1px rgb(0 0 0 / 0.05), inset 0 1px 2px rgb(0 0 0 / 0.04);
+  --shadow-segment-thumb: 0 0 0 1px rgb(0 0 0 / 0.04), 0 1px 2px rgb(0 0 0 / 0.06), 0 2px 6px -2px rgb(0 0 0 / 0.08);
+
+  /* Ring rất mờ theo màu nhấn, dày 2px (ring-2). Cho ô điền lúc focus (input, textarea,
+     select) và ô chọn dạng card đang chọn, đi cùng viền --border-focus. Nút,
+     menu, tab KHÔNG dùng, và không có vòng focus. Luật I13. */
+  --ring-focus: rgba(24, 24, 24, 0.1);
+
+  /* Viền lúc focus. Ở nền sáng thì chính là màu nhấn. Ở nền tối thì KHÔNG
+     dùng màu nhấn đặc, xem khối .dark bên dưới. */
+  --border-focus: var(--primary);
+
+  /* ===== MÀU MANG NGHĨA: nguy hiểm, lỗi, trạng thái. Luật M7, M30, I4. =====
+     Có Tailwind thì cứ viết class (`text-rose-700`...), mã ở đây là CHÍNH các
+     class đó của Tailwind v4 đổi ra hex, nên hai cách cho ra cùng một màu.
+     Không có Tailwind thì dùng var(--danger)... Bảng đối chiếu class ↔ token nằm
+     ngay trong bảng M7 và M30 của rules-color.md. Không thêm sắc thứ ba (M30). */
+
+  /* Nguy hiểm — xoá, huỷ tài khoản, đăng xuất: lời nhắc TRƯỚC khi bấm. Không viền, không banner. */
+  --danger: #c70036;                       /* rose-700: chữ + icon. 5.2:1 trên --danger-bg */
+  --danger-bg: rgb(255 32 86 / 0.1);       /* rose-500/10 */
+  --danger-bg-hover: rgb(255 32 86 / 0.15);/* rose-500/15, chỉ cho nút đứng riêng */
+
+  /* Lỗi — chuyện ĐÃ xảy ra: ô nhập sai, câu lỗi, banner, badge "Đã huỷ". */
+  --error: #fb2c36;                        /* red-500: viền ô nhập. KHÔNG cho chữ, 3.8:1 */
+  --error-ring: rgb(251 44 54 / 0.1);      /* red-500/10 quanh ô nhập */
+  --error-text: #e7000b;                   /* red-600: câu lỗi dưới ô, trên nền trắng 4.8:1 */
+  --error-bg: #fef2f2;                     /* red-50: nền banner, nền badge đỏ */
+  --error-border: #ffc9c9;                 /* red-200: viền banner */
+  --error-strong: #c10007;                 /* red-700: chữ trên --error-bg, 5.9:1 */
+
+  /* Badge trạng thái (M7): nền nhạt + chữ -700 cùng sắc. Tông đỏ lấy cặp
+     --error-bg / --error-strong ở trên. */
+  --success-bg: #ecfdf5;                   /* emerald-50 */
+  --success: #007a55;                      /* emerald-700, 5.1:1 */
+  --warning-bg: #fffbeb;                   /* amber-50 */
+  --warning: #bb4d00;                      /* amber-700, 4.9:1 */
+  --neutral-bg: #f4f4f5;                   /* zinc-100: chờ, nháp, trung lập */
+  --neutral: #52525c;                      /* zinc-600, 7.0:1 */
+  /* ======================================================================= */
+
+  /* Bo mặc định 12px = rounded-xl, cho mọi phần tử cao từ 40px. Luật F1. */
+  --radius: 0.75rem;
+}
+
+/* Dark mode mặc định của skill là navy rất tối: đây là GU, không phải quy ước. Dự án đã có
+   bảng tối riêng (xám kẽm, xám trung tính) thì theo dự án (M23).
+   Viền là rgba mờ chứ không phải màu đặc, nếu không sẽ thành lưới kẻ ô.
+   Màu tối không phải màu sáng đảo ngược: mỗi token khai giá trị riêng.
+
+   Khối này chỉ cần khi sản phẩm thật sự có dark mode. Không làm thì xoá đi. */
+.dark,
+.force-dark {
+  color-scheme: dark;
+
+  /* ===== MÀU NHẤN, CHỖ 2 TRONG 2: NỀN TỐI =====
+     BẮT BUỘC khai lại. Màu nhấn của nền sáng đem nguyên sang nền tối là
+     tàng hình, và mọi nút nhấn sẽ phải đảo thành trắng, mất sạch thứ bậc.
+     Màu gần đen thì bản tối là gần trắng. Màu có sắc thì lấy bản sáng hơn
+     khoảng hai bậc của chính nó. */
+  --primary: #e9edf5;
+  /* Lệch về phía NỀN một bậc như bản sáng, tức TỐI đi (1.26:1 với --primary). Không sáng lên
+     #ffffff: trắng tuyệt đối là khối chói nhất màn tối, trái M23. Chữ trên nó 13.7:1. */
+  --primary-hover: #cfd5e0;
+  --primary-foreground: #05060f;  /* nền nhấn giờ gần trắng, chữ phải đảo lại */
+  --primary-light: rgba(233, 237, 245, 0.1);
+  /* ============================================ */
+
+  --background: #05060f;
+  /* Cột biểu đồ màu nhấn gần trắng 100% là khối chói nhất màn tối, nặng hơn tên trang và hàng
+     số (chủ dự án chọn 70%). M32. */
+  --chart-fill: color-mix(in srgb, var(--primary) 70%, transparent);
+
+  /* Tầng nổi sáng dần: nền trang < card < lớp nổi, mỗi bậc ~1.07–1.09:1 (M21). */
+  --surface-overlay: #171a26;
+  /* Bóng đậm gấp ~5 bản sáng: bóng 10% trên nền gần đen là không thấy. Thứ thật sự tách lớp
+     nổi khỏi trang là viền 1px (`border border-border` của lớp nổi) + nền sáng hơn (M23). */
+  --elevation-popover: 0 10px 15px -3px rgb(0 0 0 / 0.5), 0 4px 6px -4px rgb(0 0 0 / 0.5);
+  --elevation-modal: 0 20px 25px -5px rgb(0 0 0 / 0.6), 0 8px 10px -6px rgb(0 0 0 / 0.6);
+
+  /* Vùng tô là trắng phủ mờ, SÁNG hơn card (M21). Phủ mờ nên đặt trên nền trang, card hay
+     lớp nổi đều giữ được độ chênh, không phải khai một màu cho từng nền. Độ chênh ngang bản
+     sáng (đo trên card #0f111a):
+     - --item-hover 5%   → 1.12:1 (bản sáng #f4f4f6 trên trắng 1.10:1);
+     - --secondary  8%   → 1.22:1 (bản sáng #e7e8ec trên trắng 1.22:1), đậm hơn rê một bậc.
+     Đừng dùng màu đặc tối hơn nền trang (#010207): gần như không tách khỏi nền. */
+  --item-hover: rgb(255 255 255 / 0.05);
+  --secondary: rgb(255 255 255 / 0.08);
+  /* Rê vào đậm thêm 5%: chênh 12 mức như bản sáng (#e7e8ec → #dbdce2). 0.11 chỉ chênh 7 mức, nút
+     "Xem tất cả", "Huỷ" rê vào gần như không đổi. */
+  --secondary-hover: rgb(255 255 255 / 0.13);
+
+  --background-hover: #171a26;
+  --surface-hover: #141722;  /* sáng hơn --surface một chút, luật I10 */
+  /* Nền rê nút viền: phủ mờ, nên một giá trị đúng cho cả nền trang, card lẫn lớp nổi. Bản
+     sáng phải đặc vì phủ đen mờ trên nền trang ra trùng màu viền; ở nền tối viền là ánh xanh
+     mờ, không trùng. */
+  --button-hover-surface: rgb(255 255 255 / 0.08);
+  --button-hover-page: rgb(255 255 255 / 0.08);
+  /* Bóng đen khó thấy trên nền tối: ô nổi nhờ viền và vệt sáng mép trên. */
+  --shadow-segment-track: inset 0 0 0 1px var(--border), inset 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-segment-thumb: 0 0 0 1px var(--border-strong), inset 0 1px 0 rgb(255 255 255 / 0.06), 0 1px 2px rgb(0 0 0 / 0.5);
+  --ring-focus: rgba(233, 237, 245, 0.12);
+
+  /* Màu nhấn ở nền tối là gần trắng. Dùng làm NỀN thì đẹp, dùng làm ĐƯỜNG MẢNH
+     thì thành sợi trắng đặc, cắt vào mắt. Viền focus lấy chính màu đó nhưng hạ
+     độ đục xuống, vừa đủ 3:1 (WCAG). Xem luật M22. */
+  --border-focus: rgba(233, 237, 245, 0.42);  /* 3.6:1, WCAG 3:1 */
+  --surface: #0f111a;
+  --foreground: #e9edf5;
+  --muted: #8b93a7;
+  /* Ở nền tối viền ĐẢO VAI: #0f111a với #05060f chênh nhau quá ít nên viền
+     trở thành thứ chính để tách khối; bóng vẫn giữ nhưng chỉ phụ. Xem luật M23.
+     Hai vai như bản sáng (M14), đo trên card: --border 1.23:1, --border-strong
+     1.33:1 (bản sáng 1.2:1). Ô nhập ở nền tối GIỮ viền --border-strong, không bỏ (M32).
+     Đừng lên 0.2 (1.47:1): đường kẻ dòng bảng đậm hơn hẳn bản sáng, bảng thành
+     lưới kẻ ô (chủ dự án duyệt 0.16); ô nhập, checkbox ở 0.16 vẫn đọc ra. */
+  --border: rgba(160, 180, 220, 0.12);
+  --border-strong: rgba(160, 180, 220, 0.16);
+
+  /* Màu mang nghĩa ở nền tối: chữ SÁNG lên (-400), nền là màu -500 phủ mờ.
+     Nền -50 của bản sáng đem sang đây là ra khối trắng giữa màn tối.
+     Tương phản đo trên --surface. */
+  --danger: #ff637e;                       /* rose-400, 6.2:1 */
+  --danger-bg: rgb(255 32 86 / 0.1);
+  --danger-bg-hover: rgb(255 32 86 / 0.15);
+
+  --error: #fb2c36;
+  --error-ring: rgb(251 44 54 / 0.15);
+  --error-text: #ff6467;                   /* red-400, 6.5:1 */
+  --error-bg: rgb(251 44 54 / 0.1);
+  --error-border: rgb(251 44 54 / 0.3);
+  --error-strong: #ff6467;                 /* red-400, 6.0:1 trên --error-bg */
+
+  --success-bg: rgb(0 188 125 / 0.15);
+  --success: #00d492;                      /* emerald-400, 7.8:1 */
+  --warning-bg: rgb(254 154 0 / 0.15);
+  /* orange-400, KHÔNG amber-400: thang amber trôi từ cam sang vàng khi sáng lên (OKLCH: amber-700 49°,
+     amber-400 84°), chữ "Quá hạn" cam ở bản sáng thành vàng ở bản tối.
+     orange-400 56°, lệch 7°. 7.9:1 trên card, 6.2:1 trên --warning-bg. M7. */
+  --warning: #ff8904;
+  --neutral-bg: rgb(113 113 123 / 0.15);
+  --neutral: #9f9fa9;                      /* zinc-400, 6.2:1 */
+}
+
+/* ===== MAP TOKEN SANG CLASS CỦA TAILWIND V4 =====
+   Thiếu khối này thì `bg-surface`, `text-muted`, `border-border-strong`, `bg-primary/8`…
+   không sinh ra class nào, màn chép từ skill mất màu mà không báo lỗi. Đặt sau
+   `@import "tailwindcss"`. `inline` để class đọc thẳng biến ở :root / .dark, đổi theme
+   là class đổi theo. Tên bên trái KHÁC tên bên phải, không trỏ vào chính nó (W2).
+   Không dùng Tailwind thì xoá khối này; Tailwind v3 thì khai cùng bộ tên trong
+   `theme.extend.colors` của tailwind.config. Màu mang nghĩa không map: viết thẳng
+   class `rose-*`, `red-*`… như khối màu mang nghĩa ở trên. */
+@theme inline {
+  --font-sans: var(--app-font);
+
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-light: var(--primary-light);
+
+  --color-background: var(--background);
+  --color-background-hover: var(--background-hover);
+  --color-surface: var(--surface);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-overlay: var(--surface-overlay);
+  --color-item-hover: var(--item-hover);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-chart-fill: var(--chart-fill);
+  --color-secondary: var(--secondary);
+  --color-secondary-hover: var(--secondary-hover);
+  --color-button-hover: var(--button-hover);
+
+  /* `border-focus` và `ring-focus` là hai màu khác nhau (viền đặc, ring 10%). Một
+     --color-focus thì hai class đọc chung một màu, nên tách theo namespace riêng
+     của từng loại: border-* đọc --border-color-* trước, ring-* đọc --ring-color-* trước. */
+  --border-color-focus: var(--border-focus);
+  --ring-color-focus: var(--ring-focus);
+
+  --shadow-popover: var(--elevation-popover);
+  --shadow-modal: var(--elevation-modal);
+}
+
+/* Tailwind v4 mặc định cho `dark:` chạy theo `prefers-color-scheme` của máy, KHÔNG theo class.
+   Token đổi theo `.dark` mà `dark:` đổi theo máy thì bấm nút Tối trên máy đang sáng ra nửa nọ
+   nửa kia. Dòng này cho `dark:` theo class, và không ăn vào vùng `.force-light` (M33).
+   `:where` giữ độ ưu tiên bằng 0, nên `dark:` không tự thắng class khác. Không Tailwind thì xoá. */
+@custom-variant dark (&:where(.dark, .dark *, .force-dark, .force-dark *):not(:where(.force-light, .force-light *)));
+/* ================================================= */
+
+/* ===== NỀN RÊ CỦA NÚT VIỀN THEO NỀN PHÍA SAU =====
+   Mặc định (nền trang) là --button-hover-page. Mọi thứ nằm trong khối trắng lấy
+   --button-hover-surface; khối nền trang lồng trong card, và dòng đang rê chìm về nền
+   trang, lấy lại --button-hover-page. Chỉ đặt biến, không đặt màu, nên không đè utility.
+   Chọn con cháu (`*`), không đặt trên chính `.bg-surface`: nút viền cũng mang `bg-surface`,
+   đặt trên chính nó thì nút nào cũng thành bản của card.
+   Dòng dùng hover khác `hover:bg-item-hover` thì thêm selector của nó vào dòng thứ hai.
+   Nền tối hai biến cùng một giá trị phủ mờ, khối này không đổi gì. */
+.bg-surface *,
+.bg-surface-overlay * { --button-hover: var(--button-hover-surface); }
+.bg-surface .bg-background *,
+[class~="hover:bg-item-hover"]:hover * { --button-hover: var(--button-hover-page); }
+/* ================================================= */
+
+/* ===== THANH CUỘN TỰ ẨN, ÁP CHO CẢ APP. Luật I18. =====
+   Đứng yên thì trong suốt; rê chuột vào vùng cuộn thì hiện mờ; đang cuộn thì
+   đậm hơn (class .is-scrolling do component ScrollbarAutohide gắn vào ĐÚNG phần
+   tử đang cuộn). Ẩn bằng MÀU TRONG SUỐT chứ không bằng `scrollbar-width: none`:
+   bề rộng 4px vẫn giữ chỗ, nên lúc thanh hiện ra nội dung không bị đẩy ngang.
+   Màu lấy từ --foreground nên nền tối tự đảo, không cần khai lại.
+   Nguồn: dự án thật, chủ dự án chốt.
+
+   ⚠️ Màu thumb đi qua BIẾN --scrollbar-thumb đặt trên chính khung cuộn, không
+   viết `*:hover::-webkit-scrollbar-thumb`. Chrome không vẽ lại thumb khi selector
+   :hover nằm trước pseudo thanh cuộn: rê vào không hiện, phải cuộn mới hiện. Đổi
+   biến trên phần tử thì Chrome vẽ lại ngay. `* { --scrollbar-thumb: transparent }` đặt lại trên TỪNG phần tử, để
+   khung cha đang được rê không truyền biến xuống khung cuộn con bên cạnh.
+   KHÔNG thêm `transition` vào rule `*` này: CSS nằm ngoài @layer thắng mọi
+   utility của Tailwind v4, một dòng `* { transition }` là xoá hết `transition-*`
+   trong app. Thanh cuộn hiện tức thì là đủ. */
+* { --scrollbar-thumb: transparent; }
+*:hover { --scrollbar-thumb: color-mix(in srgb, var(--foreground) 16%, transparent); }
+.is-scrolling { --scrollbar-thumb: color-mix(in srgb, var(--foreground) 28%, transparent); }
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 9999px; }
+::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--foreground) 40%, transparent); }
+
+/* Firefox. ⚠️ PHẢI nằm trong @supports: từ Chrome 121, phần tử có
+   scrollbar-width/scrollbar-color là Chrome BỎ QUA toàn bộ ::-webkit-scrollbar
+   và vẽ thanh "thin" gốc ~8-11px chiếm chỗ. Để trần thì bản 4px ở trên chỉ còn
+   chạy trên Safari. */
+@supports not selector(::-webkit-scrollbar) {
+  * { scrollbar-width: thin; scrollbar-color: transparent transparent; }
+  *:hover { scrollbar-color: color-mix(in srgb, var(--foreground) 18%, transparent) transparent; }
+  .is-scrolling { scrollbar-color: color-mix(in srgb, var(--foreground) 28%, transparent) transparent; }
+}
+/* ===================================================== */
+
+/* Ẩn HẲN, không bao giờ hiện: chỉ cho hàng chip / tab cuộn ngang, nơi thanh
+   cuộn dưới đáy hàng trông như lỗi. Máy có chuột thì hàng đó phải có nút mũi
+   tên hai đầu (responsive.md, sau R10). Vùng cuộn dọc (sidebar, danh sách, modal)
+   thì KHÔNG dùng, để thanh tự ẩn ở trên lo. */
+.scrollbar-clean {
+  scrollbar-width: none;
+}
+.scrollbar-clean::-webkit-scrollbar {
+  display: none;
+}
+
+/* Chữ mảnh và sạch hơn. Một dòng, đặt một lần cho cả trang. Xem luật T1. */
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+</style>
+<style>
+  :root[data-mau="xam"] { --primary: #2c2c2c;
+    --success: #52525c; --success-bg: #f4f4f5; --warning: #52525c; --warning-bg: #f4f4f5;
+    --error-text: #52525c; --error-strong: #3f3f46; --error-bg: #f4f4f5; --error-border: #e4e4e7; --error: #a1a1aa;
+    --danger: #52525c; --danger-bg: rgb(0 0 0 / .05); --danger-bg-hover: rgb(0 0 0 / .08); }
+  :root:not([data-mau="xam"])[data-nhan="cham"] { --primary: #4f46e5; }
+  :root:not([data-mau="xam"])[data-nhan="ngoc"] { --primary: #0f766e; }
+  :root:not([data-mau="xam"])[data-nhan="cam"] { --primary: #c2410c; }
+  :root[data-mau="xam"], :root:has([data-wf-param="nhan"]) {
+    --primary-hover: color-mix(in oklab, var(--primary) 85%, var(--background));
+    --primary-light: color-mix(in srgb, var(--primary) 5%, transparent);
+    --ring-focus: color-mix(in srgb, var(--primary) 10%, transparent);
+    --border-focus: var(--primary);
+    --chart-fill: var(--primary);
+  }
+  body { margin: 0; background: var(--background); color: var(--foreground); font-family: var(--app-font); }
+
+  .wf-bar { position: relative; z-index: 50; display: flex; align-items: center; gap: 24px; height: 56px;
+    padding: 0 16px; overflow-x: auto; white-space: nowrap; background: #fff; border-bottom: 1px solid #e5e5e5;
+    color: #737373; font: 14px/1 system-ui, -apple-system, sans-serif; }
+  .wf-bar *, .wf-reason * { box-sizing: border-box; }
+  .wf-group { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .wf-set { display: flex; align-items: center; gap: 2px; flex-shrink: 0; padding: 3px; border-radius: 10px; background: #f4f4f5; }
+  .wf-set a { position: relative; display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px;
+    border-radius: 7px; color: #737373; text-decoration: none; }
+  .wf-set a:hover { color: #171717; }
+  .wf-switch { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; color: #737373; text-decoration: none; }
+  .wf-switch i { position: relative; width: 36px; height: 20px; border-radius: 10px; background: #e4e4e7; transition: background .15s; }
+  .wf-switch i::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
+    background: #fff; box-shadow: 0 1px 2px rgb(0 0 0 / .2); transition: translate .15s; }
+  .wf-switch[aria-checked="true"] i { background: #171717; }
+  .wf-switch[aria-checked="true"] i::after { translate: 16px 0; }
+  .wf-set a[aria-current="page"] { background: #fff; color: #171717; font-weight: 500;
+    box-shadow: 0 1px 2px rgb(0 0 0 / .08), 0 0 0 1px rgb(0 0 0 / .04); }
+  .wf-bar svg { width: 16px; height: 16px; flex-shrink: 0; }
+  [data-wf-param="v"] a { justify-content: center; min-width: 32px; padding: 0 10px; }
+  [data-wf-param="v"] a[data-recommended]::after { content: ""; position: absolute; top: 5px; right: 5px;
+    width: 5px; height: 5px; border-radius: 50%; background: #4f46e5; }
+  [data-wf-param="nhan"] a { padding: 0 8px; }
+  [data-wf-param="nhan"] i { width: 14px; height: 14px; border-radius: 50%; background: currentColor; }
+  [data-wf-param="nhan"] a[data-value="cham"] { color: #4f46e5; } [data-wf-param="nhan"] a[data-value="ngoc"] { color: #0f766e; }
+  [data-wf-param="nhan"] a[data-value="cam"] { color: #c2410c; }
+  body:not([data-man="menu"]) .wf-group-ft { display: none; }
+  .wf-menu { flex-shrink: 0; }
+  .wf-menu summary { display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 10px; border-radius: 8px; cursor: pointer; list-style: none; }
+  .wf-menu summary::-webkit-details-marker { display: none; }
+  .wf-menu summary:hover, .wf-menu[open] summary { background: #f4f4f5; }
+  .wf-menu b { color: #171717; font-weight: 500; }
+  .wf-popover { position: fixed; z-index: 60; display: grid; min-width: 168px; padding: 4px; background: #fff;
+    border: 1px solid #e5e5e5; border-radius: 10px; box-shadow: 0 8px 24px rgb(0 0 0 / .08); }
+  .wf-popover a { display: flex; align-items: center; height: 34px; padding: 0 10px; border-radius: 6px; color: #404040; text-decoration: none; }
+  .wf-popover a:hover, .wf-popover a[aria-current="page"] { background: #f4f4f5; color: #171717; }
+  .wf-popover a[aria-current="page"] { font-weight: 500; }
+  .wf-reason { border-bottom: 1px solid #e5e5e5; background: #fafafa; color: #404040; font: 13px/1.5 system-ui, -apple-system, sans-serif; }
+  .wf-reason summary { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-height: 44px; padding: 8px 16px; cursor: pointer; list-style: none; }
+  .wf-reason summary::-webkit-details-marker { display: none; }
+  .wf-reason-name { min-width: 0; overflow: hidden; color: #171717; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+  .wf-reason-tag { flex-shrink: 0; height: 20px; padding: 0 8px; border-radius: 10px; background: #eef2ff; color: #4338ca; font-size: 12px; font-weight: 500; line-height: 20px; }
+  .wf-reason-why { flex: 1; min-width: 0; overflow: hidden; color: #525252; text-overflow: ellipsis; white-space: nowrap; }
+  .wf-reason[open] .wf-reason-why { white-space: normal; }
+  .wf-reason-toggle { display: inline-flex; flex-shrink: 0; align-items: center; gap: 4px; height: 28px; margin-left: auto; padding: 0 8px; border-radius: 6px; color: #171717; font-weight: 500; }
+  .wf-reason summary:hover .wf-reason-toggle { background: #f0f0f0; }
+  .wf-reason-toggle svg { width: 16px; height: 16px; transition: rotate .15s; }
+  .wf-reason[open] .wf-reason-toggle svg { rotate: 180deg; }
+  .wf-reason-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 4px 16px 16px; }
+  .wf-reason-cols { display: grid; max-width: 1120px; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 16px 32px; }
+  .wf-reason h3 { display: flex; align-items: center; gap: 6px; margin: 0 0 4px; color: #171717; font-size: 12px; font-weight: 600; }
+  .wf-reason h3 i { width: 6px; height: 6px; border-radius: 50%; background: #a3a3a3; }
+  .wf-reason h3 i[data-tone="uu"] { background: #16a34a; }
+  .wf-reason h3 i[data-tone="nhuoc"] { background: #d97706; }
+  .wf-reason ul { display: grid; gap: 2px; margin: 0; padding-left: 16px; }
+  .wf-reason li::marker { color: #a3a3a3; }
+  .wf-reason p { margin: 0; }
+  .wf-reason-tips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 12px; border-top: 1px solid #ebebeb; }
+  .wf-reason-tips h3 { margin: 0 4px 0 0; }
+  .wf-reason-tips button { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border: 1px solid #e5e5e5; border-radius: 8px; background: #fff; color: #262626; font: inherit; white-space: nowrap; cursor: pointer; }
+  .wf-reason-tips button:hover { border-color: #d4d4d4; background: #f5f5f5; }
+  .wf-reason-tips button svg { width: 14px; height: 14px; color: #737373; }
+  .wf-reason-tips button [data-icon="da-chep"], .wf-reason-tips button[data-copied] [data-icon="chep"] { display: none; }
+  .wf-reason-tips button[data-copied] [data-icon="da-chep"] { display: block; color: #16a34a; }
+  @media (max-width: 767px) {
+    .wf-reason-why { order: 1; flex-basis: 100%; }
+    .wf-reason-toggle span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+    .wf-reason-tips h3 { flex-basis: 100%; }
+  }
+  @layer base { [data-wf-block] { position: relative; } }
+  [data-wf-block]::before { content: attr(data-wf-block); position: absolute; top: 4px; left: 4px; z-index: 5;
+    display: grid; place-items: center; width: 18px; height: 18px; border-radius: 9px; background: #1f1f1f; color: #fff; font-size: 11px; }
+  [data-wf-block][data-wf-block-out]::before { top: auto; bottom: 100%; }
+</style>
+</head>
+<body>
+<nav class="wf-bar" aria-label="Wireframe">
+  <div class="wf-group"><span class="wf-label">Màn</span>
+    <span class="wf-set" data-wf-param="man"><a data-value="menu">Menu nhanh</a><a data-value="khay">Khay</a></span></div>
+  <div class="wf-group"><span class="wf-label">Phương án</span>
+    <span class="wf-set" data-wf-param="v"><a data-value="a">A</a><a data-value="b">B</a><a data-value="c">C</a></span></div>
+  <a class="wf-switch" data-wf-toggle="mau" data-on="mau" data-off="xam" role="switch">Màu <i></i></a>
+  <span class="wf-set" data-wf-param="nhan"><a data-value="cam" aria-label="Cam"><i></i></a><a data-value="ngoc" aria-label="Xanh ngọc"><i></i></a><a data-value="cham" aria-label="Chàm"><i></i></a></span>
+  <div class="wf-group wf-group-ft"><span class="wf-label">File</span>
+    <span class="wf-set" data-wf-param="ft"><a data-value="anh">Ảnh</a><a data-value="video">Video</a><a data-value="pdf">PDF</a></span></div>
+  <details class="wf-menu">
+    <summary><span>Trạng thái:</span><b data-wf-current="tt"></b><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
+    <div class="wf-popover" data-wf-param="tt"><a data-value="du-lieu">Có dữ liệu</a><a data-value="dang-tai">Đang chạy</a><a data-value="rong">Rỗng</a><a data-value="loi">Lỗi</a></div>
+  </details>
+</nav>
+<details class="wf-reason" data-wf-reason>
+  <summary>
+    <span class="wf-reason-name"></span>
+    <span class="wf-reason-tag" hidden>Khuyên dùng</span>
+    <span class="wf-reason-why"></span>
+    <span class="wf-reason-toggle"><span>Ưu, nhược</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>
+  </summary>
+  <div class="wf-reason-body">
+    <div class="wf-reason-cols">
+      <section><h3><i data-tone="uu"></i>Ưu</h3><ul data-r="uu"></ul></section>
+      <section><h3><i data-tone="nhuoc"></i>Nhược</h3><ul data-r="nhuoc"></ul></section>
+      <section><h3><i></i>Hợp khi</h3><p data-r="hop"></p></section>
+    </div>
+    <div class="wf-reason-tips"><h3>Gợi ý góp ý</h3><span data-r="tips" style="display:contents"></span></div>
+  </div>
+</details>
+<main id="wf-design"></main>
+
+<script>
+const params = new URLSearchParams(location.search);
+const state = { man: "menu", v: "a", mau: "xam", nhan: "cam", ft: "anh", tt: "du-lieu", tab: "chuyen", fmt: "0" };
+for (const key of Object.keys(state)) state[key] = params.get(key) || state[key];
+if (state.man === "khay" && state.v === "c") state.v = "a";
+Object.assign(document.body.dataset, { man: state.man });
+Object.assign(document.documentElement.dataset, { mau: state.mau, nhan: state.nhan });
+
+/* ---------- toolbar ---------- */
+const urlWith = (patch) => `?${new URLSearchParams({ ...state, ...patch })}`;
+for (const set of document.querySelectorAll("[data-wf-param]")) {
+  const param = set.dataset.wfParam;
+  for (const link of set.querySelectorAll("a")) {
+    if (param === "v" && state.man === "khay" && link.dataset.value === "c") { link.remove(); continue; }
+    link.href = urlWith(param === "man" ? { man: link.dataset.value, v: "a" } : { [param]: link.dataset.value });
+    if (state[param] !== link.dataset.value) continue;
+    link.setAttribute("aria-current", "page");
+    const label = document.querySelector(`[data-wf-current="${param}"]`);
+    if (label) label.textContent = link.textContent;
+  }
+}
+document.querySelector('[data-wf-param="v"] a[data-value="a"]').toggleAttribute("data-recommended", true);
+for (const toggle of document.querySelectorAll("[data-wf-toggle]")) {
+  const param = toggle.dataset.wfToggle, isOn = state[param] === toggle.dataset.on;
+  toggle.setAttribute("aria-checked", String(isOn));
+  toggle.href = urlWith({ [param]: isOn ? toggle.dataset.off : toggle.dataset.on });
+}
+const statusMenu = document.querySelector(".wf-menu");
+statusMenu.addEventListener("toggle", () => {
+  const rect = statusMenu.querySelector("summary").getBoundingClientRect();
+  Object.assign(statusMenu.querySelector(".wf-popover").style, { top: `${rect.bottom + 6}px`, left: `${rect.left}px` });
+});
+document.addEventListener("click", (event) => { if (!statusMenu.contains(event.target)) statusMenu.open = false; });
+document.addEventListener("keydown", (event) => { if (event.key === "Escape") statusMenu.open = false; });
+
+/* ---------- helpers ---------- */
+const icon = (name, cls = "size-4") => `<i data-lucide="${name}" class="${cls} shrink-0" aria-hidden="true"></i>`;
+const U = (id) => `https://images.unsplash.com/photo-${id}?w=160&q=70&auto=format&fit=crop`;
+const PHOTO = ["1506744038136-46273834b3fb", "1469474968028-56623f02e42e", "1441974231531-c6227db76b6e", "1501785888041-af3ef285b470", "1470071459604-3b5ec3a7fe05", "1500530855697-b586d89ba3ee"].map(U);
+const BTN = "inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl min-h-10 px-4 py-2 text-sm font-medium transition-colors outline-hidden max-w-full text-center leading-tight";
+const VAR = {
+  outline: "border border-border-strong bg-surface text-foreground hover:bg-button-hover",
+  primary: "bg-primary text-primary-foreground hover:bg-primary-hover",
+  ghost: "bg-transparent text-muted hover:bg-foreground/5 hover:text-foreground",
+};
+const button = (label, variant = "outline", { ic = "", cls = "" } = {}) =>
+  `<button type="button" class="${BTN} ${VAR[variant]} ${cls}">${ic ? icon(ic) : ""}${label}</button>`;
+const iconButton = (name, label) =>
+  `<button type="button" aria-label="${label}" title="${label}" class="inline-flex size-8 min-h-8 cursor-pointer items-center justify-center rounded-lg text-muted outline-hidden transition-colors hover:bg-foreground/5 hover:text-foreground">${icon(name)}</button>`;
+const segmented = (items, current, act, full = false) =>
+  `<div role="tablist" class="inline-flex ${full ? "w-full" : "w-fit"} max-w-full gap-1 rounded-xl bg-background p-1 shadow-(--shadow-segment-track)">${items.map(([value, label]) =>
+    `<button type="button" role="tab" aria-selected="${value === current}" data-act="${act}" data-val="${value}" class="h-8 ${full ? "flex-1" : ""} cursor-pointer rounded-lg px-3 text-sm font-medium outline-hidden transition-[color,background-color,box-shadow] duration-150 ${value === current ? "bg-surface text-foreground shadow-(--shadow-segment-thumb)" : "text-foreground/70 hover:text-foreground"}">${label}</button>`).join("")}</div>`;
+const TABS = [["chuyen", "Chuyển đổi"], ["cong-cu", "Công cụ"]];
+const progressRing = (pct, size = 96) => {
+  const radius = (size - 10) / 2, circ = 2 * Math.PI * radius;
+  return `<div class="relative shrink-0" style="width:${size}px;height:${size}px"><svg viewBox="0 0 ${size} ${size}" class="-rotate-90"><circle cx="${size / 2}" cy="${size / 2}" r="${radius}" fill="none" stroke="currentColor" stroke-width="6" class="text-foreground/10"/><circle cx="${size / 2}" cy="${size / 2}" r="${radius}" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" class="text-primary" stroke-dasharray="${circ}" stroke-dashoffset="${circ * (1 - pct / 100)}"/></svg><span class="absolute inset-0 grid place-items-center text-lg font-semibold tabular-nums">${pct}%</span></div>`;
+};
+const bar = (pct) => `<div class="h-1 w-full overflow-hidden rounded-full bg-foreground/10"><div class="h-full rounded-full bg-primary" style="width:${pct}%"></div></div>`;
+const rowBox = (name) => `<span class="grid size-8 shrink-0 place-items-center rounded-lg bg-foreground/5 text-muted">${icon(name)}</span>`;
+
+/* ---------- dữ liệu mẫu (cả ca dài, ca nhiều file) ---------- */
+const FILES = {
+  anh: {
+    icon: "image", summary: "3 ảnh · 8,4 MB", head: "3 ảnh", total: "8,4 MB", multi: true,
+    items: [
+      { name: "IMG_2041.jpg", size: "3,1 MB", thumb: PHOTO[0] },
+      { name: "IMG_2042.jpg", size: "2,9 MB", thumb: PHOTO[1] },
+      { name: "scan-hop-dong-thue-nha-ban-cuoi-cung-final-v2.png", size: "2,4 MB", thumb: PHOTO[2] },
+    ],
+    wheel: ["PDF gộp", "JPG", "PNG", "WebP", "AVIF", "GIF", "TIFF", "BMP"],
+    merge: "Gộp thành 1 PDF", mergeHint: "3 ảnh → 1 file",
+    formats: ["JPG", "PNG", "WebP", "AVIF", "GIF", "TIFF"],
+    tools: [["minimize-2", "Nén ảnh", "Giảm dung lượng"], ["eraser", "Xoá metadata", "EXIF, vị trí GPS"], ["crop", "Cắt ảnh", "Chọn vùng giữ lại"],
+            ["pencil-line", "Chú thích", "Vẽ, chữ, mũi tên"], ["qr-code", "Đọc mã QR", "Lấy nội dung mã"], ["scaling", "Đổi kích thước", "Theo px hoặc %"]],
+    busy: { title: "Đang gộp 3 ảnh thành PDF", sub: "2/3 ảnh · còn khoảng 4 giây", pct: 62 },
+    err: { title: "Không gộp được PDF", sub: "IMG_2042.jpg bị hỏng hoặc đang mở ở ứng dụng khác." },
+  },
+  video: {
+    icon: "film", summary: "1 video · 412 MB", head: "1 video", total: "412 MB", multi: false,
+    items: [{ name: "chuyen-di-da-lat.mov", size: "412 MB · 4:32" }],
+    wheel: ["MP4", "MKV", "WebM", "MOV", "GIF", "MP3"],
+    merge: null, formats: ["MP4", "MKV", "WebM", "MOV", "GIF", "MP3"],
+    tools: [["scissors", "Cắt đoạn", "Chọn đầu và cuối"], ["gauge", "Đổi tốc độ", "0,5× đến 4×"], ["audio-lines", "Tách âm thanh", "Lưu thành MP3"],
+            ["minimize-2", "Nén video", "Giảm dung lượng"], ["eraser", "Xoá metadata", "Vị trí, thiết bị"], ["crop", "Cắt khung hình", "Bỏ viền đen"]],
+    busy: { title: "Đang chuyển sang MP4", sub: "chuyen-di-da-lat.mov · còn khoảng 3 phút", pct: 38 },
+    err: { title: "Không chuyển được video", sub: "Codec của chuyen-di-da-lat.mov chưa được hỗ trợ." },
+  },
+  pdf: {
+    icon: "file-text", summary: "2 PDF · 1,6 MB", head: "2 PDF", total: "1,6 MB", multi: true,
+    items: [{ name: "hop-dong-thue-nha.pdf", size: "1,2 MB · 12 trang" }, { name: "phu-luc-01.pdf", size: "0,4 MB · 3 trang" }],
+    wheel: ["Gộp", "PNG", "JPG", "TXT", "WebP"],
+    merge: "Gộp thành 1 PDF", mergeHint: "2 PDF → 1 file",
+    formats: ["PNG", "JPG", "TXT", "WebP"],
+    tools: [["split", "Tách trang", "Mỗi trang một file"], ["list-ordered", "Sắp xếp trang", "Kéo để đổi thứ tự"], ["minimize-2", "Nén PDF", "Giảm dung lượng"],
+            ["eye-off", "Che thông tin", "Vùng nhạy cảm"], ["eraser", "Xoá metadata", "Tác giả, phần mềm"], ["pencil-line", "Chú thích", "Đánh dấu, ghi chú"]],
+    busy: { title: "Đang gộp 2 PDF", sub: "15/15 trang · sắp xong", pct: 80 },
+    err: { title: "Không gộp được PDF", sub: "hop-dong-thue-nha.pdf được bảo vệ bằng mật khẩu." },
+  },
+};
+const UNSUPPORTED = { name: "ubuntu-24.04-desktop.iso", note: "Morphix chưa đọc được file .iso" };
+const file = () => FILES[state.ft];
+
+const thumbStack = (data, size = 28) => `<div class="flex">${data.items.slice(0, 3).map((item, index) => {
+  const style = `width:${size}px;height:${size}px;margin-left:${index ? -Math.round(size * 0.35) : 0}px`;
+  return item.thumb
+    ? `<img src="${item.thumb}" alt="" class="rounded-md object-cover ring-2 ring-surface-overlay" style="${style}">`
+    : `<span class="grid place-items-center rounded-md bg-secondary text-muted ring-2 ring-surface-overlay" style="${style}">${icon(data.icon)}</span>`;
+}).join("")}</div>`;
+
+/* ---------- bối cảnh minh hoạ (không đánh số, không phải thiết kế) ---------- */
+function fileManager() {
+  const data = file();
+  const tiles = state.ft === "anh"
+    ? [...data.items.map((item) => ({ ...item, sel: true })),
+       { name: "IMG_2043.jpg", thumb: PHOTO[3] }, { name: "IMG_2044.jpg", thumb: PHOTO[4] }, { name: "IMG_2045.jpg", thumb: PHOTO[5] }]
+    : [...data.items.map((item) => ({ ...item, sel: true })),
+       { name: "ghi-chu.txt", ic: "file-text" }, { name: "anh-bia.jpg", thumb: PHOTO[3] }, { name: "danh-sach.xlsx", ic: "file" }];
+  return `<div aria-hidden="true" class="absolute top-8 left-8 w-[700px] rounded-xl border border-border-strong bg-surface">
+    <div class="flex h-12 items-center justify-between border-b border-border-strong px-5 text-sm"><span class="text-foreground">Tài liệu <span class="text-muted">/</span> Đà Lạt</span><span class="text-xs text-muted">${data.items.length} mục đã chọn</span></div>
+    <div class="grid grid-cols-5 gap-4 p-5">${tiles.map((tile) => `<div class="min-w-0">
+      <div class="grid h-24 place-items-center overflow-hidden rounded-lg bg-background ${tile.sel ? "ring-2 ring-primary" : ""}">${tile.thumb ? `<img src="${tile.thumb}" alt="" class="size-full object-cover">` : icon(tile.ic || data.icon, "size-8 text-muted")}</div>
+      <p class="mt-2 truncate rounded px-1 text-xs ${tile.sel ? "bg-secondary text-foreground" : "text-muted"}">${tile.name}</p></div>`).join("")}</div>
+    <div class="h-28"></div></div>
+    <p aria-hidden="true" class="absolute bottom-4 left-8 text-xs text-muted">Minh hoạ bối cảnh: chuột phải vào các file đã chọn trong trình quản lý file. Phần có số là thiết kế.</p>`;
+}
+const CURSOR = { x: 350, y: 190 };
+const cursorMark = () => `<span aria-hidden="true" class="absolute z-10" style="left:${CURSOR.x - 3}px;top:${CURSOR.y - 3}px">${icon("mouse-pointer-2", "size-5 fill-foreground text-surface")}</span>`;
+
+/* ---------- trạng thái dùng chung cho Menu nhanh ---------- */
+function stateBody(layout) {
+  const data = file();
+  const wrap = (inner) => `<div class="flex ${layout === "disc" ? "w-[216px]" : "w-full px-6 py-8"} flex-col items-center gap-3 text-center">${inner}</div>`;
+  if (state.tt === "dang-tai") return wrap(`${progressRing(data.busy.pct, layout === "disc" ? 88 : 80)}
+    <div><p class="text-sm font-medium text-foreground">${data.busy.title}</p><p class="mt-1 text-xs text-muted">${data.busy.sub}</p></div>${button("Huỷ", "outline", { cls: "min-h-9 px-3" })}`);
+  if (state.tt === "rong") return wrap(`<span class="grid size-10 place-items-center rounded-xl bg-foreground/5 text-muted">${icon("file-question", "size-5")}</span>
+    <div><p class="text-sm font-medium text-foreground">Chưa hỗ trợ loại file này</p><p class="mt-1 text-xs text-muted">${UNSUPPORTED.name}<br>${UNSUPPORTED.note}</p></div>${button("Xem định dạng hỗ trợ", "outline", { cls: "min-h-9 px-3" })}`);
+  return wrap(`<span class="grid size-10 place-items-center rounded-xl bg-(--danger-bg) text-(--danger)">${icon("triangle-alert", "size-5")}</span>
+    <div><p class="text-sm font-medium text-foreground">${data.err.title}</p><p class="mt-1 text-xs text-muted">${data.err.sub}</p></div>
+    <div class="flex gap-2">${button("Thử lại", "outline", { cls: "min-h-9 px-3" })}${button("Bỏ qua", "ghost", { cls: "min-h-9 px-3" })}</div>`);
+}
+
+/* ---------- MENU NHANH · A · vòng tròn ---------- */
+function menuA() {
+  const data = file(), isTools = state.tab === "cong-cu";
+  const list = isTools ? data.tools : data.wheel;
+  // Mỗi mục là một múi của vòng (hình quạt khuyết tâm), không phải nút rời. Mục đầu nằm chính giữa phía trên.
+  const outer = 150, inner = 58, mid = (outer + inner) / 2, step = (2 * Math.PI) / list.length;
+  const at = (angle, r) => `${(160 + r * Math.cos(angle)).toFixed(1)} ${(160 + r * Math.sin(angle)).toFixed(1)}`;
+  const sector = (index) => {
+    const a0 = -Math.PI / 2 - step / 2 + index * step, a1 = a0 + step, large = step > Math.PI ? 1 : 0;
+    return `M ${at(a0, outer)} A ${outer} ${outer} 0 ${large} 1 ${at(a1, outer)} L ${at(a1, inner)} A ${inner} ${inner} 0 ${large} 0 ${at(a0, inner)} Z`;
+  };
+  const labelAt = (index) => {
+    const angle = -Math.PI / 2 + index * step;
+    return `left:${160 + mid * Math.cos(angle)}px;top:${160 + mid * Math.sin(angle)}px;transform:translate(-50%,-50%)`;
+  };
+  const isSuggested = (index) => !isTools && index === 0;
+  const sectors = `<svg viewBox="0 0 320 320" class="absolute inset-0 size-full">${list.map((entry, index) =>
+    `<path d="${sector(index)}" role="menuitem" tabindex="0" aria-label="${isTools ? entry[1] : entry}" class="cursor-pointer stroke-surface-overlay stroke-[3] outline-hidden transition-colors ${isSuggested(index) ? "fill-primary hover:fill-primary-hover" : "fill-foreground/5 hover:fill-foreground/10"}"/>`).join("")}</svg>`;
+  const labels = list.map((entry, index) =>
+    `<span style="${labelAt(index)}" class="pointer-events-none absolute flex w-[84px] flex-col items-center gap-0.5 text-center text-xs leading-tight font-medium ${isSuggested(index) ? "text-primary-foreground" : "text-foreground"}">${isTools ? `${icon(entry[0])}<span>${entry[1]}</span>` : `<span class="text-sm">${entry}</span>`}</span>`).join("");
+  const items = sectors + labels;
+  const center = state.tt === "du-lieu"
+    ? `<div class="absolute top-1/2 left-1/2 flex size-[104px] -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center gap-1 rounded-full">${thumbStack(data, 30)}<p class="mt-1 text-sm font-medium text-foreground">${data.head}</p><p class="-mt-1 text-xs text-muted">${data.total}</p></div>`
+    : "";
+  const disc = state.tt === "du-lieu" ? items + center : `<div class="absolute inset-0 grid place-items-center">${stateBody("disc")}</div>`;
+  return `<div class="absolute" style="left:${CURSOR.x - 160}px;top:${CURSOR.y - 160}px;width:320px">
+    <div data-wf-block="1"><div class="relative size-80 rounded-full border border-border bg-surface-overlay shadow-popover" role="menu" aria-label="Việc cần làm với ${data.summary}">${disc}</div></div>
+    <div class="mt-3 flex justify-center"><div data-wf-block="2" class="rounded-xl border border-border bg-surface-overlay p-1 shadow-popover">${segmented(TABS, state.tab, "tab")}</div></div>
+    <p data-wf-block="3" class="mx-auto mt-2 w-fit rounded-lg px-2 py-1 text-xs text-muted">Esc để đóng · giữ Alt để mở Công cụ</p></div>`;
+}
+
+/* ---------- MENU NHANH · B · danh sách tại con trỏ ---------- */
+function menuB() {
+  const data = file(), isTools = state.tab === "cong-cu";
+  const first = data.items[0].name, more = data.items.length - 1;
+  const header = `<div data-wf-block="1" class="flex items-center gap-3 px-4 py-3">${thumbStack(data, 32)}
+    <div class="min-w-0"><p class="text-sm font-medium text-foreground">${data.summary}</p><p class="truncate text-xs text-muted">${first}${more ? ` và ${more} file khác` : ""}</p></div></div>`;
+  const tabs = `<div data-wf-block="2" class="border-t border-border px-3 py-2">${segmented(TABS, state.tab, "tab", true)}</div>`;
+  let body;
+  if (state.tt !== "du-lieu") body = stateBody("card");
+  else if (isTools) body = `<div class="grid gap-0.5">${data.tools.map(([ic, label, hint]) => `<button type="button" class="flex h-11 w-full cursor-pointer items-center gap-3 rounded-lg px-3 text-left text-sm text-foreground outline-hidden transition-colors hover:bg-item-hover">${icon(ic, "size-4 text-muted")}<span class="min-w-0 flex-1 truncate font-medium">${label}</span><span class="shrink-0 text-xs text-muted">${hint}</span></button>`).join("")}</div>`;
+  else body = `${data.merge ? `<button type="button" class="${BTN} ${VAR.outline} mb-3 !justify-start w-full">${icon("layers")}<span class="flex-1 text-left">${data.merge}</span><span class="text-xs font-normal text-muted">${data.mergeHint}</span></button>` : ""}
+    <p class="mb-2 text-xs font-medium text-muted">${data.merge ? "Hoặc đổi từng file sang" : "Đổi sang"}</p>
+    <div class="grid grid-cols-3 gap-2">${data.formats.map((f) => button(f, "outline", { cls: "px-2" })).join("")}</div>`;
+  const footer = `<div data-wf-block="4" class="flex items-center justify-between border-t border-border py-1 pr-2 pl-4"><p class="flex items-center gap-1.5 text-xs text-muted">${icon("folder-open", "size-3.5")}Lưu cạnh file gốc · Cân bằng</p>${iconButton("settings", "Tuỳ chọn")}</div>`;
+  return `<div class="absolute w-[304px]" style="left:${CURSOR.x}px;top:${CURSOR.y}px"><div class="rounded-xl border border-border bg-surface-overlay shadow-popover" role="menu">
+    ${header}${tabs}<div data-wf-block="3" class="p-3">${body}</div>${footer}</div></div>`;
+}
+
+/* ---------- MENU NHANH · C · bảng hai cột có tuỳ chọn ---------- */
+const selectBox = (label, value) => `<div class="flex items-center justify-between gap-3"><span class="text-sm text-foreground">${label}</span>
+  <button type="button" class="inline-flex h-9 min-w-36 cursor-pointer items-center justify-between gap-2 rounded-xl border border-border-strong bg-surface px-3 text-sm text-foreground outline-hidden aria-expanded:border-focus">${value}${icon("chevron-down", "size-4 text-muted")}</button></div>`;
+const switchRow = (label, on) => `<div class="flex items-center justify-between gap-3"><span class="text-sm text-foreground">${label}</span>
+  <button type="button" role="switch" aria-checked="${on}" class="relative h-6 w-10 shrink-0 cursor-pointer rounded-full outline-hidden transition-colors ${on ? "bg-primary" : "bg-foreground/15"}"><span class="absolute top-0.5 left-0.5 size-5 rounded-full bg-surface shadow-sm transition-transform ${on ? "translate-x-4" : ""}"></span></button></div>`;
+function menuC() {
+  const data = file(), isTools = state.tab === "cong-cu";
+  const formats = data.merge ? [data.merge.replace("Gộp thành 1 ", ""), ...data.formats] : data.formats;
+  const chosen = Math.min(Number(state.fmt), formats.length - 1), chosenLabel = formats[chosen];
+  const isPdf = chosenLabel === "PDF";
+  const left = `<div data-wf-block="1" class="flex w-[260px] shrink-0 flex-col border-r border-border">
+    <div class="flex items-center justify-between px-4 py-3"><div><p class="text-sm font-medium text-foreground">${data.head}</p><p class="text-xs text-muted">${data.total}</p></div></div>
+    <ul class="grid flex-1 grid-cols-[minmax(0,1fr)] content-start gap-0.5 px-2">${data.items.map((item, index) => `<li class="flex items-center gap-2 rounded-lg px-1 py-1.5">
+      ${data.multi ? `<span class="text-muted">${icon("grip-vertical", "size-4")}</span>` : ""}
+      ${item.thumb ? `<img src="${item.thumb}" alt="" class="size-9 shrink-0 rounded-md object-cover">` : `<span class="grid size-9 shrink-0 place-items-center rounded-md bg-secondary text-muted">${icon(data.icon)}</span>`}
+      <div class="min-w-0 flex-1"><p class="truncate text-sm text-foreground" title="${item.name}">${item.name}</p><p class="text-xs text-muted">${data.multi ? `${index + 1} · ` : ""}${item.size}</p></div>
+      ${data.multi ? iconButton("x", "Bỏ file khỏi danh sách") : ""}</li>`).join("")}</ul>
+    <div class="border-t border-border p-2">${button("Thêm file", "ghost", { ic: "plus", cls: "w-full" })}</div></div>`;
+  let right;
+  if (state.tt !== "du-lieu") right = `<div class="flex flex-1 items-center">${stateBody("card")}</div>`;
+  else {
+    const pane = isTools
+      ? `<div class="grid gap-0.5">${data.tools.map(([ic, label, hint]) => `<button type="button" class="flex h-11 w-full cursor-pointer items-center gap-3 rounded-lg px-3 text-left text-sm outline-hidden transition-colors hover:bg-item-hover">${icon(ic, "text-muted")}<span class="flex-1 font-medium text-foreground">${label}</span><span class="text-xs text-muted">${hint}</span></button>`).join("")}</div>`
+      : `<p class="mb-2 text-xs font-medium text-muted">Đổi sang</p>
+         <div role="radiogroup" class="grid grid-cols-4 gap-2">${formats.map((f, index) => `<button type="button" role="radio" aria-checked="${index === chosen}" data-act="fmt" data-val="${index}" class="h-10 cursor-pointer rounded-xl border px-2 text-sm font-medium outline-hidden transition-colors ${index === chosen ? "border-focus bg-surface text-foreground ring-2 ring-focus" : "border-border-strong bg-surface text-foreground hover:bg-button-hover"}">${f}</button>`).join("")}</div>
+         <p class="mt-5 mb-2 text-xs font-medium text-muted">Tuỳ chọn</p>
+         <div class="grid gap-3">${isPdf || chosenLabel === "PDF" ? `${data.multi ? switchRow("Gộp thành một file", true) : ""}${selectBox("Khổ giấy", "A4")}${selectBox("Hướng", "Tự động")}` : selectBox("Chất lượng", "Cân bằng")}${selectBox("Lưu vào", "Cạnh file gốc")}</div>`;
+    right = `<div class="flex min-w-0 flex-1 flex-col">
+      <div data-wf-block="2" class="px-4 pt-3">${segmented(TABS, state.tab, "tab")}</div>
+      <div data-wf-block="3" class="flex-1 px-4 py-4">${pane}</div>
+      <div data-wf-block="4" class="flex items-center justify-between gap-2 border-t border-border px-4 py-2"><p class="text-xs text-muted">${isTools ? "Chọn một công cụ để mở" : `${data.items.length} file → ${chosenLabel}`}</p>
+        <div class="flex gap-2">${button("Huỷ", "ghost")}${isTools ? "" : button("Chuyển đổi", "primary")}</div></div></div>`;
+  }
+  return `<div class="absolute w-[620px]" style="left:${CURSOR.x}px;top:${CURSOR.y}px"><div class="flex min-h-[420px] overflow-hidden rounded-xl border border-border bg-surface-overlay shadow-popover">${left}${right}</div></div>`;
+}
+
+/* ---------- KHAY ---------- */
+const RECENT = [
+  { ic: "layers", name: "3 ảnh → hop-dong.pdf", sub: "Đã gộp · 8,4 MB → 1,9 MB", time: "2 phút" },
+  { ic: "film", name: "chuyen-di-da-lat.mov → MP4", sub: "Đang chuyển · còn khoảng 3 phút", pct: 38 },
+  { ic: "eraser", name: "IMG_2042.jpg · Xoá metadata", sub: "Đã xoá vị trí GPS và EXIF", time: "10 phút" },
+  { ic: "minimize-2", name: "bao-cao-quy-III-phien-ban-cuoi-cung.pdf", sub: "Nén giảm 71% · 6,8 MB → 2,0 MB", time: "Hôm qua" },
+];
+const taskbar = () => `<div aria-hidden="true" class="absolute inset-x-0 bottom-0 flex h-10 items-center justify-end gap-3 border-t border-border-strong bg-surface px-4 text-muted">
+  ${icon("wifi")}${icon("volume-2")}<span class="grid size-7 place-items-center rounded-md bg-secondary text-foreground">${icon("shapes")}</span><span class="text-xs tabular-nums">14:32</span></div>`;
+function recentRow(row, state2) {
+  const tail = row.pct !== undefined ? "" : `<span class="shrink-0 text-xs text-muted">${row.time}</span>`;
+  const err = state2 === "loi" && row.pct !== undefined;
+  return `<li class="flex items-center gap-3 rounded-lg px-2 py-2">${rowBox(err ? "triangle-alert" : row.ic)}
+    <div class="min-w-0 flex-1"><p class="truncate text-sm font-medium text-foreground" title="${row.name}">${row.name}</p>
+    ${row.pct !== undefined && !err ? `<div class="mt-1.5">${bar(row.pct)}</div><p class="mt-1 text-xs text-muted">${row.sub}</p>` : `<p class="truncate text-xs ${err ? "text-(--error-text)" : "text-muted"}">${err ? "Không chuyển được · codec chưa hỗ trợ" : row.sub}</p>`}</div>
+    ${err ? button("Thử lại", "outline", { cls: "min-h-8 px-3" }) : tail}</li>`;
+}
+function skeleton() { return `<ul class="grid gap-1" aria-busy="true">${[0, 1, 2].map(() => `<li class="flex items-center gap-3 px-2 py-2"><span class="size-8 rounded-lg bg-foreground/5"></span><div class="flex-1"><div class="h-3 w-3/4 rounded bg-foreground/5"></div><div class="mt-2 h-3 w-1/2 rounded bg-foreground/5"></div></div></li>`).join("")}</ul>`; }
+const emptyHistory = () => `<div class="flex flex-col items-center gap-2 px-6 py-8 text-center">${`<span class="grid size-10 place-items-center rounded-xl bg-foreground/5 text-muted">${icon("history", "size-5")}</span>`}
+  <p class="text-sm font-medium text-foreground">Chưa chuyển file nào</p><p class="text-xs text-muted">Thả file vào ô trên, hoặc chuột phải vào file rồi chọn Morphix.</p></div>`;
+const errorBanner = () => `<div class="mx-4 mb-2 flex items-start gap-2 rounded-xl border border-(--error-border) bg-(--error-bg) px-3 py-2 text-sm text-(--error-strong)">${icon("triangle-alert", "mt-0.5 size-4")}<p>1 file không chuyển được. Xem dòng đánh dấu bên dưới.</p></div>`;
+const trayHeader = (title) => `<div data-wf-block="1" class="flex h-12 items-center justify-between pr-2 pl-4"><p class="flex items-center gap-2 text-sm font-semibold text-foreground"><span class="grid size-6 place-items-center rounded-md bg-primary text-primary-foreground">${icon("shapes", "size-3.5")}</span>${title}</p>${iconButton("settings", "Cài đặt")}</div>`;
+const trayFooter = (n) => `<div data-wf-block="${n}" class="flex items-center justify-between border-t border-border px-4 py-2.5 text-xs text-muted"><p class="flex items-center gap-1.5">${icon("shield-check", "size-3.5")}Xử lý ngay trên máy, không tải lên</p><button type="button" class="cursor-pointer rounded-md px-1.5 py-0.5 outline-hidden hover:text-foreground">Thoát</button></div>`;
+const trayWindow = (inner) => `<div class="absolute right-6 bottom-14 flex w-[400px] flex-col overflow-hidden rounded-xl border border-border bg-surface-overlay shadow-popover">${inner}</div>`;
+
+function trayA() {
+  const body = state.tt === "dang-tai" ? skeleton() : state.tt === "rong" ? emptyHistory()
+    : `<ul class="grid gap-0.5">${RECENT.map((row) => recentRow(row, state.tt)).join("")}</ul>`;
+  const history = `<div data-wf-block="3" class="px-2 pb-2"><div class="flex items-center justify-between px-2 pb-1"><p class="text-xs font-medium text-muted">Gần đây</p>${state.tt === "rong" || state.tt === "dang-tai" ? "" : button("Xoá lịch sử", "ghost", { cls: "min-h-7 px-2 text-xs" })}</div>${body}</div>`;
+  return trayWindow(`${trayHeader("Morphix")}${state.tt === "loi" ? errorBanner() : ""}
+    <div data-wf-block="2" class="px-4 pb-3"><div class="flex flex-col items-center gap-2 rounded-xl border-2 border-dashed border-foreground/15 px-4 py-6 text-center">
+      <span class="grid size-10 place-items-center rounded-xl bg-foreground/5 text-muted">${icon("upload", "size-5")}</span>
+      <p class="text-sm font-medium text-foreground">Thả file vào đây</p><p class="text-xs text-muted">Hoặc chuột phải vào file → Morphix</p>${button("Chọn file", "outline", { cls: "mt-1 min-h-9" })}</div></div>
+    ${history}${trayFooter(4)}`);
+}
+function trayB() {
+  const queue = RECENT.filter((row) => row.pct !== undefined);
+  const done = RECENT.filter((row) => row.pct === undefined);
+  const underline = (cur) => `<div role="tablist" class="flex gap-2 px-2 shadow-[inset_0_-1px_0_var(--border-strong)]">${[["hang", "Hàng chờ", queue.length + 1], ["su", "Lịch sử", done.length]].map(([value, label, count]) =>
+    `<button type="button" role="tab" aria-selected="${value === cur}" class="relative box-content h-10 cursor-pointer rounded-xl px-2 pb-px text-sm font-medium outline-hidden after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-full ${value === cur ? "text-foreground after:bg-foreground" : "text-foreground/70 after:bg-transparent hover:text-foreground"}">${label} <span class="text-xs font-normal text-foreground/70 tabular-nums">${count}</span></button>`).join("")}</div>`;
+  let list;
+  if (state.tt === "dang-tai") list = skeleton();
+  else if (state.tt === "rong") list = `<div class="flex flex-col items-center gap-2 px-6 py-8 text-center"><span class="grid size-10 place-items-center rounded-xl bg-foreground/5 text-muted">${icon("circle-check", "size-5")}</span><p class="text-sm font-medium text-foreground">Không có việc nào đang chờ</p><p class="text-xs text-muted">Thả file vào dải phía trên để bắt đầu.</p></div>`;
+  else list = `<ul class="grid gap-0.5">${[...queue.map((row) => recentRow(row, state.tt)), { ic: "image", name: "12 ảnh → WebP", sub: "Đang chờ · xếp thứ 2", wait: true }].map((row) => typeof row === "string" ? row : row.wait
+      ? `<li class="flex items-center gap-3 rounded-lg px-2 py-2">${rowBox(row.ic)}<div class="min-w-0 flex-1"><p class="truncate text-sm font-medium text-foreground">${row.name}</p><p class="text-xs text-muted">${row.sub}</p></div>${iconButton("x", "Bỏ khỏi hàng chờ")}</li>` : row).join("")}</ul>`;
+  return trayWindow(`${trayHeader("Morphix")}${state.tt === "loi" ? errorBanner() : ""}
+    <div data-wf-block="2" class="px-4 pb-3"><div class="flex h-12 items-center justify-center gap-2 rounded-xl border-2 border-dashed border-foreground/15 text-sm text-muted">${icon("upload", "size-4")}Thả thêm file vào đây</div></div>
+    <div data-wf-block="3">${underline("hang")}<div class="min-h-[220px] px-2 py-2">${list}</div></div>${trayFooter(4)}`);
+}
+
+/* ---------- lý do từng phương án ---------- */
+const REASONS = {
+  "menu-a": { name: "A · Vòng tròn quanh con trỏ", rec: true,
+    why: "Việc chính là đổi file trong một cú bấm: vòng ôm con trỏ nên mọi lựa chọn cách tay như nhau.",
+    uu: ["Giống Tangerine: người quen sẽ nhận ra ngay", "Mỗi múi là một vùng bấm lớn, cách con trỏ bằng nhau", "Nhãn ngắn (PDF, JPG), đọc lướt được"],
+    nhuoc: ["Quá 8 múi thì múi nhỏ lại, phải có múi “···” mở rộng (video có tới 14 định dạng)", "Trên Wayland không đặt được tại con trỏ: vòng hiện giữa cửa sổ file manager", "Phải tự vẽ (không dùng menu của hệ điều hành), phím mũi tên cần làm riêng"],
+    hop: "File hay đổi sang vài định dạng quen (PDF, JPG, MP4) và ít tuỳ chọn.",
+    tips: ["Thêm màu ở mục gợi ý", "Chữ trên vòng to hơn", "Bỏ khối 3", "Thoáng hơn, tăng cỡ vòng"] },
+  "menu-b": { name: "B · Danh sách thả tại con trỏ",
+    why: "Việc chính vẫn là đổi nhanh, nhưng danh sách đọc được nhãn đầy đủ và dùng được bằng bàn phím.",
+    uu: ["Chứa được 14+ định dạng của video mà không phải gom", "Dùng mũi tên và Enter, trình đọc màn hình đọc được", "Quen mắt như menu chuột phải"],
+    nhuoc: ["Mất hình đặc trưng của app gốc", "Cao khoảng 410px, màn thấp phải lật lên trên con trỏ"],
+    hop: "Ưu tiên bàn phím, nhiều định dạng, hoặc chạy trên Wayland.",
+    tips: ["Mục “Gộp thành 1 PDF” nổi hơn", "Bỏ dòng chân khối 4", "Tab Công cụ thành dòng cuộn", "Thêm màu brand ở tab đang chọn"] },
+  "menu-c": { name: "C · Bảng hai cột có tuỳ chọn",
+    why: "Ảnh → PDF cần sắp thứ tự và chọn khổ giấy, nên cho thấy file và tuỳ chọn trước khi chạy.",
+    uu: ["Kéo đổi thứ tự ảnh trước khi gộp", "Chọn khổ giấy, chất lượng, nơi lưu trong một chỗ", "Thấy rõ file nào sẽ bị xử lý"],
+    nhuoc: ["Nhiều bước hơn: chọn, chỉnh, rồi bấm Chuyển đổi", "Rộng 620px, che nhiều trên màn nhỏ"],
+    hop: "Gộp nhiều file hoặc cần kiểm soát đầu ra.",
+    tips: ["Đổi chip định dạng thành danh sách", "Nút Chuyển đổi đưa lên đầu", "Bỏ cột trái khi chỉ có một file", "Thoáng hơn"] },
+  "khay-a": { name: "A · Ô thả file trước, lịch sử ngắn bên dưới", rec: true,
+    why: "Dùng hằng ngày là thả file rồi xong, nên ô thả đứng đầu và lịch sử chỉ để mở lại kết quả.",
+    uu: ["Việc chính ở ngay trên cùng", "Dòng đang chạy có thanh tiến độ ngay trong lịch sử", "Dòng “Xử lý ngay trên máy” nhắc lý do chọn app"],
+    nhuoc: ["Video lớn chạy lâu thì tiến độ bị đẩy xuống dưới"],
+    hop: "Phần lớn file nhỏ, xong trong vài giây.",
+    tips: ["Thêm màu ở ô thả", "Bỏ dòng chân khối 4", "Tiêu đề đậm hơn", "Thoáng hơn"] },
+  "khay-b": { name: "B · Hàng chờ trước",
+    why: "Video lớn chạy lâu, nên tiến độ và hàng chờ đứng đầu, ô thả thu thành một dải.",
+    uu: ["Thấy ngay việc nào đang chạy, việc nào chờ", "Huỷ từng việc trong hàng chờ"],
+    nhuoc: ["Ô thả nhỏ hơn, dễ thả trượt", "Khi không có việc nào, màn gần như rỗng"],
+    hop: "Hay xử lý nhiều file hoặc video dài.",
+    tips: ["Ô thả to lại", "Gộp hai tab thành một danh sách", "Thêm màu brand ở thanh tiến độ", "Bỏ khối 4"] },
+};
+function renderReason() {
+  const reason = REASONS[`${state.man}-${state.v}`];
+  const box = document.querySelector("[data-wf-reason]");
+  box.querySelector(".wf-reason-name").textContent = reason.name;
+  box.querySelector(".wf-reason-tag").hidden = !reason.rec;
+  box.querySelector(".wf-reason-why").textContent = reason.why;
+  box.querySelector('[data-r="uu"]').innerHTML = reason.uu.map((t) => `<li>${t}</li>`).join("");
+  box.querySelector('[data-r="nhuoc"]').innerHTML = reason.nhuoc.map((t) => `<li>${t}</li>`).join("");
+  box.querySelector('[data-r="hop"]').textContent = reason.hop;
+  box.querySelector('[data-r="tips"]').innerHTML = reason.tips.map((t) => `<button type="button" data-copy="${t}">${t}<svg data-icon="chep" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg><svg data-icon="da-chep" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button>`).join("");
+  for (const tip of box.querySelectorAll("[data-copy]")) tip.addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(tip.dataset.copy); } catch (error) { console.warn("Không chép được vào clipboard", error); }
+    tip.setAttribute("data-copied", ""); setTimeout(() => tip.removeAttribute("data-copied"), 1500);
+  });
+}
+
+/* ---------- vẽ ---------- */
+function render() {
+  const view = state.man === "menu" ? { a: menuA, b: menuB, c: menuC }[state.v]() : { a: trayA, b: trayB }[state.v]();
+  document.getElementById("wf-design").innerHTML = state.man === "menu"
+    ? `<div class="relative min-h-[720px] overflow-hidden bg-background">${fileManager()}${state.v === "a" ? "" : cursorMark()}${view}</div>`
+    : `<div class="relative min-h-[720px] overflow-hidden bg-background"><div aria-hidden="true" class="absolute top-8 left-8 max-w-md text-xs text-muted">Minh hoạ bối cảnh: bấm biểu tượng Morphix ở khay hệ thống. Phần có số là thiết kế.</div>${view}${taskbar()}</div>`;
+  renderReason();
+  requestAnimationFrame(() => requestAnimationFrame(placeBlockNumbers));
+}
+document.getElementById("wf-design").addEventListener("click", (event) => {
+  const target = event.target.closest("[data-act]");
+  if (!target) return;
+  state[target.dataset.act] = target.dataset.val;
+  history.replaceState(null, "", urlWith({}));
+  render();
+});
+new MutationObserver(() => { if (document.querySelector("i[data-lucide]")) lucide.createIcons(); }).observe(document.body, { childList: true, subtree: true });
+
+function placeBlockNumbers() {
+  const isOverlap = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+  for (const block of document.querySelectorAll("[data-wf-block]")) {
+    const rect = block.getBoundingClientRect();
+    const numberRect = { left: rect.left + 4, top: rect.top + 4, right: rect.left + 22, bottom: rect.top + 22 };
+    const contents = [...block.querySelectorAll("svg, img")].map((node) => node.getBoundingClientRect());
+    const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (!node.textContent.trim()) continue;
+      const range = document.createRange(); range.selectNodeContents(node); contents.push(...range.getClientRects());
+    }
+    block.toggleAttribute("data-wf-block-out", contents.some((r) => r.width > 0 && isOverlap(r, numberRect)));
+  }
+}
+addEventListener("resize", placeBlockNumbers);
+// Tailwind bản trình duyệt chỉ quét class sau khi nó khởi động; vẽ sau "load" để lớp tiện ích kịp sinh ra.
+addEventListener("load", render);
+</script>
+</body>
+</html>

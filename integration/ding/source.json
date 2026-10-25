@@ -1,0 +1,15 @@
+{
+  "package": "gnome-shell-extension-desktop-icons-ng",
+  "version": "46+really47.0.9-1ubuntu5",
+  "source": "https://launchpad.net/ubuntu/+source/gnome-shell-extension-desktop-icons-ng/46+really47.0.9-1ubuntu5",
+  "source_files": {
+    "app/fileItemMenu.js": "f3784240a959187747ab8b153f2e9a4c03d1120bc56849e99aec17d4eb994111",
+    "app/desktopManager.js": "022c43d8587f2b41c4e60e9ec4ff6d1fcf059688d6ec66fce25c642d896bce50",
+    "metadata.json": "f29cedcb83a8e1ac8ea4c205a48f5342d196e3930fe566023a49eba7066179e7",
+    "extension.js": "bdc6c9460d4688e0b410417e664a715c409d5c9591bd8227adc544fdcde5b25f"
+  },
+  "patched_files": {
+    "app/fileItemMenu.js": "9f0d405db8c44eaff06712a51ce76b895fda33da4e1661175f3f839ce78bfb77",
+    "app/desktopManager.js": "06ce326d7de97789c1b8ddffc7ee42555bee88af49e71613027e2b55aaa8ed79"
+  }
+}

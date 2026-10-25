@@ -1,0 +1,35 @@
+[package]
+name = "morphix-cli"
+version.workspace = true
+license.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "morphix"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.6.7", features = ["derive"] }
+morphix-core = { path = "../morphix-core" }
+morphix-ipc = { path = "../morphix-ipc" }
+tempfile = "3.27.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tracing = "0.1.44"
+tracing-subscriber = "0.3.23"
+url = "2.5.8"
+
+[dev-dependencies]
+assert_cmd = "2.2.2"
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
+lopdf = "0.45.0"
+pdf-writer = "0.15.0"
+predicates = "3.1.4"
+zip = { version = "9.0.5", default-features = false, features = ["deflate"] }
+
+# WHY target-specific: winreg chỉ dùng cho backend Windows; Linux build không kéo thêm dependency.
+[target.'cfg(windows)'.dependencies]
+winreg = "0.56.0"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+glib = "0.18.5"

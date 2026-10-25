@@ -1,0 +1,23 @@
+Lời đề nghị cung cấp mã nguồn (GPL)
+====================================
+
+Gói Morphix này (bản Ubuntu 22.04, jammy) chứa chương trình ffmpeg và các thư viện đi kèm có
+giấy phép GPL (xem LICENSES-THIRD-PARTY.md). Mã nguồn tương ứng được cung cấp như sau.
+
+Phiên bản ffmpeg đóng gói:
+  ffmpeg 6.1.1, lấy từ tarball gốc của upstream (không dùng gói ffmpeg của Ubuntu 22.04, bản 4.4.x)
+  Cấu hình biên dịch (ffmpeg -buildconf) đầy đủ nằm trong /usr/share/doc/morphix/ffmpeg-buildconf.txt
+  (cùng bộ codec với bản Noble, có --enable-gpl và --enable-libx264; flag không dùng được trên jammy
+  được ghi trong file đó).
+
+Mã nguồn đầy đủ:
+  ffmpeg 6.1.1: https://ffmpeg.org/releases/ffmpeg-6.1.1.tar.xz
+  Mã nguồn các thư viện GPL đi kèm (x264, x265, zimg, và các gói khác ghi trong
+  LICENSES-THIRD-PARTY.md) lấy từ kho nguồn của Ubuntu 22.04 (jammy), ví dụ:
+  apt-get source <tên gói> (cần dòng deb-src của jammy).
+
+Khi phát hành công khai, bản phát hành phải kèm chính các tệp nguồn đó (hoặc lời đề nghị này
+có hiệu lực tối thiểu ba năm theo GPL-2 mục 3b). Đây là điểm phải kiểm trước khi phát hành,
+không phải tư vấn pháp lý.
+
+Morphix chạy ffmpeg như một tiến trình riêng, không liên kết tĩnh vào mã của Morphix.

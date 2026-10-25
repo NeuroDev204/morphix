@@ -1,0 +1,78 @@
+--- a/app/fileItemMenu.js
++++ b/app/fileItemMenu.js
+@@ -30,6 +30,49 @@
+ 
+ const _ = Gettext.gettext;
+ 
++var morphixCommandForSelection = function(fileItems) {
++    let argv = ['/usr/bin/morphix'];
++    if (!fileItems || fileItems.length === 0) {
++        argv.push('tray');
++    } else {
++        let uris = [];
++        for (let item of fileItems) {
++            try {
++                if (item.isSpecial || item.isDirectory || !item.file.is_native() ||
++                    item.file.query_file_type(Gio.FileQueryInfoFlags.NONE, null) !== Gio.FileType.REGULAR) {
++                    uris = [];
++                    break;
++                }
++                uris.push(item.file.get_uri());
++            } catch (error) {
++                console.error(error, 'Could not inspect the Desktop selection for Morphix.');
++                uris = [];
++                break;
++            }
++        }
++        if (uris.length === fileItems.length) {
++            argv.push('menu', '--uris', ...uris);
++        } else {
++            argv.push('tray', '--unsupported-selection');
++        }
++    }
++    return argv;
++};
++
++var launchMorphix = function(fileItems) {
++    try {
++        let argv = morphixCommandForSelection(fileItems);
++        DesktopIconsUtil.trySpawn(
++            null,
++            argv,
++            DesktopIconsUtil.getFilteredEnviron()
++        );
++    } catch (error) {
++        console.error(error, 'Could not start Morphix from the Desktop menu.');
++        new ShowErrorPopup.ShowErrorPopup(_('Morphix could not be opened'), error.message, true);
++    }
++};
++
+ var FileItemMenu = class {
+     constructor(desktopManager) {
+         this._currentFileItem = null;
+@@ -141,6 +184,12 @@
+             this._menu.destroy();
+             this._menu = null;
+         });
++
++        this._addElementToMenu(_('Morphix'), () => {
++            let selection = this._desktopManager.getCurrentSelection(false);
++            launchMorphix(selection || [fileItem]);
++        });
++        this._addSeparator();
+ 
+         let keepStacked = Prefs.desktopSettings.get_boolean('keep-stacked');
+         if (keepStacked && !fileItem.stackUnique) {
+--- a/app/desktopManager.js
++++ b/app/desktopManager.js
+@@ -1093,6 +1093,10 @@
+         let selectAll = new Gtk.MenuItem({label: _('Select All')});
+         selectAll.connect('activate', () => this._selectAll());
+         this._menu.add(selectAll);
++
++        let morphixItem = new Gtk.MenuItem({label: _('Morphix')});
++        morphixItem.connect('activate', () => FileItemMenu.launchMorphix([]));
++        this._menu.add(morphixItem);
+ 
+         this._addSortingMenu();
+ 

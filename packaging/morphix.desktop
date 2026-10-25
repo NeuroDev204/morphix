@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Morphix
+Comment=Convert files on your computer
+Exec=/usr/bin/morphix tray
+Icon=morphix
+Terminal=false
+Type=Application
+Categories=Utility;
+StartupNotify=true

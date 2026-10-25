@@ -1,0 +1,28 @@
+[package]
+name = "morphix-core"
+version.workspace = true
+license.workspace = true
+edition.workspace = true
+
+[dependencies]
+csv = "1.4.0"
+directories = "6.0.0"
+flate2 = "1.1.10"
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "gif", "bmp", "tiff", "webp", "avif"] }
+thiserror = "2.0.21"
+img-parts = "0.4.1"
+infer = "0.22.0"
+natord = "1.0.9"
+pdfium-render = { version = "0.9.4", default-features = false, features = ["thread_safe", "pdfium_latest"] }
+pdf-writer = "0.15.0"
+tempfile = "3.27.0"
+tracing = "0.1.44"
+webp = "0.3.1"
+which = "8.0.6"
+zip = { version = "9.0.5", default-features = false, features = ["deflate"] }
+tar = "0.4.46"
+sevenz-rust2 = { version = "0.24.1", default-features = false, features = ["compress", "util"] }
+
+[dev-dependencies]
+kamadak-exif = "0.6.1"
+lopdf = "0.45.0"

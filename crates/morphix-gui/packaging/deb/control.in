@@ -1,0 +1,12 @@
+Package: morphix
+Version: @VERSION@
+Architecture: amd64
+Maintainer: Morphix (bản dựng cục bộ)
+Section: utils
+Priority: optional
+Installed-Size: @INSTALLED_SIZE@
+Depends: @DEPENDS@
+Description: Đổi định dạng, nén và xử lý file ngay trên máy
+ Gói tự chứa: ffmpeg GPL (libx264) và PDFium đi kèm trong /usr/lib/morphix.
+ Cài bằng quyền quản trị. Morphix tự thêm mục vào menu chuột phải Files/Desktop.
+ Các tích hợp phụ theo người dùng có thể bật bằng morphix install-integration.

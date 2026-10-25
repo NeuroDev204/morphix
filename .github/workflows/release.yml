@@ -1,0 +1,74 @@
+name: release
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  tarball:
+    needs: test
+    runs-on: ubuntu-latest
+    # WHY Ubuntu 22.04: glibc 2.35 là mức tối thiểu bản cài bằng lệnh curl hứa hỗ trợ.
+    container: ubuntu:22.04
+    steps:
+      - run: apt-get update && apt-get install -y --no-install-recommends git ca-certificates curl
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: scripts/ci/setup-build-deps.sh
+      - run: npm ci
+        working-directory: crates/morphix-gui/ui
+      # WHY /tmp/dist: trong container, runner.temp trỏ đường dẫn máy chủ; build-tarball.sh cấm đầu ra trong repo.
+      - run: scripts/build-tarball.sh /tmp/dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tarball
+          path: /tmp/dist/morphix-x86_64-linux.tar.gz*
+          if-no-files-found: error
+
+  deb:
+    needs: test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: scripts/ci/setup-build-deps.sh
+      # WHY ghim phiên bản: build-ffmpeg-sidecar.sh và prepare-ding.py kiểm đúng các bản này.
+      - run: |
+          sudo apt-get install -y ffmpeg=7:6.1.1-3ubuntu5 dpkg-dev
+          version="$(python3 -c 'import json;print(json.load(open("integration/ding/source.json"))["version"])')"
+          cd "$RUNNER_TEMP" && apt-get download "gnome-shell-extension-desktop-icons-ng=$version"
+          dpkg-deb -x gnome-shell-extension-desktop-icons-ng_*.deb ding
+      - run: npm ci
+        working-directory: crates/morphix-gui/ui
+      - run: scripts/build-deb.sh "$RUNNER_TEMP/dist"
+        env:
+          MORPHIX_DING_SOURCE: ${{ runner.temp }}/ding/usr/share/gnome-shell/extensions/ding@rastersoft.com
+      - run: scripts/check-deb.sh "$RUNNER_TEMP"/dist/*.deb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb
+          path: ${{ runner.temp }}/dist/*.deb
+          if-no-files-found: error
+
+  publish:
+    needs: [tarball, deb]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - run: gh release create "$GITHUB_REF_NAME" dist/* scripts/install.sh --title "Morphix $GITHUB_REF_NAME" --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
