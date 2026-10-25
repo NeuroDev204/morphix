@@ -19,7 +19,7 @@ case "$MORPHIX_TARGET" in
   jammy) echo "Jammy chưa được hỗ trợ: tích hợp Desktop ghim DING của Ubuntu 24.04" >&2; exit 1 ;;
   *) echo "MORPHIX_TARGET không hợp lệ: $MORPHIX_TARGET" >&2; exit 1 ;;
 esac
-readonly DEB_REVISION=3
+readonly DEB_REVISION=1
 DEB="$OUT/morphix_${VERSION}-${DEB_REVISION}_amd64.deb"
 
 # WHY: sản phẩm và cây đóng gói không được nằm trong repo, để không lỡ commit binary.

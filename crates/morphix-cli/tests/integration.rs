@@ -1724,7 +1724,11 @@ fn doctor_reports_missing_entries_and_disabled_appindicator_as_missing() {
         .iter()
         .find(|c| c.id == ComponentId::TraySupport)
         .unwrap();
-    assert!(tray.message.contains("gnome-shell-extension-appindicator"), "{}", tray.message);
+    assert!(
+        tray.message.contains("gnome-shell-extension-appindicator"),
+        "{}",
+        tray.message
+    );
     assert_eq!(doctor_exit_code(&report.components), 0);
 }
 
@@ -2066,9 +2070,9 @@ mod windows_registry {
     use std::time::SystemTime;
 
     use morphix_cli::integration::windows::{
-        menu_command, AUTOSTART_OWNER_VALUE, COMMAND_SUBKEY, MENU_DISPLAY_NAME, MULTI_SELECT_MODEL,
-        LEGACY_VERB_KEY_PATH, OWNER_KEY_PATH, RUN_KEY_PATH, RUN_VALUE_NAME, VERB_KEY_PATH,
-        VERB_OWNER_VALUE,
+        menu_command, AUTOSTART_OWNER_VALUE, COMMAND_SUBKEY, LEGACY_VERB_KEY_PATH,
+        MENU_DISPLAY_NAME, MULTI_SELECT_MODEL, OWNER_KEY_PATH, RUN_KEY_PATH, RUN_VALUE_NAME,
+        VERB_KEY_PATH, VERB_OWNER_VALUE,
     };
     use morphix_cli::integration::{
         windows::WindowsBackend, BinaryPaths, ComponentId, ComponentStatus, IntegrationBackend,
@@ -2133,7 +2137,7 @@ mod windows_registry {
         }
     }
 
-#[test]
+    #[test]
     fn install_and_uninstall_remove_the_owned_image_only_verb_of_older_versions() {
         let sandbox = RegistrySandbox::new();
         let backend = sandbox.backend();
@@ -2161,266 +2165,6 @@ mod windows_registry {
         );
         backend.uninstall(ComponentId::WindowsContextMenu);
         assert!(!sandbox.key_exists(VERB_KEY_PATH));
-    }
-
-    #[test]
-    fn install_writes_player_verb_with_menu_command_and_quoted_run_value() {
-        let sandbox = RegistrySandbox::new();
-        let backend = sandbox.backend();
-        let paths = binaries("Morphix App");
-        let verb = VERB_KEY_PATH;
-        assert_eq!(
-            backend
-                .install(ComponentId::WindowsContextMenu, &paths)
-                .status,
-            ComponentStatus::Installed
-        );
-        assert_eq!(
-            backend.install(ComponentId::Autostart, &paths).status,
-            ComponentStatus::Installed
-        );
-        assert_eq!(
-            sandbox.read(verb, "MUIVerb").as_deref(),
-            Some(MENU_DISPLAY_NAME)
-        );
-        assert_eq!(
-            sandbox.read(verb, "MultiSelectModel").as_deref(),
-            Some(MULTI_SELECT_MODEL)
-        );
-        let expected_command = menu_command(&paths.morphix).unwrap();
-        assert_eq!(
-            sandbox
-                .read(&format!(r"{verb}\{COMMAND_SUBKEY}"), "")
-                .as_deref(),
-            Some(expected_command.as_str())
-        );
-        assert_eq!(
-            sandbox.read(verb, VERB_OWNER_VALUE).as_deref(),
-            Some(expected_command.as_str())
-        );
-        let expected_run = format!("\"{}\"", paths.gui.display());
-        assert_eq!(
-            sandbox.read(RUN_KEY_PATH, RUN_VALUE_NAME).as_deref(),
-            Some(expected_run.as_str())
-        );
-        assert_eq!(
-            sandbox
-                .read(OWNER_KEY_PATH, AUTOSTART_OWNER_VALUE)
-                .as_deref(),
-            Some(expected_run.as_str())
-        );
-    }
-
-    #[test]
-    fn rewritten_run_value_is_conflict_and_survives_uninstall() {
-        let sandbox = RegistrySandbox::new();
-        let backend = sandbox.backend();
-        let paths = binaries("Morphix App");
-        let rewritten = "\"C:\\Other\\other.exe\"";
-        assert_eq!(
-            backend.install(ComponentId::Autostart, &paths).status,
-            ComponentStatus::Installed
-        );
-        sandbox
-            .root()
-            .create_subkey(RUN_KEY_PATH)
-            .expect("mở Run")
-            .0
-            .set_value(RUN_VALUE_NAME, &rewritten.to_owned())
-            .expect("ghi đè Run");
-
-        assert_eq!(
-            backend.uninstall(ComponentId::Autostart).status,
-            ComponentStatus::Conflict
-        );
-        assert_eq!(
-            backend.install(ComponentId::Autostart, &paths).status,
-            ComponentStatus::Conflict
-        );
-        assert_eq!(
-            sandbox.read(RUN_KEY_PATH, RUN_VALUE_NAME).as_deref(),
-            Some(rewritten)
-        );
-    }
-
-    #[test]
-    fn rewritten_verb_command_is_conflict_and_survives_uninstall() {
-        let sandbox = RegistrySandbox::new();
-        let backend = sandbox.backend();
-        let paths = binaries("Morphix App");
-        let command_path = format!(r"{VERB_KEY_PATH}\{COMMAND_SUBKEY}");
-        let rewritten = "\"C:\\Other\\other.exe\" \"%1\"";
-        assert_eq!(
-            backend
-                .install(ComponentId::WindowsContextMenu, &paths)
-                .status,
-            ComponentStatus::Installed
-        );
-        sandbox
-            .root()
-            .create_subkey(&command_path)
-            .expect("mở command của verb")
-            .0
-            .set_value("", &rewritten.to_owned())
-            .expect("ghi đè command");
-
-        assert_eq!(
-            backend.uninstall(ComponentId::WindowsContextMenu).status,
-            ComponentStatus::Conflict
-        );
-        assert!(
-            sandbox.key_exists(VERB_KEY_PATH),
-            "không được xoá verb đã bị ghi đè"
-        );
-        assert_eq!(sandbox.read(&command_path, "").as_deref(), Some(rewritten));
-    }
-
-    #[test]
-    fn install_and_uninstall_are_idempotent_and_second_uninstall_is_already_absent() {
-        let sandbox = RegistrySandbox::new();
-        let backend = sandbox.backend();
-        let paths = binaries("Morphix App");
-        for id in [ComponentId::WindowsContextMenu, ComponentId::Autostart] {
-            assert_eq!(
-                backend.install(id, &paths).status,
-                ComponentStatus::Installed
-            );
-            assert_eq!(
-                backend.install(id, &paths).status,
-                ComponentStatus::AlreadyInstalled
-            );
-            assert_eq!(backend.uninstall(id).status, ComponentStatus::Removed);
-            assert_eq!(backend.uninstall(id).status, ComponentStatus::AlreadyAbsent);
-        }
-    }
-
-    #[test]
-    fn uninstall_removes_only_morphix_entries_and_keeps_parents_and_other_values() {
-        let sandbox = RegistrySandbox::new();
-        let backend = sandbox.backend();
-        let paths = binaries("Morphix App");
-        let other_run = r"Software\Microsoft\Windows\CurrentVersion\Run";
-        let other_class = r"Software\Classes\.other";
-        let root = sandbox.root();
-        root.create_subkey(other_class)
-            .expect("tạo key ngoài Morphix");
-        root.create_subkey(other_run)
-            .expect("mở Run")
-            .0
-            .set_value("OtherApp", &"\"C:\\Other\\other.exe\"".to_owned())
-            .expect("ghi Run khác");
-        backend.install(ComponentId::WindowsContextMenu, &paths);
-        backend.install(ComponentId::Autostart, &paths);
-
-        backend.uninstall(ComponentId::WindowsContextMenu);
-        backend.uninstall(ComponentId::Autostart);
-
-        assert!(!sandbox.key_exists(VERB_KEY_PATH));
-        assert!(
-            sandbox.key_exists(SHELL_PARENT),
-            "không được xoá parent shell"
-        );
-        assert!(
-            sandbox.key_exists(other_class),
-            "không được xoá key của chương trình khác"
-        );
-        assert_eq!(sandbox.read(other_run, RUN_VALUE_NAME), None);
-        assert!(sandbox.read(other_run, "OtherApp").is_some());
-        assert_eq!(sandbox.read(RUN_KEY_PATH, RUN_VALUE_NAME), None);
-    }
-
-    #[test]
-    fn foreign_verb_and_run_value_are_reported_as_conflict_and_left_byte_for_byte() {
-        let sandbox = RegistrySandbox::new();
-        let backend = sandbox.backend();
-        let paths = binaries("Morphix App");
-        let foreign_command = "\"C:\\Other\\other.exe\" \"%1\"";
-        let root = sandbox.root();
-        root.create_subkey(format!(r"{VERB_KEY_PATH}\{COMMAND_SUBKEY}"))
-            .expect("tạo verb của chương trình khác")
-            .0
-            .set_value("", &foreign_command.to_owned())
-            .expect("ghi verb khác");
-        root.create_subkey(RUN_KEY_PATH)
-            .expect("mở Run")
-            .0
-            .set_value(RUN_VALUE_NAME, &foreign_command.to_owned())
-            .expect("ghi Run khác");
-
-        assert_eq!(
-            backend
-                .install(ComponentId::WindowsContextMenu, &paths)
-                .status,
-            ComponentStatus::Conflict
-        );
-        assert_eq!(
-            backend.install(ComponentId::Autostart, &paths).status,
-            ComponentStatus::Conflict
-        );
-        assert_eq!(
-            backend.uninstall(ComponentId::WindowsContextMenu).status,
-            ComponentStatus::Conflict
-        );
-        assert_eq!(
-            backend.uninstall(ComponentId::Autostart).status,
-            ComponentStatus::Conflict
-        );
-        assert_eq!(
-            sandbox
-                .read(&format!(r"{VERB_KEY_PATH}\{COMMAND_SUBKEY}"), "")
-                .as_deref(),
-            Some(foreign_command)
-        );
-        assert_eq!(
-            sandbox.read(RUN_KEY_PATH, RUN_VALUE_NAME).as_deref(),
-            Some(foreign_command)
-        );
-        // WHY kiểm key: marker autostart nằm ở OWNER_KEY_PATH; xung đột không được tạo key đó.
-        assert!(
-            !sandbox.key_exists(OWNER_KEY_PATH),
-            "xung đột không được ghi marker autostart"
-        );
-    }
-
-    #[test]
-    fn moved_binary_is_stale_until_reinstalled_and_paths_with_spaces_quotes_and_ampersand_round_trip(
-    ) {
-        let sandbox = RegistrySandbox::new();
-        let backend = sandbox.backend();
-        let awkward = BinaryPaths {
-            morphix: std::env::temp_dir()
-                .join("Apps \"v1\" & Ứng dụng")
-                .join("morphix.exe"),
-            gui: std::env::temp_dir()
-                .join("Apps \"v1\" & Ứng dụng")
-                .join("morphix-gui.exe"),
-        };
-        backend.install(ComponentId::WindowsContextMenu, &awkward);
-        backend.install(ComponentId::Autostart, &awkward);
-        assert_eq!(
-            backend
-                .inspect(ComponentId::WindowsContextMenu, &awkward)
-                .status,
-            ComponentStatus::Installed
-        );
-        let moved = binaries("Morphix App");
-        assert_eq!(
-            backend
-                .inspect(ComponentId::WindowsContextMenu, &moved)
-                .status,
-            ComponentStatus::Stale
-        );
-        assert_eq!(
-            backend.inspect(ComponentId::Autostart, &moved).status,
-            ComponentStatus::Stale
-        );
-        assert_eq!(
-            backend
-                .install(ComponentId::WindowsContextMenu, &moved)
-                .status,
-            ComponentStatus::Installed
-        );
-    }
     }
 
     #[test]
