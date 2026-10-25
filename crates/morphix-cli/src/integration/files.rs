@@ -41,17 +41,23 @@ pub fn read_existing(path: &Path) -> io::Result<Option<ExistingFile>> {
 /// nhắc cụm từ trong câu không được coi là của Morphix, nếu không gỡ sẽ xoá nhầm file đó.
 const MARKER_SEARCH_LINES: usize = 2;
 
+/// File của Morphix: dòng `# Managed by Morphix` trong vài dòng đầu, hoặc file đánh dấu chỉ chứa đúng
+/// `Managed by Morphix\n`. WHY: dòng marker trần ở giữa nội dung khác có thể là ghi chú của người dùng;
+/// coi nó là của Morphix thì gỡ cài đặt sẽ xoá nhầm. File đánh dấu (thư mục, phím tắt) thì không có
+/// gì khác ngoài marker nên không thể nhầm.
 fn has_marker_line(bytes: &[u8]) -> bool {
-    String::from_utf8_lossy(bytes)
-        .lines()
-        .take(MARKER_SEARCH_LINES)
-        .any(is_marker_line)
+    bytes == format!("{MANAGED_MARKER}\n").as_bytes()
+        || String::from_utf8_lossy(bytes)
+            .lines()
+            .take(MARKER_SEARCH_LINES)
+            .any(is_marker_line)
 }
 
-/// WHY `#` được chấp nhận: script shell và Desktop Entry coi `#` là comment, nên dòng marker trần sẽ bị
-/// thực thi thành lệnh. Vẫn yêu cầu nguyên dòng marker, nên câu chứa cụm từ không khớp.
+/// Dòng comment marker. WHY `#`: script shell và Desktop Entry coi `#` là comment, nên dòng marker trần
+/// sẽ bị thực thi thành lệnh. Vẫn yêu cầu nguyên dòng marker, nên câu chứa cụm từ không khớp.
 fn is_marker_line(line: &str) -> bool {
-    line.strip_prefix('#').map_or(line, str::trim_start) == MANAGED_MARKER
+    line.strip_prefix('#')
+        .is_some_and(|rest| rest.trim_start() == MANAGED_MARKER)
 }
 
 pub fn classify(existing: Option<&ExistingFile>) -> FileOwnership {
@@ -136,7 +142,10 @@ pub fn publish_file(path: &Path, bytes: &[u8], mode: u32, tx: &mut Transaction) 
             "đường dẫn không có thư mục cha",
         )
     })?;
-    let created_dirs = create_missing_dirs(parent)?;
+    // WHY ghi nhận ngay: các bước sau còn có thể lỗi, và thư mục vừa tạo không được bị bỏ lại.
+    for dir in create_missing_dirs(parent)? {
+        tx.record(Undo::RemoveDirIfEmpty(dir));
+    }
     let previous = read_existing(path)?;
 
     let mut temp = NamedTempFile::new_in(parent)?;
@@ -145,10 +154,7 @@ pub fn publish_file(path: &Path, bytes: &[u8], mode: u32, tx: &mut Transaction) 
     set_mode(temp.path(), mode)?;
     temp.persist(path).map_err(|error| error.error)?;
 
-    // Ghi nhận sau persist: nếu bước này lỗi thì không có gì để rollback.
-    for dir in created_dirs {
-        tx.record(Undo::RemoveDirIfEmpty(dir));
-    }
+    // Ghi nhận file sau persist: nếu bước này lỗi thì file chưa đổi, không có gì để khôi phục.
     match previous {
         Some(old) => tx.record(Undo::RestoreFile(path.to_path_buf(), old)),
         None => tx.record(Undo::RemoveFile(path.to_path_buf())),

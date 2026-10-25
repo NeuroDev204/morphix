@@ -843,6 +843,11 @@ fn run_menu(files: &[PathBuf], newline_list: Option<&str>, uris: &[String]) -> E
     let socket = socket_name();
     let first_error = match send_request(&socket, &request) {
         Ok(()) => return ExitCode::SUCCESS,
+        // WHY: tên file không mã hoá được là lỗi của yêu cầu; khởi động GUI cũng không giúp gì.
+        Err(error) if error.kind() == std::io::ErrorKind::InvalidData => {
+            eprintln!("lỗi: {error}");
+            return ExitCode::from(2);
+        }
         Err(error) => error,
     };
     tracing::info!(error = %first_error, "không kết nối được GUI đang chạy, thử khởi động");

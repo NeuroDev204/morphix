@@ -32,6 +32,29 @@ fn is_capture_accel(accel: &str) -> bool {
     )
 }
 
+/// Lệnh hỏi phiên bản Nautilus theo từng trình quản lý gói, thử lần lượt.
+/// WHY không chạy `nautilus --version`: lệnh đó khởi động GTK/Tracker và ghi vào thư mục dữ liệu,
+/// nên `doctor` sẽ không còn chỉ đọc. Ba trình quản lý gói này phủ Debian/Ubuntu, Fedora/openSUSE và Arch.
+const NAUTILUS_VERSION_QUERIES: &[(&str, &[&str])] = &[
+    ("dpkg-query", &["-W", "-f=${Version}", "nautilus"]),
+    ("rpm", &["-q", "--qf", "%{VERSION}", "nautilus"]),
+    ("pacman", &["-Q", "nautilus"]),
+];
+
+/// Số phiên bản chính từ đầu ra của trình quản lý gói: `1:46.4-0ubuntu1` (dpkg), `46.4` (rpm),
+/// `nautilus 46.4-1` (pacman) đều cho 46.
+fn nautilus_major(output: &str) -> Option<u32> {
+    output
+        .split_whitespace()
+        .last()?
+        .rsplit(':')
+        .next()?
+        .split('.')
+        .next()?
+        .parse()
+        .ok()
+}
+
 pub(super) fn accelerator(
     roots: &XdgRoots,
     tools: &ToolRunner,
@@ -40,19 +63,20 @@ pub(super) fn accelerator(
     let id = ComponentId::NautilusAccel;
     let path = roots.config_home.join("nautilus/scripts-accels");
     if action != Action::Uninstall {
-        // WHY `nautilus --version` ("GNOME nautilus 46.4"): có trên mọi distro, dpkg-query chỉ có trên Debian/Ubuntu.
-        let supported = match tools("nautilus", &[OsStr::new("--version")]) {
-            ToolOutcome::Exited {
-                code: Some(0),
-                stdout,
-                ..
-            } => stdout
-                .split_whitespace()
-                .last()
-                .and_then(|v| v.split('.').next()?.parse::<u32>().ok())
-                .is_some_and(|v| v >= 46),
-            _ => false,
-        };
+        let supported = NAUTILUS_VERSION_QUERIES
+            .iter()
+            .find_map(|(program, args)| {
+                let args: Vec<&OsStr> = args.iter().map(OsStr::new).collect();
+                match tools(program, &args) {
+                    ToolOutcome::Exited {
+                        code: Some(0),
+                        stdout,
+                        ..
+                    } => nautilus_major(&stdout),
+                    _ => None,
+                }
+            })
+            .is_some_and(|v| v >= 46);
         if !supported {
             return report(
                 id,
@@ -421,11 +445,10 @@ mod tests {
     };
 
     fn nautilus(program: &str, _: &[&OsStr]) -> ToolOutcome {
-        // WHY `nautilus --version`: có trên mọi distro, còn dpkg-query chỉ có trên Debian/Ubuntu.
-        if program == "nautilus" {
+        if program == "dpkg-query" {
             ToolOutcome::Exited {
                 code: Some(0),
-                stdout: "GNOME nautilus 46.4\n".into(),
+                stdout: "1:46.4-0ubuntu1".into(),
                 stderr: String::new(),
             }
         } else {

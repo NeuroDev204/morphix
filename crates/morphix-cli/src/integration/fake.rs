@@ -44,7 +44,7 @@ impl FakeBackend {
     }
 
     fn desired_content(morphix: &Path) -> Vec<u8> {
-        format!("{MANAGED_MARKER}\ntarget={}\n", morphix.display()).into_bytes()
+        format!("# {MANAGED_MARKER}\ntarget={}\n", morphix.display()).into_bytes()
     }
 
     fn write_pair(&self, id: ComponentId, desired: &[u8], tx: &mut Transaction) -> io::Result<()> {

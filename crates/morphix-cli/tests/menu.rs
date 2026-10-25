@@ -197,3 +197,23 @@ fn menu_uris_reject_remote_schemes_and_mixing_with_other_inputs_with_exit_2() {
             .code(2);
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn menu_with_a_non_utf8_file_name_explains_it_instead_of_starting_the_gui() {
+    use std::os::unix::ffi::OsStrExt;
+    let d = tempfile::tempdir().unwrap();
+    let file = d.path().join(std::ffi::OsStr::from_bytes(b"\xffanh.jpg"));
+    cargo_bin_cmd!("morphix")
+        .env("MORPHIX_GUI_BIN", "/không/tồn/tại/morphix-gui")
+        .env(
+            "MORPHIX_IPC_NAME",
+            format!("morphix-cli-test-{}-non-utf8", std::process::id()),
+        )
+        .env("MORPHIX_DATA_DIR", d.path().join("data"))
+        .arg("menu")
+        .arg(&file)
+        .assert()
+        .code(2)
+        .stderr(contains("UTF-8"));
+}

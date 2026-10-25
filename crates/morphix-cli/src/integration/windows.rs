@@ -13,7 +13,11 @@ pub const MULTI_SELECT_MODEL: &str = "Player";
 /// mặc định của kế hoạch, không phải hành vi đã đo. Xem ledger "Chưa kiểm (Task 18)".
 const EXPLORER_PLACEHOLDER: &str = "%1";
 
-pub const VERB_KEY_PATH: &str = r"Software\Classes\SystemFileAssociations\image\shell\Morphix";
+/// WHY `*`: Morphix làm việc với mọi loại file (ảnh, PDF, media, văn bản, file nén), không chỉ ảnh.
+pub const VERB_KEY_PATH: &str = r"Software\Classes\*\shell\Morphix";
+/// Key của bản 0.1.x, chỉ hiện với ảnh. Cài và gỡ đều dọn key này (nếu là của Morphix) để không hiện hai mục.
+pub const LEGACY_VERB_KEY_PATH: &str =
+    r"Software\Classes\SystemFileAssociations\image\shell\Morphix";
 pub const COMMAND_SUBKEY: &str = "command";
 pub const VERB_OWNER_VALUE: &str = "MorphixOwner";
 pub const RUN_KEY_PATH: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
@@ -187,8 +191,8 @@ mod registry {
 
     use super::{
         autostart_command, bound_ownership, menu_entry, MenuEntry, AUTOSTART_OWNER_VALUE,
-        COMMAND_SUBKEY, OWNER_KEY_PATH, RUN_KEY_PATH, RUN_VALUE_NAME, VERB_KEY_PATH,
-        VERB_OWNER_VALUE,
+        COMMAND_SUBKEY, LEGACY_VERB_KEY_PATH, OWNER_KEY_PATH, RUN_KEY_PATH, RUN_VALUE_NAME,
+        VERB_KEY_PATH, VERB_OWNER_VALUE,
     };
     use crate::integration::{
         files::{FileOwnership, Transaction},
@@ -243,6 +247,9 @@ mod registry {
             match self.write_verb(&entry, &mut tx) {
                 Ok(()) => {
                     tx.commit();
+                    if let Err(error) = self.remove_legacy_verb() {
+                        return io_failure(id, LEGACY_VERB_KEY_PATH, &error);
+                    }
                     report(
                         id,
                         ComponentStatus::Installed,
@@ -268,9 +275,31 @@ mod registry {
             write_string(&verb, VERB_OWNER_VALUE, &entry.command)
         }
 
+        /// Xoá verb của bản cũ nếu nó mang marker Morphix; trả `true` khi đã xoá.
+        fn remove_legacy_verb(&self) -> io::Result<bool> {
+            match self.read_verb_at(LEGACY_VERB_KEY_PATH)?.0 {
+                FileOwnership::Owned => {
+                    self.root.delete_subkey_all(LEGACY_VERB_KEY_PATH)?;
+                    Ok(true)
+                }
+                FileOwnership::Absent | FileOwnership::Foreign => Ok(false),
+            }
+        }
+
         fn uninstall_verb(&self, id: ComponentId) -> IntegrationComponentReport {
+            let legacy_removed = match self.remove_legacy_verb() {
+                Ok(removed) => removed,
+                Err(error) => return io_failure(id, LEGACY_VERB_KEY_PATH, &error),
+            };
             match self.read_verb() {
                 Err(error) => io_failure(id, VERB_KEY_PATH, &error),
+                Ok((FileOwnership::Absent, _)) if legacy_removed => report(
+                    id,
+                    ComponentStatus::Removed,
+                    true,
+                    LEGACY_VERB_KEY_PATH,
+                    "đã gỡ",
+                ),
                 Ok((FileOwnership::Absent, _)) => absent(id, VERB_KEY_PATH),
                 Ok((FileOwnership::Foreign, _)) => conflict(id, VERB_KEY_PATH),
                 Ok((FileOwnership::Owned, _)) => match self.root.delete_subkey_all(VERB_KEY_PATH) {
@@ -308,7 +337,11 @@ mod registry {
 
         /// Đọc verb và sở hữu trong một lần; `None` khi key không có đủ value để dựng lại mục menu.
         fn read_verb(&self) -> io::Result<(FileOwnership, Option<MenuEntry>)> {
-            let Some(verb) = open_optional(&self.root, VERB_KEY_PATH)? else {
+            self.read_verb_at(VERB_KEY_PATH)
+        }
+
+        fn read_verb_at(&self, path: &str) -> io::Result<(FileOwnership, Option<MenuEntry>)> {
+            let Some(verb) = open_optional(&self.root, path)? else {
                 return Ok((FileOwnership::Absent, None));
             };
             let marker = read_string(&verb, VERB_OWNER_VALUE)?;
