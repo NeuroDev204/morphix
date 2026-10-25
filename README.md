@@ -19,7 +19,26 @@ curl -fsSL https://github.com/NeuroDev204/morphix/releases/latest/download/insta
 - Phím **Alt+C** (mở Morphix với các file đang chọn) chỉ có trên GNOME chạy X11. Trên Wayland và các desktop khác, dùng menu chuột phải.
 - Ubuntu 24.04 còn có gói `.deb` trong mục Releases, kèm menu chuột phải ngay trên desktop.
 
-Cài một phiên bản cụ thể: `curl -fsSL …/install.sh | MORPHIX_VERSION=v0.2.0 sh`.
+### Theo từng bản Linux
+
+Lệnh cài giống nhau cho mọi bản. Khác nhau là thư viện hệ thống và gói để Files (Nautilus) hiện menu Morphix. Các lệnh dưới đây là lệnh đã dùng khi kiểm thử; nếu `install.sh` in ra lệnh khác cho máy bạn, hãy chạy lệnh đó.
+
+| Bản Linux | Thư viện còn thiếu | Gói Nautilus cho menu Files | Đã kiểm trên |
+|---|---|---|---|
+| Fedora 44 | `sudo dnf install webkit2gtk4.1 libayatana-appindicator-gtk3` | `sudo dnf install nautilus-python` | GNOME, Wayland |
+| openSUSE Tumbleweed | `sudo zypper install libwebkit2gtk-4_1-0 libayatana-appindicator3-1` | `sudo zypper install nautilus-python` | GNOME, Wayland |
+| Debian 13 | `sudo apt install libwebkit2gtk-4.1-0 libayatana-appindicator3-1` | `sudo apt install python3-nautilus` | GNOME, Wayland |
+| Arch Linux | `sudo pacman -S webkit2gtk-4.1 libayatana-appindicator` | `sudo pacman -S nautilus-python` (chưa kiểm tên gói này) | XFCE, X11 |
+| Ubuntu 24.04 và các biến thể (Kubuntu, Xubuntu, Ubuntu MATE, Linux Mint 22) | `sudo apt install libwebkit2gtk-4.1-0 libayatana-appindicator3-1` | `sudo apt install python3-nautilus` (chưa kiểm trên Ubuntu GNOME) | Kubuntu KDE, Xubuntu XFCE, Ubuntu MATE, Mint Cinnamon, X11 |
+
+- **Lệnh curl cần `curl`.** Kubuntu 24.04 live không có sẵn: `sudo apt update && sudo apt install curl`.
+- **Menu theo trình quản lý file:** GNOME Files → Scripts → Morphix (chuột phải); KDE Dolphin → Morphix; Xfce Thunar → Morphix. Cinnamon (Nemo), MATE (Caja) chưa kiểm được vì máy thử không có các trình quản lý này.
+- **GNOME Wayland:** không có phím Alt+C; dùng chuột phải.
+- **GNOME X11:** Alt+C mở Morphix với các file đang chọn (chưa kiểm trên máy thật).
+- **Tray (icon khay) trên GNOME:** GNOME Fedora, Debian và openSUSE không có sẵn AppIndicator. Cài `gnome-shell-extension-appindicator`, chạy `gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com`, rồi đăng nhập lại. Không muốn cài thì dùng `morphix tray`.
+- **Kiểm tra lại:** `morphix doctor` liệt kê từng tích hợp và báo đúng lệnh còn thiếu.
+
+Cài một phiên bản cụ thể: `curl -fsSL …/install.sh | MORPHIX_VERSION=v0.1.1 sh`.
 
 ## Gỡ cài đặt
 
