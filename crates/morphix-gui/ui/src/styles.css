@@ -111,6 +111,14 @@ body {
   fill: var(--primary-hover);
 }
 
+.wheel-sector.is-active {
+  fill: var(--primary);
+}
+
+.wheel-sector.is-active:hover {
+  fill: var(--primary-hover);
+}
+
 /* wireframe: .segmented: rail is bg-background p-1 rounded-xl with a sunken shadow; the selected tab is raised on bg-surface */
 .segmented {
   display: inline-flex;
@@ -671,3 +679,19 @@ body {
 .khay-selection { overflow-y: auto; max-height: 55vh; flex-shrink: 0; }
 .selection-name { margin: 0.2rem 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .selection-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; padding: 0.4rem 0; }
+
+/* WHY: toast nằm dưới cùng để không đẩy vòng tròn; tự ẩn cùng lúc cửa sổ đóng. */
+.toast {
+  position: fixed;
+  left: 0.75rem;
+  right: 0.75rem;
+  bottom: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 0.75rem;
+  background: var(--surface-overlay);
+  color: var(--foreground);
+  font-size: 0.8125rem;
+  white-space: pre-line;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.08);
+}

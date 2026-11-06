@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use lopdf::{Document, EncryptionState, EncryptionVersion, Object, Permissions};
-use morphix_core::ops::pdf_text::pdf_to_text;
+use morphix_core::ops::pdf_text::{pdf_to_markdown, pdf_to_text};
 use morphix_core::{run_job, CancelToken, Job, MorphixError, Operation, Quality};
 use pdf_writer::{Content, Finish, Name, Pdf, Rect, Ref, Str};
 use tempfile::tempdir;
@@ -235,4 +235,31 @@ fn pdf_job_never_overwrites_an_existing_txt() {
     let output = report.items[0].result.as_ref().unwrap().clone();
     assert_eq!(output, dir.path().join("sach (1).txt"));
     assert_eq!(std::fs::read(&existing).unwrap(), "ghi chú cũ".as_bytes());
+}
+
+#[test]
+fn pdf_to_markdown_gives_one_heading_per_page() {
+    let dir = tempdir().unwrap();
+    let pages = [Some(PAGE_TEXT.to_vec()), Some(PAGE_TEXT_2.to_vec())];
+    let path = write_file(dir.path(), "vi.pdf", &build_pdf(&pages));
+
+    let mut out = Vec::new();
+    pdf_to_markdown(&path, &mut out).unwrap();
+
+    let md = String::from_utf8(out).unwrap();
+    let first = md.find("## Trang 1").expect("tiêu đề trang 1");
+    let second = md.find("## Trang 2").expect("tiêu đề trang 2");
+    assert!(first < md.find("Nguyễn Văn A").unwrap(), "{md:?}");
+    assert!(second < md.find("Chương 1").unwrap(), "{md:?}");
+}
+
+#[test]
+fn pdf_to_markdown_with_empty_page_fails_like_txt_and_writes_nothing() {
+    let dir = tempdir().unwrap();
+    let path = write_file(dir.path(), "scan.pdf", &two_page_pdf(None));
+
+    let mut out = Vec::new();
+    let reason = corrupt_reason(pdf_to_markdown(&path, &mut out).unwrap_err());
+    assert!(reason.contains("trang 2"), "{reason}");
+    assert!(out.is_empty());
 }

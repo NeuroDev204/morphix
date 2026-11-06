@@ -75,6 +75,44 @@ fn sized_file(dir: &std::path::Path, name: &str, bytes: usize) -> std::path::Pat
     path
 }
 
+fn write_png(dir: &std::path::Path, name: &str) -> std::path::PathBuf {
+    let path = dir.join(name);
+    image::RgbImage::from_pixel(8, 8, image::Rgb([10, 120, 200]))
+        .save(&path)
+        .unwrap();
+    path
+}
+
+#[test]
+fn job_for_action_builds_the_convert_job() {
+    let d = tempfile::tempdir().unwrap();
+    let input = write_png(d.path(), "a.png");
+    let settings = morphix_gui::settings::Settings::default();
+    let (job, label) =
+        morphix_gui::commands::job_for_action("convert:webp", vec![input.clone()], &settings)
+            .unwrap();
+    assert_eq!(
+        job.operation,
+        morphix_core::Operation::ConvertImage {
+            to: morphix_core::ImgFormat::WebP
+        }
+    );
+    assert_eq!(job.inputs, vec![input]);
+    assert_eq!(job.quality, morphix_gui::menu_items::quality_for(&settings));
+    assert_eq!(label, "WebP");
+}
+
+#[test]
+fn job_for_action_rejects_an_id_that_does_not_apply() {
+    let d = tempfile::tempdir().unwrap();
+    let text = d.path().join("ghi-chu.txt");
+    std::fs::write(&text, "xin chào").unwrap();
+    let settings = morphix_gui::settings::Settings::default();
+    let error =
+        morphix_gui::commands::job_for_action("convert:webp", vec![text], &settings).unwrap_err();
+    assert_eq!(error, "Thao tác này không áp dụng cho các file đã chọn.");
+}
+
 #[test]
 fn history_entry_for_report_success_names_first_output_and_sums_bytes() {
     let d = tempfile::tempdir().unwrap();
@@ -91,10 +129,12 @@ fn history_entry_for_report_success_names_first_output_and_sums_bytes() {
             morphix_core::ItemReport {
                 inputs: vec![inputs[0].clone()],
                 result: Ok(outputs[0].clone()),
+                warnings: Vec::new(),
             },
             morphix_core::ItemReport {
                 inputs: vec![inputs[1].clone()],
                 result: Ok(outputs[1].clone()),
+                warnings: Vec::new(),
             },
         ],
     };
@@ -105,6 +145,29 @@ fn history_entry_for_report_success_names_first_output_and_sums_bytes() {
     assert_eq!(
         entry.detail,
         "Hoàn tất · Đổi sang JPG · 2 thành công, 0 lỗi · 3 KB → 1 KB"
+    );
+}
+
+#[test]
+fn history_entry_for_report_appends_first_warning_to_detail() {
+    let d = tempfile::tempdir().unwrap();
+    let input = sized_file(d.path(), "a.png", 100);
+    let output = sized_file(d.path(), "a.jpg", 200);
+    let report = morphix_core::JobReport {
+        items: vec![morphix_core::ItemReport {
+            inputs: vec![input.clone()],
+            result: Ok(output),
+            warnings: vec!["a.png: file mới lớn hơn file gốc 100%".to_string()],
+        }],
+    };
+    let entry = morphix_gui::commands::history_entry_for_report(&convert_job(vec![input]), &report);
+    assert_eq!(entry.status, EntryStatus::Done);
+    assert!(
+        entry
+            .detail
+            .ends_with(" · a.png: file mới lớn hơn file gốc 100%"),
+        "{}",
+        entry.detail
     );
 }
 
@@ -123,14 +186,17 @@ fn history_entry_for_report_mixed_is_failed_and_counts_only_successes_in_output(
             morphix_core::ItemReport {
                 inputs: vec![inputs[0].clone()],
                 result: Ok(out_a.clone()),
+                warnings: Vec::new(),
             },
             morphix_core::ItemReport {
                 inputs: vec![inputs[1].clone()],
                 result: Err(morphix_core::MorphixError::InvalidInput("hỏng".into())),
+                warnings: Vec::new(),
             },
             morphix_core::ItemReport {
                 inputs: vec![inputs[2].clone()],
                 result: Ok(out_c),
+                warnings: Vec::new(),
             },
         ],
     };
@@ -161,6 +227,7 @@ fn history_entry_for_report_all_failed_uses_input_name_and_reports_no_output() {
             .map(|input| morphix_core::ItemReport {
                 inputs: vec![input.clone()],
                 result: Err(morphix_core::MorphixError::InvalidInput("hỏng".into())),
+                warnings: Vec::new(),
             })
             .collect(),
     };
@@ -191,14 +258,17 @@ fn history_entry_for_report_cancelled_keeps_partial_counts() {
             morphix_core::ItemReport {
                 inputs: vec![inputs[0].clone()],
                 result: Ok(out_a),
+                warnings: Vec::new(),
             },
             morphix_core::ItemReport {
                 inputs: vec![inputs[1].clone()],
                 result: Err(morphix_core::MorphixError::Cancelled),
+                warnings: Vec::new(),
             },
             morphix_core::ItemReport {
                 inputs: vec![inputs[2].clone()],
                 result: Err(morphix_core::MorphixError::Cancelled),
+                warnings: Vec::new(),
             },
         ],
     };

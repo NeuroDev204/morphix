@@ -1,3 +1,6 @@
+// WHY: gần hết test ở đây là cfg(unix) (script giả là sh), nên trên Windows các import của chúng thừa.
+#![cfg_attr(not(unix), allow(unused_imports))]
+
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::thread;

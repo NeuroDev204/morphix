@@ -19,6 +19,19 @@ fn job(inputs: Vec<std::path::PathBuf>, operation: Operation) -> Job {
 }
 
 #[test]
+fn merging_a_plain_jpeg_does_not_warn_about_the_pdf_frame() {
+    let d = tempdir().unwrap();
+    let jpeg = make_jpeg(d.path(), "a.jpg", 64, 64, None);
+    let report = run_job(
+        &job(vec![jpeg], Operation::MergeImagesToPdf),
+        &CancelToken::new(),
+        &|_| {},
+    );
+    assert!(report.items[0].result.is_ok());
+    assert!(report.items[0].warnings.is_empty());
+}
+
+#[test]
 fn one_bad_file_does_not_stop_the_batch() {
     let d = tempdir().unwrap();
     let good1 = make_png(d.path(), "a.png", 8, 8);
@@ -76,6 +89,14 @@ fn planned_outputs_match_real_names_when_no_collision() {
         .result
         .unwrap();
     assert_eq!(plan, vec![(vec![a], real)]);
+}
+
+#[test]
+fn planned_pdf_to_markdown_is_named_md_next_to_the_pdf() {
+    let d = tempdir().unwrap();
+    let pdf = d.path().join("a.pdf");
+    let plan = planned_outputs(&job(vec![pdf.clone()], Operation::PdfToMarkdown));
+    assert_eq!(plan, vec![(vec![pdf], d.path().join("a.md"))]);
 }
 
 #[test]
@@ -150,4 +171,36 @@ fn dry_run_media_names_use_the_written_lowercase_extension() {
         },
     ));
     assert_eq!(plan[0].1, d.path().join("clip-cat.mp4"));
+}
+
+#[test]
+fn converting_an_animated_gif_warns_that_only_the_first_frame_is_kept() {
+    use image::{codecs::gif::GifEncoder, Frame, RgbaImage};
+    let d = tempdir().unwrap();
+    let path = d.path().join("anim.gif");
+    let mut encoder = GifEncoder::new(std::fs::File::create(&path).unwrap());
+    for shade in [0u8, 255] {
+        let frame = RgbaImage::from_pixel(8, 8, image::Rgba([shade, shade, shade, 255]));
+        encoder.encode_frame(Frame::new(frame)).unwrap();
+    }
+    drop(encoder);
+    let report = run_job(
+        &job(
+            vec![path],
+            Operation::ConvertImage {
+                to: ImgFormat::WebP,
+            },
+        ),
+        &CancelToken::new(),
+        &|_| {},
+    );
+    assert!(report.items[0].result.is_ok());
+    assert!(
+        report.items[0]
+            .warnings
+            .iter()
+            .any(|w| w.contains("khung đầu")),
+        "{:?}",
+        report.items[0].warnings
+    );
 }

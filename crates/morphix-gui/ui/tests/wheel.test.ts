@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { WHEEL, labelPosition, sectorIndexAt, sectorPath, wrapLabel, type Point } from "../src/wheel";
+import {
+  WHEEL,
+  labelPosition,
+  sectorIndexAt,
+  sectorPath,
+  wrapLabel,
+  type Point,
+} from "../src/wheel";
 
 interface ParsedSector {
   readonly outerStart: Point;

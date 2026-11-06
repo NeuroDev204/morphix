@@ -1,0 +1,32 @@
+[package]
+name = "morphix-shell"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+morphix-core = { path = "../morphix-core" }
+
+[dev-dependencies]
+image = { version = "0.25.10", default-features = false, features = ["png"] }
+tempfile = "3.27.0"
+
+[target.'cfg(windows)'.dependencies]
+morphix-ipc = { path = "../morphix-ipc" }
+windows-core = "0.62.2"
+windows = { version = "0.62.2", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Ole",
+    "Win32_System_Registry",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+    "Win32_UI_Controls",
+    "Win32_UI_WindowsAndMessaging",
+] }

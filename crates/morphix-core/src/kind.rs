@@ -67,6 +67,15 @@ impl ImgFormat {
     pub fn supports_metadata_tools(self) -> bool {
         matches!(self, ImgFormat::Jpeg | ImgFormat::Png | ImgFormat::WebP)
     }
+
+    /// Nguồn lossless thì convert sang WebP không được làm mất điểm ảnh nào. WebP nguồn tính là đã lossy:
+    /// từ đuôi file không phân biệt được WebP lossless, nên chọn phía không nâng chất lượng giả.
+    pub fn is_lossless_source(self) -> bool {
+        matches!(
+            self,
+            ImgFormat::Png | ImgFormat::Bmp | ImgFormat::Tiff | ImgFormat::Gif
+        )
+    }
 }
 
 /// Định dạng văn bản thuần, phụ đề và bảng. Không có chữ ký nhị phân nên nhận dạng bằng đuôi
@@ -79,6 +88,9 @@ pub enum TextFormat {
     Vtt,
     Csv,
     Tsv,
+    Html,
+    /// Word (Office Open XML). Là zip nên được nhận theo nội dung, không theo đuôi.
+    Docx,
 }
 
 impl TextFormat {
@@ -90,6 +102,8 @@ impl TextFormat {
             TextFormat::Vtt => "vtt",
             TextFormat::Csv => "csv",
             TextFormat::Tsv => "tsv",
+            TextFormat::Html => "html",
+            TextFormat::Docx => "docx",
         }
     }
 
@@ -101,6 +115,8 @@ impl TextFormat {
             "vtt" => Some(TextFormat::Vtt),
             "csv" => Some(TextFormat::Csv),
             "tsv" => Some(TextFormat::Tsv),
+            "html" | "htm" => Some(TextFormat::Html),
+            "docx" => Some(TextFormat::Docx),
             _ => None,
         }
     }
@@ -258,6 +274,19 @@ pub fn detect(path: &Path) -> Result<FileKind> {
         .map_err(io_error)?;
 
     let kind = sniff_binary(&head, path);
+    // WHY: `infer` chỉ nhận DOCX khi các mục zip theo đúng thứ tự Word hay ghi; trình khác ghi
+    // `[Content_Types].xml` trước nên phải xem mục lục zip. Zip không đọc được thì vẫn là file nén.
+    if kind == FileKind::Archive(ArchiveFormat::Zip) && zip_has_word_document(path) {
+        return Ok(FileKind::Text(TextFormat::Docx));
+    }
+    // WHY: DOCX có mật khẩu được Word lưu dạng OLE, không phải zip; nhận là Word (theo đuôi) để
+    // người dùng thấy lý do "có mật khẩu" thay vì "không hỗ trợ".
+    let named_docx = path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("docx"));
+    if named_docx && head.starts_with(&[0xD0, 0xCF, 0x11, 0xE0]) {
+        return Ok(FileKind::Text(TextFormat::Docx));
+    }
     if kind != FileKind::Unknown {
         return Ok(kind);
     }
@@ -270,6 +299,13 @@ pub fn detect(path: &Path) -> Result<FileKind> {
         Some(format) if is_utf8_text(&head) => FileKind::Text(format),
         _ => FileKind::Unknown,
     })
+}
+
+fn zip_has_word_document(path: &Path) -> bool {
+    File::open(path)
+        .ok()
+        .and_then(|file| zip::ZipArchive::new(file).ok())
+        .is_some_and(|archive| archive.index_for_name("word/document.xml").is_some())
 }
 
 fn sniff_binary(head: &[u8], path: &Path) -> FileKind {
@@ -303,6 +339,10 @@ fn sniff_binary(head: &[u8], path: &Path) -> FileKind {
         "video/x-ms-wmv" => FileKind::Media(asf_format(head)),
         // WHY: bảng MIME tường minh, cùng lý do với nhánh âm thanh. Các MIME này do infer 0.22.0
         // gán (map.rs: zip dòng 449, rar 467, gzip 473, 7z 491).
+        // WHY: DOCX là zip; nhận là Word để được đề nghị chuyển văn bản thay vì chỉ "Giải nén".
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => {
+            FileKind::Text(TextFormat::Docx)
+        }
         "application/zip" => FileKind::Archive(ArchiveFormat::Zip),
         "application/vnd.rar" => FileKind::Archive(ArchiveFormat::Rar),
         "application/x-7z-compressed" => FileKind::Archive(ArchiveFormat::SevenZ),
@@ -673,6 +713,76 @@ mod tests {
                 "{name}"
             );
         }
+    }
+
+    /// Zip trong bộ nhớ với các mục `(tên, nội dung)` theo đúng thứ tự.
+    fn zip_bytes(entries: &[(&str, &str)]) -> Vec<u8> {
+        let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        for (name, body) in entries {
+            writer
+                .start_file(*name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            std::io::Write::write_all(&mut writer, body.as_bytes()).unwrap();
+        }
+        writer.finish().unwrap().into_inner()
+    }
+
+    #[test]
+    fn html_and_docx_extensions_round_trip() {
+        assert_eq!(TextFormat::from_extension("HTM"), Some(TextFormat::Html));
+        assert_eq!(TextFormat::from_extension("html"), Some(TextFormat::Html));
+        assert_eq!(TextFormat::from_extension("docx"), Some(TextFormat::Docx));
+        assert_eq!(TextFormat::Html.extension(), "html");
+        assert_eq!(TextFormat::Docx.extension(), "docx");
+    }
+
+    #[test]
+    fn docx_is_detected_as_word_not_archive() {
+        let d = tempfile::tempdir().unwrap();
+        let docx = zip_bytes(&[
+            ("[Content_Types].xml", "<Types/>"),
+            ("word/document.xml", "<w:document/>"),
+        ]);
+        for name in ["a.docx", "a.zip"] {
+            assert_eq!(
+                detect(&write_tmp(d.path(), name, &docx)).unwrap(),
+                FileKind::Text(TextFormat::Docx),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn plain_zip_named_docx_is_still_an_archive() {
+        let d = tempfile::tempdir().unwrap();
+        let zip = zip_bytes(&[("x.txt", "chữ")]);
+        assert_eq!(
+            detect(&write_tmp(d.path(), "x.docx", &zip)).unwrap(),
+            FileKind::Archive(ArchiveFormat::Zip)
+        );
+    }
+
+    #[test]
+    fn ole_file_named_docx_is_word_so_the_password_reason_shows() {
+        let d = tempfile::tempdir().unwrap();
+        let ole = padded(&[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]);
+        assert_eq!(
+            detect(&write_tmp(d.path(), "a.docx", &ole)).unwrap(),
+            FileKind::Text(TextFormat::Docx)
+        );
+        assert_ne!(
+            detect(&write_tmp(d.path(), "a.doc", &ole)).unwrap(),
+            FileKind::Text(TextFormat::Docx)
+        );
+    }
+
+    #[test]
+    fn utf8_html_file_is_text_html() {
+        let d = tempfile::tempdir().unwrap();
+        assert_eq!(
+            detect(&write_tmp(d.path(), "a.html", "<p>chào</p>".as_bytes())).unwrap(),
+            FileKind::Text(TextFormat::Html)
+        );
     }
 
     #[test]

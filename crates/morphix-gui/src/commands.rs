@@ -40,14 +40,13 @@ pub fn menu_payload(paths: Vec<String>) -> Result<WheelPayload, String> {
     prepare_menu(&parse_paths(paths)?)
 }
 
-#[tauri::command]
-pub fn run_action(
-    id: String,
-    paths: Vec<String>,
-    state: State<'_, AppState>,
-    app: AppHandle,
-) -> Result<u64, String> {
-    let inputs = parse_paths(paths)?;
+/// Dựng job cho một việc đã chọn: kiểm id có áp dụng cho loại file không, đổi id thành `Operation`, gắn
+/// chất lượng và thư mục đầu ra theo cài đặt. Trả kèm nhãn hiển thị. Không phụ thuộc Tauri nên test trực tiếp được.
+pub fn job_for_action(
+    id: &str,
+    inputs: Vec<PathBuf>,
+    settings: &Settings,
+) -> Result<(Job, String), String> {
     // Dựng lại vòng để lấy nhãn đúng cho việc này và chặn thao tác không áp dụng cho loại file đã chọn.
     let label = prepare_menu(&inputs)?
         .items
@@ -56,8 +55,7 @@ pub fn run_action(
         .map(|item| item.label)
         .ok_or_else(|| "Thao tác này không áp dụng cho các file đã chọn.".to_string())?;
 
-    let settings = state.settings_guard().clone();
-    let operation = operation_for(&id, &inputs, &settings)?;
+    let operation = operation_for(id, &inputs, settings)?;
     // WHY: thiếu ffmpeg thì báo ngay qua lỗi của lệnh (banner), không khởi động một job chắc chắn hỏng.
     if matches!(
         operation,
@@ -68,9 +66,17 @@ pub fn run_action(
     let job = Job {
         inputs,
         operation,
-        quality: quality_for(&settings),
+        quality: quality_for(settings),
         out_dir: settings.output_dir.clone(),
     };
+    Ok((job, label))
+}
+
+/// Chạy một việc: dùng chung cho lệnh `run_action` của webview và cho yêu cầu IPC từ menu Explorer.
+pub fn start_action(app: &AppHandle, id: &str, inputs: Vec<PathBuf>) -> Result<u64, String> {
+    let state = app.state::<AppState>();
+    let settings = state.settings_guard().clone();
+    let (job, label) = job_for_action(id, inputs, &settings)?;
 
     // WHY clone: the finished job is needed after the runner takes ownership, to describe it in history.
     let history_job = job.clone();
@@ -78,6 +84,11 @@ pub fn run_action(
     let on_update =
         Arc::new(move |snapshot: JobSnapshot| publish_update(&handle, snapshot, &history_job));
     state.jobs.start(job, label, on_update)
+}
+
+#[tauri::command]
+pub fn run_action(id: String, paths: Vec<String>, app: AppHandle) -> Result<u64, String> {
+    start_action(&app, &id, parse_paths(paths)?)
 }
 
 #[tauri::command]
@@ -234,6 +245,7 @@ pub fn request_quit(app: &AppHandle) {
 pub fn submit_menu_request(paths: Vec<String>) -> Result<(), String> {
     let request = MenuRequest {
         paths: parse_paths(paths)?,
+        ..MenuRequest::default()
     };
     send_request(&socket_name(), &request)
         .map_err(|error| format!("Không gửi được yêu cầu tới Morphix đang chạy: {error}"))
@@ -335,6 +347,10 @@ pub fn history_entry_for_report(job: &Job, report: &JobReport) -> HistoryEntry {
     if let Some(reason) = first_error {
         parts.push(reason);
     }
+    // WHY: việc vẫn Done nhưng người dùng cần biết file không nhỏ đi, nên cảnh báo đầu tiên đi kèm như lỗi.
+    if let Some(warning) = report.items.iter().find_map(|item| item.warnings.first()) {
+        parts.push(warning.clone());
+    }
 
     HistoryEntry::new(
         anchor,
@@ -361,6 +377,7 @@ fn operation_name(operation: &Operation) -> String {
         Operation::ChangeSpeed { .. } => "Đổi tốc độ".to_string(),
         Operation::ExtractAudio { to } => format!("Tách âm thanh sang {}", to.label()),
         Operation::PdfToText => "Đổi sang TXT".to_string(),
+        Operation::PdfToMarkdown => "Đổi sang MD".to_string(),
         Operation::CreateArchive { format } => {
             format!("Nén thành {}", format.extension().to_uppercase())
         }

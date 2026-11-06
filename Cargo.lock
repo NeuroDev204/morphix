@@ -2831,6 +2831,7 @@ dependencies = [
  "lopdf",
  "morphix-core",
  "morphix-ipc",
+ "morphix-shell",
  "pdf-writer",
  "predicates",
  "serde",
@@ -2847,8 +2848,10 @@ dependencies = [
 name = "morphix-core"
 version = "0.1.2"
 dependencies = [
+ "base64 0.22.1",
  "csv",
  "directories",
+ "dom_query",
  "flate2",
  "image",
  "img-parts",
@@ -2858,6 +2861,8 @@ dependencies = [
  "natord",
  "pdf-writer",
  "pdfium-render",
+ "pulldown-cmark",
+ "quick-xml",
  "sevenz-rust2",
  "tar",
  "tempfile",
@@ -2877,6 +2882,7 @@ dependencies = [
  "image",
  "morphix-core",
  "morphix-ipc",
+ "morphix-shell",
  "serde",
  "serde_json",
  "tauri",
@@ -2887,6 +2893,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "windows",
  "x11rb",
 ]
 
@@ -2899,6 +2906,18 @@ dependencies = [
  "serde",
  "serde_json",
  "tracing",
+]
+
+[[package]]
+name = "morphix-shell"
+version = "0.1.2"
+dependencies = [
+ "image",
+ "morphix-core",
+ "morphix-ipc",
+ "tempfile",
+ "windows",
+ "windows-core",
 ]
 
 [[package]]
@@ -3739,6 +3758,24 @@ dependencies = [
  "quote",
  "syn 2.0.119",
 ]
+
+[[package]]
+name = "pulldown-cmark"
+version = "0.13.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3db2be46835f013dd3f4fa7f5f7402c537787b54ebb6fe2b94bbdd7e2669bb7b"
+dependencies = [
+ "bitflags 2.13.2",
+ "memchr",
+ "pulldown-cmark-escape",
+ "unicase",
+]
+
+[[package]]
+name = "pulldown-cmark-escape"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "007d8adb5ddab6f8e3f491ac63566a7d5002cc7ed73901f72057943fa71ae1ae"
 
 [[package]]
 name = "pxfm"
@@ -5402,6 +5439,12 @@ dependencies = [
  "tempfile",
  "windows-sys 0.61.2",
 ]
+
+[[package]]
+name = "unicase"
+version = "2.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "357cc3acc6a036009fd6c973ed009037c732d60d0b4f6c673e9041497482a28f"
 
 [[package]]
 name = "unicode-bidi"

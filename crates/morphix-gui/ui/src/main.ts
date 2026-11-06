@@ -3,22 +3,16 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ownsJobEvent, shouldHideOnBlur } from "./focus";
-import { hasMixedExtensions, progressPercent, summaryLine, truncateName } from "./format";
+import { hasMixedExtensions, progressPercent, summaryLine, truncateName, warningLines } from "./format";
 import { actionForKey, isNavigationKey, nextIndex, type NavigationKey } from "./keys";
 import { S } from "./strings";
 import { WHEEL, labelPosition, sectorPath, wrapLabel } from "./wheel";
 
-import type { WheelItem, WheelPayload, FileSummary } from "./menu-types";
-
-interface MenuRequestState {
-  readonly paths: string[];
-  readonly collecting: boolean;
-  readonly revision: number;
-}
+import type { MenuRequestState, WheelItem, WheelPayload, FileSummary } from "./menu-types";
 
 type JobOutcome =
   | { kind: "running" }
-  | { kind: "finished"; ok: number; failed: number }
+  | { kind: "finished"; ok: number; failed: number; warnings: readonly string[] }
   | { kind: "cancelled" };
 
 interface JobSnapshot {
@@ -38,6 +32,11 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 const CLOSE_DELAY_MS: number = 600;
 // WHY: X11 can report focus loss before it dispatches the click that starts a conversion.
 const BLUR_CLICK_DELAY_MS: number = 180;
+// WHY: 4 s đủ để đọc vài dòng cảnh báo; cửa sổ chỉ ẩn sau đó, không ẩn ngay như khi xong bình thường.
+const TOAST_MS: number = 4000;
+// WHY: việc nhỏ (vd. MD) xong trong vài chục ms; giữ vòng tiến trình ít nhất 1,2 s để người dùng thấy đang xử lý.
+const MIN_LOADING_MS: number = 1200;
+const TOAST_MAX_LINES: number = 3;
 const LABEL_MAX_CHARS: number = 10;
 const NAME_PREVIEW_COUNT: number = 2;
 const NAME_MAX_CHARS: number = 14;
@@ -56,7 +55,10 @@ let payload: WheelPayload | null = null;
 let job: { id: number | null; done: number; total: number } = { id: null, done: 0, total: 0 };
 let errorReason: string = "";
 let banner: string | null = null;
+let toast: string | null = null;
+let toastTimer: ReturnType<typeof setTimeout> | undefined;
 let closeTimer: ReturnType<typeof setTimeout> | undefined;
+let runStartedAt: number = 0;
 let altHeld: boolean = false;
 // WHY: Rust hiện cửa sổ ngay trước khi gửi lô, nên lúc nhận lô là mốc "vừa hiện" để bỏ qua blur sớm.
 let shownAtMs: number | null = null;
@@ -123,6 +125,8 @@ const wheel: SVGSVGElement = svgElement("svg", {
 const center: HTMLDivElement = element("div", "wheel-center");
 const wheelBox: HTMLDivElement = element("div", "wheel");
 const bannerBox: HTMLDivElement = element("div", "banner-error");
+const toastBox: HTMLDivElement = element("div", "toast");
+toastBox.setAttribute("role", "status");
 const tabBar: HTMLDivElement = element("div", "segmented");
 const hint: HTMLParagraphElement = element("p", "menu-hint", S.escHint);
 
@@ -141,12 +145,38 @@ function buildSkeleton(): void {
     tabBar.append(button);
   }
   app.className = "menu-shell";
-  app.replaceChildren(wheelBox, bannerBox, tabBar, hint);
+  app.replaceChildren(wheelBox, bannerBox, tabBar, hint, toastBox);
 }
 
 function renderBanner(): void {
   bannerBox.textContent = banner ?? "";
   bannerBox.hidden = banner === null;
+}
+
+function renderToast(): void {
+  toastBox.textContent = toast ?? "";
+  toastBox.hidden = toast === null;
+}
+
+function clearToast(): void {
+  clearTimeout(toastTimer);
+  toastTimer = undefined;
+  toast = null;
+}
+
+function showToast(warnings: readonly string[]): void {
+  const { lines, hidden } = warningLines(warnings, TOAST_MAX_LINES);
+  if (hidden > 0) {
+    lines.push(S.moreWarnings(hidden));
+  }
+  clearToast();
+  toast = lines.join("\n");
+  toastTimer = setTimeout(() => {
+    toast = null;
+    toastTimer = undefined;
+    render();
+  }, TOAST_MS);
+  render();
 }
 
 function renderTabs(): void {
@@ -160,9 +190,11 @@ function drawSectors(items: WheelItem[]): void {
   sectorNodes = [];
   const count: number = items.length;
   items.forEach((item, index) => {
+    const sectorClasses: string[] = ["wheel-sector"];
+    if (item.is_suggested) sectorClasses.push("is-suggested");
     const sector: SVGPathElement = svgElement("path", {
       d: sectorPath(index, count),
-      class: item.is_suggested ? "wheel-sector is-suggested" : "wheel-sector",
+      class: sectorClasses.join(" "),
       role: "menuitem",
       tabindex: "0",
       "aria-label": item.label,
@@ -173,8 +205,10 @@ function drawSectors(items: WheelItem[]): void {
 
     const anchor = labelPosition(index, count);
     const lines: string[] = wrapLabel(item.label, LABEL_MAX_CHARS);
+    const labelClasses: string[] = ["wheel-label"];
+    if (item.is_suggested) labelClasses.push("is-suggested");
     const text: SVGTextElement = svgElement("text", {
-      class: item.is_suggested ? "wheel-label is-suggested" : "wheel-label",
+      class: labelClasses.join(" "),
       "text-anchor": "middle",
     });
     lines.forEach((line, lineIndex) => {
@@ -263,10 +297,11 @@ function renderWheel(): void {
   visibleItems = [];
   let blocks: HTMLElement[];
   if (mode === "ready" && payload !== null) {
-    if (payload.items.length === 0) {
+    const items: WheelItem[] = visibleFor(payload.items, tab);
+    if (items.length === 0) {
       blocks = emptyBlock(payload);
     } else {
-      drawSectors(visibleFor(payload.items, tab));
+      drawSectors(items);
       blocks = summaryBlock(payload);
     }
   } else if (mode === "running") {
@@ -283,6 +318,7 @@ function renderWheel(): void {
 
 function render(): void {
   renderBanner();
+  renderToast();
   renderTabs();
   renderWheel();
 }
@@ -318,6 +354,7 @@ function acceptRequest(next: MenuRequestState): void {
   request = next;
   shownAtMs = Date.now();
   banner = null;
+  clearToast();
   clearTimeout(closeTimer);
   if (next.collecting) {
     mode = "collecting";
@@ -374,7 +411,9 @@ async function runItem(item: WheelItem): Promise<void> {
   const paths: string[] = request.paths;
   mode = "running";
   job = { id: null, done: 0, total: 0 };
+  runStartedAt = Date.now();
   banner = null;
+  clearToast();
   render();
   try {
     const id: number = await invoke<number>("run_action", { id: item.id, paths });
@@ -417,6 +456,10 @@ function onJobFinished(snapshot: JobSnapshot): void {
     return;
   }
   const outcome: JobOutcome = snapshot.state;
+  const warnings: readonly string[] = outcome.kind === "finished" ? outcome.warnings : [];
+  if (warnings.length > 0) {
+    showToast(warnings);
+  }
   // WHY: lô có lỗi quay về vòng tròn kèm lỗi, để người dùng thử lại hoặc chọn việc khác.
   if (outcome.kind === "finished" && outcome.failed > 0) {
     mode = "ready";
@@ -428,7 +471,11 @@ function onJobFinished(snapshot: JobSnapshot): void {
   mode = "running";
   job = { id: snapshot.id, done: snapshot.done, total: snapshot.total };
   render();
-  closeTimer = setTimeout(() => void appWindow.hide(), CLOSE_DELAY_MS);
+  const remaining: number = Math.max(0, MIN_LOADING_MS - (Date.now() - runStartedAt));
+  closeTimer = setTimeout(
+    () => void appWindow.hide(),
+    remaining + (warnings.length > 0 ? TOAST_MS : CLOSE_DELAY_MS),
+  );
 }
 
 async function discardRequest(): Promise<void> {

@@ -29,14 +29,29 @@ const AUDIO_TARGETS: &[MediaFormat] = &[
     MediaFormat::Opus,
 ];
 
-/// Định dạng đích cho một định dạng văn bản. Mọi định dạng cùng nhóm có cùng danh sách, nên so
-/// danh sách là đủ để biết hai file có cùng nhóm hay không.
+/// Định dạng đích cho một định dạng văn bản.
 /// WHY: nhóm phụ đề chỉ xuất TXT (bỏ mốc thời gian), TXT không có mốc nên không sang SRT/VTT.
 pub fn text_targets(from: TextFormat) -> &'static [TextFormat] {
     match from {
-        TextFormat::Txt | TextFormat::Markdown => &[TextFormat::Txt, TextFormat::Markdown],
-        TextFormat::Srt | TextFormat::Vtt => &[TextFormat::Srt, TextFormat::Vtt, TextFormat::Txt],
-        TextFormat::Csv | TextFormat::Tsv => &[TextFormat::Csv, TextFormat::Tsv],
+        TextFormat::Txt => &[TextFormat::Txt, TextFormat::Markdown],
+        TextFormat::Markdown => &[
+            TextFormat::Txt,
+            TextFormat::Markdown,
+            TextFormat::Html,
+            TextFormat::Docx,
+        ],
+        TextFormat::Srt | TextFormat::Vtt => &[
+            TextFormat::Srt,
+            TextFormat::Vtt,
+            TextFormat::Txt,
+            TextFormat::Markdown,
+        ],
+        TextFormat::Csv | TextFormat::Tsv => {
+            &[TextFormat::Csv, TextFormat::Tsv, TextFormat::Markdown]
+        }
+        // WHY: tài liệu có định dạng đổi qua lại qua Markdown; TXT ở cuối vì mất hết định dạng.
+        TextFormat::Html => &[TextFormat::Markdown, TextFormat::Docx, TextFormat::Txt],
+        TextFormat::Docx => &[TextFormat::Markdown, TextFormat::Html, TextFormat::Txt],
     }
 }
 
@@ -64,6 +79,8 @@ pub enum ActionKind {
     ExtractAudio(MediaFormat),
     /// Lớp chữ của một PDF ra TXT (không OCR). Chỉ có khi chọn đúng một PDF.
     PdfToText,
+    /// Lớp chữ của một PDF ra MD, mỗi trang một mục. Chỉ có khi chọn đúng một PDF.
+    PdfToMarkdown,
     /// Gộp các file đã chọn thành một file nén định dạng này.
     CreateArchive(ArchiveFormat),
     /// Giải nén file nén đã chọn vào một thư mục cạnh file (chỉ ZIP, TAR.GZ, 7Z).
@@ -121,10 +138,13 @@ fn type_actions(kinds: &[FileKind]) -> Vec<Action> {
     if let Some(media) = media_formats(kinds) {
         return media_actions(&media);
     }
-    // WHY: chỉ một PDF mới được đề nghị TXT, để mỗi PDF cho đúng một TXT tên theo chính nó. Nhiều PDF
-    // không có tên hợp lý cho một file gộp, nên không hiện việc. Không thêm PDF sang MD, EPUB hay Office.
+    // WHY: chỉ một PDF mới được đề nghị TXT/MD, để mỗi PDF cho đúng một file tên theo chính nó. Nhiều
+    // PDF không có tên hợp lý cho một file gộp, nên không hiện việc. Không thêm PDF sang EPUB hay Office.
     if let [FileKind::Pdf] = kinds {
-        return vec![action(ActionKind::PdfToText, "TXT", false)];
+        return vec![
+            action(ActionKind::PdfToText, "TXT", false),
+            action(ActionKind::PdfToMarkdown, "MD", false),
+        ];
     }
     let formats: Option<Vec<ImgFormat>> = kinds
         .iter()
@@ -211,13 +231,27 @@ fn media_actions(formats: &[MediaFormat]) -> Vec<Action> {
 }
 
 /// Việc chuyển văn bản chỉ có khi mọi file cùng một nhóm; trộn nhóm thì không có việc nào.
+/// Nhóm văn bản; chọn lẫn file khác nhóm thì không có việc chuyển nào.
+fn text_group(format: TextFormat) -> u8 {
+    match format {
+        TextFormat::Txt | TextFormat::Markdown => 0,
+        TextFormat::Srt | TextFormat::Vtt => 1,
+        TextFormat::Csv | TextFormat::Tsv => 2,
+        TextFormat::Html | TextFormat::Docx => 3,
+    }
+}
+
 fn text_actions(formats: &[TextFormat]) -> Vec<Action> {
-    let targets = text_targets(formats[0]);
-    if !formats.iter().all(|f| text_targets(*f) == targets) {
+    if !formats
+        .iter()
+        .all(|f| text_group(*f) == text_group(formats[0]))
+    {
         return Vec::new();
     }
-    targets
+    text_targets(formats[0])
         .iter()
+        // WHY: chỉ đề nghị đích mà mọi file đã chọn đều chuyển được (MD sang DOCX được, TXT thì không).
+        .filter(|target| formats.iter().all(|f| text_targets(*f).contains(target)))
         // Chọn toàn file TXT thì "đổi sang TXT" là việc vô nghĩa, giống quy tắc của ảnh.
         .filter(|target| !formats.iter().all(|f| f == *target))
         .map(|target| {
@@ -226,6 +260,48 @@ fn text_actions(formats: &[TextFormat]) -> Vec<Action> {
                 target.extension().to_uppercase(),
                 false,
             )
+        })
+        .collect()
+}
+
+/// Danh sách id công cụ đã được nối đầy đủ từ lõi xử lý đến giao diện. Công cụ chưa có giao diện
+/// bị lọc khỏi menu để người dùng chỉ thấy tính năng đã sẵn sàng.
+pub const WIRED_TOOL_IDS: [&str; 4] = ["compress", "strip", "resize", "compress-media"];
+
+/// Id chuỗi ổn định của một việc. Vòng tròn, menu Explorer và IPC dùng chung để hai phía luôn sinh cùng id.
+pub fn action_id(kind: ActionKind) -> String {
+    match kind {
+        ActionKind::ConvertTo(format) => format!("convert:{}", format.extension()),
+        ActionKind::MergeToPdf => "merge".to_string(),
+        ActionKind::Compress => "compress".to_string(),
+        ActionKind::StripMetadata => "strip".to_string(),
+        ActionKind::Resize => "resize".to_string(),
+        ActionKind::ConvertText(format) => format!("text:{}", format.extension()),
+        ActionKind::ConvertMedia(format) => format!("media:{}", format.extension()),
+        ActionKind::CompressMedia => "compress-media".to_string(),
+        ActionKind::CutMedia => "cut".to_string(),
+        ActionKind::ChangeSpeed => "speed".to_string(),
+        ActionKind::ExtractAudio(format) => format!("extract:{}", format.extension()),
+        ActionKind::PdfToText => "pdf-to-text".to_string(),
+        ActionKind::PdfToMarkdown => "pdf-to-markdown".to_string(),
+        ActionKind::CreateArchive(format) => format!("archive:{}", format.extension()),
+        ActionKind::ExtractArchive => "extract".to_string(),
+    }
+}
+
+/// Các việc hiện trên menu: `actions_for` bỏ những việc chỉ có ở CLI và công cụ chưa nối giao diện.
+pub fn menu_actions(kinds: &[FileKind]) -> Vec<Action> {
+    actions_for(kinds)
+        .into_iter()
+        .filter(|action| {
+            // WHY: cắt, đổi tốc độ và tách âm thanh chỉ có ở CLI trong bản này (spec mục 2a), nên không hiện.
+            if matches!(
+                action.kind,
+                ActionKind::CutMedia | ActionKind::ChangeSpeed | ActionKind::ExtractAudio(_)
+            ) {
+                return false;
+            }
+            !action.is_tool || WIRED_TOOL_IDS.contains(&action_id(action.kind).as_str())
         })
         .collect()
 }
@@ -241,6 +317,33 @@ mod tests {
             .filter(|a| a.is_tool == tool && !matches!(a.kind, ActionKind::CreateArchive(_)))
             .map(|a| a.label.as_str())
             .collect()
+    }
+
+    #[test]
+    fn action_id_matches_wire_ids() {
+        assert_eq!(
+            action_id(ActionKind::ConvertTo(ImgFormat::WebP)),
+            "convert:webp"
+        );
+        assert_eq!(
+            action_id(ActionKind::CreateArchive(ArchiveFormat::Zip)),
+            "archive:zip"
+        );
+        assert_eq!(action_id(ActionKind::Compress), "compress");
+    }
+
+    #[test]
+    fn menu_actions_hides_cli_only_and_unwired_tools() {
+        let actions = menu_actions(&[FileKind::Media(MediaFormat::Mp4)]);
+        assert!(!actions.is_empty());
+        assert!(actions.iter().all(|a| !matches!(
+            a.kind,
+            ActionKind::CutMedia | ActionKind::ChangeSpeed | ActionKind::ExtractAudio(_)
+        )));
+        assert!(actions
+            .iter()
+            .filter(|a| a.is_tool)
+            .all(|a| WIRED_TOOL_IDS.contains(&action_id(a.kind).as_str())));
     }
 
     #[test]
@@ -302,6 +405,9 @@ mod tests {
         assert!(text_pair_supported(TextFormat::Csv, TextFormat::Tsv));
         assert!(!text_pair_supported(TextFormat::Srt, TextFormat::Csv));
         assert!(!text_pair_supported(TextFormat::Txt, TextFormat::Srt));
+        assert!(text_pair_supported(TextFormat::Srt, TextFormat::Markdown));
+        assert!(text_pair_supported(TextFormat::Csv, TextFormat::Markdown));
+        assert!(!text_pair_supported(TextFormat::Markdown, TextFormat::Csv));
     }
 
     /// Việc theo loại, bỏ việc nén (có test riêng trong `tests/archive.rs`).
@@ -313,11 +419,18 @@ mod tests {
     }
 
     #[test]
-    fn single_pdf_offers_only_txt_and_several_pdfs_offer_nothing() {
+    fn single_pdf_offers_txt_and_md_and_several_pdfs_offer_nothing() {
         let single = type_only(actions_for(&[FileKind::Pdf]));
-        assert_eq!(single.len(), 1);
-        assert_eq!(single[0].kind, ActionKind::PdfToText);
-        assert_eq!(single[0].label, "TXT");
+        let kinds: Vec<(ActionKind, &str)> =
+            single.iter().map(|a| (a.kind, a.label.as_str())).collect();
+        assert_eq!(
+            kinds,
+            [
+                (ActionKind::PdfToText, "TXT"),
+                (ActionKind::PdfToMarkdown, "MD")
+            ]
+        );
+        assert_eq!(action_id(ActionKind::PdfToMarkdown), "pdf-to-markdown");
         assert!(type_only(actions_for(&[FileKind::Pdf, FileKind::Pdf])).is_empty());
     }
 

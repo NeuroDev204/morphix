@@ -118,6 +118,17 @@ pub fn encoder_for(target: MediaFormat) -> Option<&'static [&'static str]> {
 /// chọn tên đầu ra tạm mới, và đuôi file phải đúng để ffmpeg chọn muxer.
 /// Trả `None` khi đích không có encoder.
 pub fn convert_args(input: &Path, target: MediaFormat, output: &Path) -> Option<Vec<OsString>> {
+    convert_args_with(input, target, output, &MediaInfo::default())
+}
+
+/// Như `convert_args` nhưng biết codec nguồn: luồng nào đích nhận được nguyên codec thì chép (`copy`),
+/// luồng còn lại mã hoá bằng encoder của đích. `MediaInfo::default()` cho đúng argv của `convert_args`.
+pub fn convert_args_with(
+    input: &Path,
+    target: MediaFormat,
+    output: &Path,
+    info: &MediaInfo,
+) -> Option<Vec<OsString>> {
     let encoder: &[&str] = encoder_for(target)?;
     let mut args: Vec<OsString> = ["-hide_banner", "-nostdin", "-n", "-i"]
         .into_iter()
@@ -125,9 +136,144 @@ pub fn convert_args(input: &Path, target: MediaFormat, output: &Path) -> Option<
         .collect();
     args.push(OsString::from(input));
     args.extend(stream_selection(target).iter().map(OsString::from));
-    args.extend(encoder.iter().map(|arg: &&str| OsString::from(arg)));
+    args.extend(
+        encoder_args(target, encoder, info)
+            .iter()
+            .map(OsString::from),
+    );
     args.push(OsString::from(output));
     Some(args)
+}
+
+/// Tuỳ chọn thuộc luồng video / luồng âm thanh trong argv encoder; mỗi tuỳ chọn đi kèm đúng một giá trị.
+const VIDEO_FLAGS: &[&str] = &[
+    "-c:v", "-preset", "-crf", "-pix_fmt", "-b:v", "-row-mt", "-vf",
+];
+const AUDIO_FLAGS: &[&str] = &["-c:a", "-b:a", "-q:a"];
+
+/// Codec video mà container đích nhận nguyên (không cần mã hoá lại).
+fn video_copyable(target: MediaFormat, codec: &str) -> bool {
+    let accepted: &[&str] = match target {
+        MediaFormat::Mp4 | MediaFormat::Mov => &["h264", "hevc"],
+        MediaFormat::Mkv => &["h264", "hevc", "vp9", "av1", "mpeg4"],
+        MediaFormat::WebM => &["vp8", "vp9", "av1"],
+        MediaFormat::Avi => &["h264", "mpeg4"],
+        _ => &[],
+    };
+    accepted.contains(&codec)
+}
+
+/// Codec âm thanh mà container đích nhận nguyên.
+fn audio_copyable(target: MediaFormat, codec: &str) -> bool {
+    let accepted: &[&str] = match target {
+        MediaFormat::Mp4 | MediaFormat::Mov => &["aac", "mp3"],
+        MediaFormat::Mkv => &["aac", "mp3", "opus", "vorbis", "flac", "ac3"],
+        MediaFormat::WebM => &["opus", "vorbis"],
+        MediaFormat::Avi | MediaFormat::Mp3 => &["mp3"],
+        MediaFormat::M4a => &["aac"],
+        MediaFormat::Opus => &["opus"],
+        MediaFormat::Ogg => &["vorbis", "opus"],
+        _ => &[],
+    };
+    accepted.contains(&codec)
+}
+
+/// Codec âm thanh đã nén mất dữ liệu: mã hoá lại sang lossless không lấy lại được chất lượng.
+pub fn is_lossy_audio(codec: &str) -> bool {
+    matches!(codec, "mp3" | "aac" | "opus" | "vorbis" | "ac3" | "wmav2")
+}
+
+/// `true` khi mọi luồng đích giữ lại đều được chép nguyên. GIF và đích lossless luôn mã hoá lại.
+pub fn fully_remuxed(target: MediaFormat, info: &MediaInfo) -> bool {
+    if matches!(
+        target,
+        MediaFormat::Gif
+            | MediaFormat::Wav
+            | MediaFormat::Flac
+            | MediaFormat::Aiff
+            | MediaFormat::Wma
+            | MediaFormat::Wmv
+    ) {
+        return false;
+    }
+    let audio_ok: bool = info
+        .audio_codec
+        .as_deref()
+        .is_some_and(|codec: &str| audio_copyable(target, codec));
+    if target.is_audio() {
+        return audio_ok;
+    }
+    let video_ok: bool = info
+        .video_codec
+        .as_deref()
+        .is_some_and(|codec: &str| video_copyable(target, codec));
+    video_ok && (info.audio_codec.is_none() || audio_ok)
+}
+
+/// Bitrate `Nk` mặc định của đích, hạ xuống bằng bitrate nguồn khi nguồn lossy thấp hơn.
+/// WHY: mã hoá lossy từ lossy ở bitrate cao hơn nguồn chỉ làm file phình mà không hay hơn.
+fn capped_bitrate(default: &str, info: &MediaInfo) -> String {
+    let source_kbps: Option<u32> = info
+        .audio_codec
+        .as_deref()
+        .filter(|codec: &&str| is_lossy_audio(codec))
+        .and(info.audio_kbps)
+        .filter(|kbps: &u32| *kbps > 0);
+    let default_kbps: Option<u32> = default
+        .strip_suffix('k')
+        .and_then(|number: &str| number.parse::<u32>().ok());
+    match (default_kbps, source_kbps) {
+        (Some(wanted), Some(source)) => format!("{}k", wanted.min(source)),
+        _ => default.to_string(),
+    }
+}
+
+/// Argv encoder cho đích, quyết định riêng từng luồng: chép nếu `info` cho phép, ngược lại giữ encoder.
+/// Thứ tự đầu ra: video, âm thanh, các tuỳ chọn khác (ví dụ `-movflags`), khớp với argv cố định cũ.
+fn encoder_args(target: MediaFormat, encoder: &[&str], info: &MediaInfo) -> Vec<String> {
+    let copy_video: bool = info
+        .video_codec
+        .as_deref()
+        .is_some_and(|codec: &str| video_copyable(target, codec));
+    let copy_audio: bool = info
+        .audio_codec
+        .as_deref()
+        .is_some_and(|codec: &str| audio_copyable(target, codec));
+    let mut video: Vec<String> = Vec::new();
+    let mut audio: Vec<String> = Vec::new();
+    let mut other: Vec<String> = Vec::new();
+    for pair in encoder.chunks(2) {
+        let group: &mut Vec<String> = if VIDEO_FLAGS.contains(&pair[0]) {
+            &mut video
+        } else if AUDIO_FLAGS.contains(&pair[0]) {
+            &mut audio
+        } else {
+            &mut other
+        };
+        if pair[0] == "-b:a" && pair.len() == 2 {
+            group.push(pair[0].to_string());
+            group.push(capped_bitrate(pair[1], info));
+        } else {
+            group.extend(pair.iter().map(|arg: &&str| arg.to_string()));
+        }
+    }
+    let mut args: Vec<String> = Vec::new();
+    if !video.is_empty() {
+        if copy_video {
+            args.extend(["-c:v".to_string(), "copy".to_string()]);
+        } else {
+            args.extend(video);
+        }
+    }
+    if !audio.is_empty() {
+        if copy_audio {
+            args.extend(["-c:a".to_string(), "copy".to_string()]);
+        } else {
+            args.extend(audio);
+        }
+    }
+    args.extend(other);
+    args
 }
 
 /// Luồng được giữ cho đích. WHY: để ffmpeg tự chọn thì phụ đề ảnh (PGS) làm hỏng MP4, bìa album
@@ -218,10 +364,69 @@ pub fn ensure_encoders(target: MediaFormat, ffmpeg: &Path) -> Result<()> {
     )))
 }
 
-/// Kiểm file có luồng âm thanh không, dựa vào dòng `Stream #... Audio:` mà `ffmpeg -i` in ra.
+/// Codec và bitrate của luồng video, âm thanh đầu tiên của nguồn; trường nào đọc không ra thì `None`
+/// và việc convert rơi về mã hoá như trước.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MediaInfo {
+    pub video_codec: Option<String>,
+    pub audio_codec: Option<String>,
+    pub audio_kbps: Option<u32>,
+}
+
+/// Từ ngay sau `marker` (ví dụ `h264`, `opus`, `pcm_s16le`), kết thúc ở khoảng trắng hoặc dấu phẩy.
+fn codec_after(line: &str, marker: &str) -> Option<String> {
+    let word: &str = line.split_once(marker)?.1.split([',', ' ']).next()?;
+    (!word.is_empty()).then(|| word.to_string())
+}
+
+/// Số đứng ngay trước ` kb/s` đầu tiên của dòng; `0` coi như không có.
+fn kbps_of(line: &str) -> Option<u32> {
+    let before: &str = line.split_once(" kb/s")?.0;
+    let digits: String = before
+        .chars()
+        .rev()
+        .take_while(char::is_ascii_digit)
+        .collect::<Vec<char>>()
+        .into_iter()
+        .rev()
+        .collect();
+    digits.parse::<u32>().ok().filter(|kbps: &u32| *kbps > 0)
+}
+
+/// Đọc các dòng `Stream #...` mà `ffmpeg -i` in ra. `None` khi không có dòng luồng nào.
+/// WHY: chữ của ffmpeg có thể đổi giữa các phiên bản; đọc không ra một trường chỉ làm mất phần tối ưu.
+/// Ảnh bìa (`attached pic`) không phải luồng video; chỉ lấy luồng đầu tiên mỗi loại vì ffmpeg cũng chỉ
+/// chọn một luồng mỗi loại khi không có `-map`.
+pub fn parse_streams(stderr: &str) -> Option<MediaInfo> {
+    let lines: Vec<&str> = stderr
+        .lines()
+        .filter(|line: &&str| line.contains("Stream #"))
+        .collect();
+    if lines.is_empty() {
+        return None;
+    }
+    let mut info: MediaInfo = MediaInfo::default();
+    for line in lines {
+        if info.video_codec.is_none() && !line.contains("(attached pic)") {
+            if let Some(codec) = codec_after(line, ": Video: ") {
+                info.video_codec = Some(codec);
+                continue;
+            }
+        }
+        if info.audio_codec.is_none() {
+            if let Some(codec) = codec_after(line, ": Audio: ") {
+                info.audio_codec = Some(codec);
+                info.audio_kbps = kbps_of(line);
+            }
+        }
+    }
+    Some(info)
+}
+
+/// Chạy `ffmpeg -i` và đọc thông tin luồng của nguồn.
 /// WHY: `ffmpeg -i` không có đầu ra nên luôn thoát khác 0; chỉ đọc stderr. Không có dòng luồng nào
 /// nghĩa là ffmpeg không đọc được file, nên báo `Corrupt` chứ không kết luận "không có âm thanh".
-pub fn has_audio_stream(ffmpeg: &Path, input: &Path) -> Result<bool> {
+pub fn probe(ffmpeg: &Path, input: &Path) -> Result<MediaInfo> {
     let output: std::process::Output = command(ffmpeg)
         .args(["-hide_banner", "-nostdin", "-i"])
         .arg(input)
@@ -234,23 +439,23 @@ pub fn has_audio_stream(ffmpeg: &Path, input: &Path) -> Result<bool> {
             source,
         })?;
     let text: std::borrow::Cow<'_, str> = String::from_utf8_lossy(&output.stderr);
-    let streams: Vec<&str> = text
-        .lines()
-        .filter(|line: &&str| line.contains("Stream #"))
-        .collect();
-    if streams.is_empty() {
+    parse_streams(&text).ok_or_else(|| {
         let reason: String = text
             .lines()
             .rev()
             .find(|line: &&str| !line.trim().is_empty())
             .unwrap_or("ffmpeg không in thông tin luồng nào")
             .to_string();
-        return Err(MorphixError::Corrupt {
+        MorphixError::Corrupt {
             path: input.to_path_buf(),
             reason,
-        });
-    }
-    Ok(streams.iter().any(|line: &&str| line.contains(": Audio:")))
+        }
+    })
+}
+
+/// Kiểm file có luồng âm thanh không, dựa vào thông tin luồng từ `probe`.
+pub fn has_audio_stream(ffmpeg: &Path, input: &Path) -> Result<bool> {
+    Ok(probe(ffmpeg, input)?.audio_codec.is_some())
 }
 
 /// Định dạng media của file, theo nội dung. File không phải âm thanh hay video thì `Unsupported`.
@@ -309,15 +514,17 @@ fn format_timestamp(ms: u64) -> String {
 fn output_args(
     input: &Path,
     target: MediaFormat,
+    info: &MediaInfo,
     output: &Path,
     options: &[String],
 ) -> Result<Vec<OsString>> {
-    let mut args: Vec<OsString> = convert_args(input, target, output).ok_or_else(|| {
-        MorphixError::InvalidInput(format!(
-            "không ghi được {}: Morphix chưa có bộ mã hoá cho định dạng này",
-            target.label()
-        ))
-    })?;
+    let mut args: Vec<OsString> =
+        convert_args_with(input, target, output, info).ok_or_else(|| {
+            MorphixError::InvalidInput(format!(
+                "không ghi được {}: Morphix chưa có bộ mã hoá cho định dạng này",
+                target.label()
+            ))
+        })?;
     // Đường dẫn đầu ra luôn là phần tử cuối nên `len - 1` không bao giờ âm.
     let tail: Vec<OsString> = args.split_off(args.len() - 1);
     args.extend(options.iter().map(OsString::from));
@@ -347,8 +554,32 @@ fn encode_to(
     cancel: &CancelToken,
     accept: impl FnOnce(&Path) -> Result<()>,
 ) -> Result<PathBuf> {
+    encode_to_with(
+        ffmpeg,
+        input,
+        target,
+        &MediaInfo::default(),
+        desired,
+        options,
+        cancel,
+        accept,
+    )
+}
+
+/// Như `encode_to` nhưng dùng `info` của nguồn để chép luồng khi đích nhận được.
+#[allow(clippy::too_many_arguments)]
+fn encode_to_with(
+    ffmpeg: &Path,
+    input: &Path,
+    target: MediaFormat,
+    info: &MediaInfo,
+    desired: &Path,
+    options: &[String],
+    cancel: &CancelToken,
+    accept: impl FnOnce(&Path) -> Result<()>,
+) -> Result<PathBuf> {
     write_output_path(desired, |temp: &Path| {
-        let args: Vec<OsString> = output_args(input, target, temp, options)?;
+        let args: Vec<OsString> = output_args(input, target, info, temp, options)?;
         // WHY: tiến trình chưa được báo lên giao diện; việc này nằm ở tác vụ sau, nên bỏ qua mốc ở đây.
         run_ffmpeg(ffmpeg, &args, cancel, &mut |_: u64| {})
             .map_err(|error: MorphixError| with_input_path(error, input))?;
@@ -364,10 +595,80 @@ pub fn convert_media(
     out_dir: Option<&Path>,
     cancel: &CancelToken,
 ) -> Result<PathBuf> {
+    convert_media_reporting(ffmpeg, input, to, out_dir, cancel, &mut Vec::new())
+}
+
+/// Cảnh báo khi kết quả convert không như người dùng chờ đợi: âm thanh lossy sang lossless (chất lượng
+/// không tăng, file lớn hơn), hoặc đích lossy mà file ra không nhỏ hơn. Chép nguyên luồng (remux) thì giữ
+/// gần nguyên kích thước là đúng bản chất nên không cảnh báo. GIF cũng không cảnh báo vì không so được.
+pub fn media_warnings(
+    input: &Path,
+    target: MediaFormat,
+    info: &MediaInfo,
+    input_len: u64,
+    output_len: u64,
+) -> Vec<String> {
+    if matches!(
+        target,
+        MediaFormat::Wav | MediaFormat::Flac | MediaFormat::Aiff
+    ) {
+        if info.audio_codec.as_deref().is_some_and(is_lossy_audio) {
+            let name = input.file_name().unwrap_or(input.as_os_str());
+            return vec![format!(
+                "{}: âm thanh gốc đã nén mất dữ liệu; file mới lớn hơn nhưng chất lượng không tăng",
+                name.to_string_lossy()
+            )];
+        }
+        return Vec::new();
+    }
+    if target == MediaFormat::Gif || fully_remuxed(target, info) {
+        return Vec::new();
+    }
+    crate::job::size_message(input, input_len, output_len)
+        .into_iter()
+        .collect()
+}
+
+/// Như `convert_media` nhưng đọc thông tin luồng của nguồn để chép luồng khi đích nhận được, và đưa
+/// cảnh báo vào `warnings`. Không đọc được thông tin luồng thì mã hoá như mặc định (file hỏng thật sự sẽ
+/// báo lỗi ở bước mã hoá như trước).
+pub fn convert_media_reporting(
+    ffmpeg: &Path,
+    input: &Path,
+    to: MediaFormat,
+    out_dir: Option<&Path>,
+    cancel: &CancelToken,
+    warnings: &mut Vec<String>,
+) -> Result<PathBuf> {
     require_media(input)?;
     ensure_encoders(to, ffmpeg)?;
+    let info: MediaInfo = probe(ffmpeg, input).unwrap_or_else(|error: MorphixError| {
+        tracing::warn!(%error, ?input, "không đọc được thông tin luồng; mã hoá như mặc định");
+        MediaInfo::default()
+    });
     let desired: PathBuf = desired_output(input, "", to.extension(), out_dir);
-    encode_to(ffmpeg, input, to, &desired, &[], cancel, |_: &Path| Ok(()))
+    encode_to_with(
+        ffmpeg,
+        input,
+        to,
+        &info,
+        &desired,
+        &[],
+        cancel,
+        |temp: &Path| {
+            let sizes = std::fs::metadata(input)
+                .and_then(|source| std::fs::metadata(temp).map(|out| (source.len(), out.len())));
+            match sizes {
+                Ok((input_len, output_len)) => {
+                    warnings.extend(media_warnings(input, to, &info, input_len, output_len));
+                }
+                Err(error) => {
+                    tracing::warn!(%error, ?input, "không đọc được kích thước để so sánh");
+                }
+            }
+            Ok(())
+        },
+    )
 }
 
 /// Nén lại theo định dạng gốc, dùng encoder của chính nó. WHY: nén không bao giờ được ra file lớn hơn

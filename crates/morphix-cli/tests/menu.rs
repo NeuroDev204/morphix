@@ -4,6 +4,26 @@ use assert_cmd::cargo::cargo_bin_cmd;
 use morphix_cli::uri::file_uris_to_paths;
 use predicates::str::contains;
 
+#[cfg(windows)]
+#[test]
+fn menu_on_windows_points_to_explorer_and_exits_2() {
+    let d = tempfile::tempdir().unwrap();
+    let file = d.path().join("a.png");
+    std::fs::write(&file, b"x").unwrap();
+    cargo_bin_cmd!("morphix")
+        .env(
+            "MORPHIX_IPC_NAME",
+            format!("morphix-cli-test-{}-windows", std::process::id()),
+        )
+        .env("MORPHIX_DATA_DIR", d.path().join("data"))
+        .arg("menu")
+        .arg(&file)
+        .assert()
+        .code(2)
+        .stderr(contains("Morphix trong Explorer"));
+}
+
+#[cfg(unix)]
 #[test]
 fn menu_without_a_running_gui_reports_a_reason_and_exits_1() {
     let d = tempfile::tempdir().unwrap();
@@ -23,6 +43,7 @@ fn menu_without_a_running_gui_reports_a_reason_and_exits_1() {
         .stderr(contains("không khởi động được"));
 }
 
+#[cfg(unix)]
 #[test]
 fn menu_accepts_a_newline_separated_list_when_no_positional_paths_are_given() {
     let d = tempfile::tempdir().unwrap();
@@ -44,6 +65,7 @@ fn menu_accepts_a_newline_separated_list_when_no_positional_paths_are_given() {
         .stderr(contains("không khởi động được"));
 }
 
+#[cfg(unix)]
 #[test]
 fn menu_forwards_positional_and_newline_paths_to_the_running_server() {
     use std::sync::{Arc, Mutex};
@@ -128,6 +150,7 @@ fn empty_uri_list_is_rejected() {
     assert!(file_uris_to_paths(&[]).is_err());
 }
 
+#[cfg(unix)]
 #[test]
 fn menu_uris_are_converted_before_reaching_the_running_server() {
     use std::sync::{Arc, Mutex};
@@ -170,6 +193,7 @@ fn menu_uris_are_converted_before_reaching_the_running_server() {
     server.shutdown().unwrap();
 }
 
+#[cfg(unix)]
 #[test]
 fn menu_uris_reject_remote_schemes_and_mixing_with_other_inputs_with_exit_2() {
     let d = tempfile::tempdir().unwrap();

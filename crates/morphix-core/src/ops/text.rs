@@ -8,6 +8,7 @@ use std::{
 use crate::{
     error::{MorphixError, Result},
     kind::TextFormat,
+    ops::doc::{grid, Block, Cell, Document, Dropped, Inline, Slot},
 };
 
 /// Một đoạn phụ đề: mốc bắt đầu, kết thúc (mili giây) và nội dung.
@@ -297,5 +298,145 @@ fn sink_error(source: std::io::Error) -> MorphixError {
     MorphixError::Io {
         path: PathBuf::new(),
         source,
+    }
+}
+
+/// Văn bản thuần từ cây tài liệu: không ký hiệu; link ghi kèm địa chỉ; ảnh ghi chữ thay thế.
+pub fn write_plain(doc: &Document) -> (String, Dropped) {
+    let mut plain = Plain {
+        dropped: doc.dropped,
+    };
+    let mut blocks: Vec<String> = doc
+        .blocks
+        .iter()
+        .map(|block| plain.block(block))
+        .filter(|text| !text.is_empty())
+        .collect();
+    // WHY: chú thích nằm cuối file, mỗi dòng `[n] nội dung`, khớp với dấu số đặt trong thân.
+    let notes: Vec<String> = doc
+        .footnotes
+        .iter()
+        .enumerate()
+        .map(|(index, note)| format!("[{}] {}", index + 1, plain.blocks_on_one_line(note)))
+        .collect();
+    if !notes.is_empty() {
+        blocks.push(notes.join("\n"));
+    }
+    let mut text = blocks.join("\n\n");
+    if !text.is_empty() {
+        text.push('\n');
+    }
+    (text, plain.dropped)
+}
+
+struct Plain {
+    dropped: Dropped,
+}
+
+impl Plain {
+    fn block(&mut self, block: &Block) -> String {
+        match block {
+            Block::Heading(_, inlines) | Block::Paragraph(inlines) => self.inline(inlines),
+            Block::List { start, items } => self.list(*start, items, 0).join("\n"),
+            Block::Table(rows) => self.table(rows).join("\n"),
+            Block::Code(code) => code.clone(),
+            Block::Quote(blocks) => blocks
+                .iter()
+                .map(|block| self.block(block))
+                .filter(|text| !text.is_empty())
+                .collect::<Vec<_>>()
+                .join("\n\n"),
+            Block::Rule => String::new(),
+        }
+    }
+
+    /// Mỗi cấp thụt 2 khoảng trắng; đoạn sau của một mục thụt thêm để vẫn thuộc mục đó.
+    fn list(&mut self, start: Option<u64>, items: &[Vec<Block>], depth: usize) -> Vec<String> {
+        let indent = "  ".repeat(depth);
+        let mut lines = Vec::new();
+        for (index, item) in items.iter().enumerate() {
+            let marker = match start {
+                Some(n) => format!("{}. ", n + index as u64),
+                None => "- ".to_string(),
+            };
+            let mut first = true;
+            for block in item {
+                if let Block::List { start, items } = block {
+                    if first {
+                        lines.push(format!("{indent}{}", marker.trim_end()));
+                        first = false;
+                    }
+                    lines.extend(self.list(*start, items, depth + 1));
+                    continue;
+                }
+                for line in self.block(block).lines() {
+                    if first {
+                        lines.push(format!("{indent}{marker}{line}"));
+                        first = false;
+                    } else {
+                        lines.push(format!("{indent}  {line}"));
+                    }
+                }
+            }
+            if first {
+                lines.push(format!("{indent}{}", marker.trim_end()));
+            }
+        }
+        lines
+    }
+
+    /// Các ô của một hàng nối bằng tab; ô bị gộp để trống để các cột vẫn thẳng hàng.
+    fn table(&mut self, rows: &[Vec<Cell>]) -> Vec<String> {
+        let mut lines = Vec::new();
+        for line in grid(rows) {
+            let mut cells = Vec::new();
+            for slot in &line {
+                cells.push(match slot {
+                    Slot::Cell(cell) => self.blocks_on_one_line(&cell.blocks),
+                    _ => String::new(),
+                });
+            }
+            lines.push(cells.join("\t"));
+        }
+        lines
+    }
+
+    /// Chữ của các khối trong ô, trên một dòng: ngắt dòng trong ô thành dấu cách.
+    fn blocks_on_one_line(&mut self, blocks: &[Block]) -> String {
+        blocks
+            .iter()
+            .map(|block| self.block(block))
+            .filter(|text| !text.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ")
+            .replace('\n', " ")
+    }
+
+    fn inline(&mut self, inlines: &[Inline]) -> String {
+        let mut out = String::new();
+        for inline in inlines {
+            match inline {
+                Inline::Text(text, _) => out.push_str(text),
+                Inline::Link(url, inner) => {
+                    let text = self.inline(inner);
+                    if text.trim().is_empty() || text == *url {
+                        out.push_str(&text);
+                    } else {
+                        out.push_str(&format!("{text} ({url})"));
+                    }
+                }
+                Inline::Image { alt, .. } => {
+                    self.dropped.images += 1;
+                    if alt.is_empty() {
+                        out.push_str("[ảnh]");
+                    } else {
+                        out.push_str(&format!("[ảnh: {alt}]"));
+                    }
+                }
+                Inline::FootnoteRef(index) => out.push_str(&format!("[{}]", index + 1)),
+                Inline::Break => out.push('\n'),
+            }
+        }
+        out
     }
 }

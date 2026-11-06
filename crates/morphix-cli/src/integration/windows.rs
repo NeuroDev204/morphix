@@ -18,6 +18,16 @@ pub const VERB_KEY_PATH: &str = r"Software\Classes\*\shell\Morphix";
 /// Key của bản 0.1.x, chỉ hiện với ảnh. Cài và gỡ đều dọn key này (nếu là của Morphix) để không hiện hai mục.
 pub const LEGACY_VERB_KEY_PATH: &str =
     r"Software\Classes\SystemFileAssociations\image\shell\Morphix";
+pub const SHELL_EXTENSION_CLSID: &str = morphix_shell::CLSID_STRING;
+pub const SHELL_EXTENSION_KEY_PATH: &str =
+    r"Software\Classes\*\shellex\ContextMenuHandlers\Morphix";
+pub const SHELL_EXTENSION_CLSID_KEY_PATH: &str =
+    r"Software\Classes\CLSID\{2131F98F-8888-464C-B3D7-80E2BBEEDDE1}";
+pub const SHELL_EXTENSION_SERVER_KEY_PATH: &str =
+    r"Software\Classes\CLSID\{2131F98F-8888-464C-B3D7-80E2BBEEDDE1}\InprocServer32";
+pub const SHELL_EXTENSION_DLL_NAME: &str = morphix_shell::DLL_FILE_NAME;
+pub const SHELL_EXTENSION_OWNER_VALUE: &str = "MorphixOwner";
+pub const SHELL_EXTENSION_THREADING_MODEL: &str = "Apartment";
 pub const COMMAND_SUBKEY: &str = "command";
 pub const VERB_OWNER_VALUE: &str = "MorphixOwner";
 pub const RUN_KEY_PATH: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
@@ -76,6 +86,10 @@ pub fn menu_entry(morphix: &Path) -> Result<MenuEntry, String> {
         multi_select_model: MULTI_SELECT_MODEL.to_string(),
         command: menu_command(morphix)?,
     })
+}
+
+pub fn shell_extension_dll_path(morphix: &Path) -> std::path::PathBuf {
+    morphix.with_file_name(SHELL_EXTENSION_DLL_NAME)
 }
 
 /// Giá trị Run chỉ là đường dẫn đã quote; không có argument vì GUI không nhận đầu vào lúc khởi động.
@@ -159,20 +173,32 @@ mod tests {
     // WHY test thuần: lỗi `%` là lớp kiểm tra đầu vào, chạy được trên Linux mà không cần registry.
     #[test]
     fn absolute_utf8_rejects_percent_in_either_binary_path() {
-        let error = absolute_utf8(Path::new("/opt/100%/morphix"), "morphix")
+        let path = if cfg!(windows) {
+            r"C:\opt\100%\morphix"
+        } else {
+            "/opt/100%/morphix"
+        };
+        let gui_path = if cfg!(windows) {
+            r"C:\opt\100%\morphix-gui"
+        } else {
+            "/opt/100%/morphix-gui"
+        };
+        let error = absolute_utf8(Path::new(path), "morphix")
             .expect_err("đường dẫn chứa % phải bị từ chối");
         assert!(error.contains("'%'"), "{error}");
         assert!(error.contains("morphix"), "{error}");
-        assert!(menu_command(Path::new("/opt/100%/morphix")).is_err());
-        assert!(autostart_command(Path::new("/opt/100%/morphix-gui")).is_err());
+        assert!(menu_command(Path::new(path)).is_err());
+        assert!(autostart_command(Path::new(gui_path)).is_err());
     }
 
     #[test]
     fn absolute_utf8_accepts_a_plain_absolute_path() {
-        assert_eq!(
-            absolute_utf8(Path::new("/opt/morphix/morphix"), "morphix"),
-            Ok("/opt/morphix/morphix")
-        );
+        let path = if cfg!(windows) {
+            r"C:\opt\morphix\morphix"
+        } else {
+            "/opt/morphix/morphix"
+        };
+        assert_eq!(absolute_utf8(Path::new(path), "morphix"), Ok(path));
     }
 }
 
@@ -190,9 +216,11 @@ mod registry {
     };
 
     use super::{
-        autostart_command, bound_ownership, menu_entry, MenuEntry, AUTOSTART_OWNER_VALUE,
-        COMMAND_SUBKEY, LEGACY_VERB_KEY_PATH, OWNER_KEY_PATH, RUN_KEY_PATH, RUN_VALUE_NAME,
-        VERB_KEY_PATH, VERB_OWNER_VALUE,
+        autostart_command, bound_ownership, shell_extension_dll_path, MenuEntry,
+        AUTOSTART_OWNER_VALUE, COMMAND_SUBKEY, LEGACY_VERB_KEY_PATH, OWNER_KEY_PATH, RUN_KEY_PATH,
+        RUN_VALUE_NAME, SHELL_EXTENSION_CLSID, SHELL_EXTENSION_CLSID_KEY_PATH,
+        SHELL_EXTENSION_KEY_PATH, SHELL_EXTENSION_OWNER_VALUE, SHELL_EXTENSION_SERVER_KEY_PATH,
+        SHELL_EXTENSION_THREADING_MODEL, VERB_KEY_PATH, VERB_OWNER_VALUE,
     };
     use crate::integration::{
         files::{FileOwnership, Transaction},
@@ -202,6 +230,24 @@ mod registry {
     pub struct WindowsBackend {
         // WHY Rc: thao tác rollback cần giữ root sau khi hàm cài đã trả về.
         root: Rc<RegKey>,
+    }
+
+    struct ShellHandlerState {
+        ownership: FileOwnership,
+        handler_ownership: FileOwnership,
+        server_ownership: FileOwnership,
+        class_id: Option<String>,
+        server_path: Option<String>,
+        threading_model: Option<String>,
+    }
+
+    impl ShellHandlerState {
+        fn matches(&self, expected_server_path: &str) -> bool {
+            self.ownership == FileOwnership::Owned
+                && self.class_id.as_deref() == Some(SHELL_EXTENSION_CLSID)
+                && self.server_path.as_deref() == Some(expected_server_path)
+                && self.threading_model.as_deref() == Some(SHELL_EXTENSION_THREADING_MODEL)
+        }
     }
 
     impl WindowsBackend {
@@ -215,64 +261,165 @@ mod registry {
             }
         }
 
-        fn install_verb(
+        fn install_shell_handler(
             &self,
             id: ComponentId,
             binaries: &BinaryPaths,
         ) -> IntegrationComponentReport {
-            let entry = match menu_entry(&binaries.morphix) {
-                Ok(entry) => entry,
-                Err(message) => {
-                    return report(id, ComponentStatus::Failed, false, VERB_KEY_PATH, &message)
-                }
+            let library_path = shell_extension_dll_path(&binaries.morphix);
+            let Some(library_path_text) = library_path.to_str() else {
+                return report(
+                    id,
+                    ComponentStatus::Failed,
+                    false,
+                    SHELL_EXTENSION_KEY_PATH,
+                    "đường dẫn shell extension không phải UTF-8",
+                );
             };
-            let (ownership, current) = match self.read_verb() {
-                Ok(state) => state,
+            if !library_path.is_file() {
+                return report(
+                    id,
+                    ComponentStatus::Failed,
+                    false,
+                    SHELL_EXTENSION_KEY_PATH,
+                    &format!(
+                        "không tìm thấy shell extension tại {}",
+                        library_path.display()
+                    ),
+                );
+            }
+            let previous_verb_ownership = match self.read_verb_at(VERB_KEY_PATH) {
+                Ok((ownership, _)) => ownership,
                 Err(error) => return io_failure(id, VERB_KEY_PATH, &error),
             };
-            match ownership {
-                FileOwnership::Foreign => return conflict(id, VERB_KEY_PATH),
-                FileOwnership::Owned if current.as_ref() == Some(&entry) => {
-                    return report(
-                        id,
-                        ComponentStatus::AlreadyInstalled,
-                        false,
-                        VERB_KEY_PATH,
-                        "đã cài sẵn",
-                    )
+            if previous_verb_ownership == FileOwnership::Foreign {
+                return conflict(id, VERB_KEY_PATH);
+            }
+            let state = match self.read_shell_handler_state() {
+                Ok(state) => state,
+                Err(error) => return io_failure(id, SHELL_EXTENSION_KEY_PATH, &error),
+            };
+            match state.ownership {
+                FileOwnership::Foreign => return conflict(id, SHELL_EXTENSION_KEY_PATH),
+                FileOwnership::Owned if state.matches(library_path_text) => {
+                    match self.remove_previous_verbs() {
+                        Ok(true) => {
+                            return report(
+                                id,
+                                ComponentStatus::Installed,
+                                true,
+                                SHELL_EXTENSION_KEY_PATH,
+                                "đã cập nhật menu Morphix native",
+                            )
+                        }
+                        Ok(false) => {
+                            return report(
+                                id,
+                                ComponentStatus::AlreadyInstalled,
+                                false,
+                                SHELL_EXTENSION_KEY_PATH,
+                                "đã cài sẵn",
+                            )
+                        }
+                        Err(error) => return io_failure(id, SHELL_EXTENSION_KEY_PATH, &error),
+                    }
                 }
                 FileOwnership::Owned | FileOwnership::Absent => {}
             }
             let mut tx = Transaction::new();
-            match self.write_verb(&entry, &mut tx) {
+            match self.write_shell_handler(library_path_text, &mut tx) {
                 Ok(()) => {
                     tx.commit();
-                    if let Err(error) = self.remove_legacy_verb() {
-                        return io_failure(id, LEGACY_VERB_KEY_PATH, &error);
+                    if let Err(error) = self.remove_previous_verbs() {
+                        return io_failure(id, SHELL_EXTENSION_KEY_PATH, &error);
                     }
                     report(
                         id,
                         ComponentStatus::Installed,
                         true,
-                        VERB_KEY_PATH,
+                        SHELL_EXTENSION_KEY_PATH,
                         "đã cài",
                     )
                 }
-                // WHY không commit: `tx` xoá key vừa tạo khi rời phạm vi, nên lần lỗi không để lại verb dở dang.
-                Err(error) => io_failure(id, VERB_KEY_PATH, &error),
+                Err(error) => io_failure(id, SHELL_EXTENSION_KEY_PATH, &error),
             }
         }
 
-        /// WHY record cuối: record chỉ được ghi sau khi command đã có, nên không có record nào trỏ tới
-        /// một command Morphix chưa ghi xong.
-        fn write_verb(&self, entry: &MenuEntry, tx: &mut Transaction) -> io::Result<()> {
-            let (verb, disposition) = self.root.create_subkey(VERB_KEY_PATH)?;
-            self.defer_delete_if_created(disposition, VERB_KEY_PATH, tx);
-            write_string(&verb, "MUIVerb", &entry.display_name)?;
-            write_string(&verb, "MultiSelectModel", &entry.multi_select_model)?;
-            let (command, _) = verb.create_subkey(COMMAND_SUBKEY)?;
-            write_string(&command, "", &entry.command)?;
-            write_string(&verb, VERB_OWNER_VALUE, &entry.command)
+        fn write_shell_handler(&self, library_path: &str, tx: &mut Transaction) -> io::Result<()> {
+            let (handler, disposition) = self.root.create_subkey(SHELL_EXTENSION_KEY_PATH)?;
+            self.defer_delete_if_created(disposition, SHELL_EXTENSION_KEY_PATH, tx);
+            write_string(&handler, "", SHELL_EXTENSION_CLSID)?;
+            write_string(&handler, SHELL_EXTENSION_OWNER_VALUE, SHELL_EXTENSION_CLSID)?;
+
+            let (server, disposition) = self.root.create_subkey(SHELL_EXTENSION_SERVER_KEY_PATH)?;
+            self.defer_delete_if_created(disposition, SHELL_EXTENSION_SERVER_KEY_PATH, tx);
+            write_string(&server, "", library_path)?;
+            write_string(&server, "ThreadingModel", SHELL_EXTENSION_THREADING_MODEL)?;
+            write_string(&server, SHELL_EXTENSION_OWNER_VALUE, library_path)
+        }
+
+        fn read_shell_handler_state(&self) -> io::Result<ShellHandlerState> {
+            let (handler_ownership, class_id, _) =
+                read_registration_pair(&self.root, SHELL_EXTENSION_KEY_PATH)?;
+            let (server_ownership, server_path, _) =
+                read_registration_pair(&self.root, SHELL_EXTENSION_SERVER_KEY_PATH)?;
+            let threading_model = match open_optional(&self.root, SHELL_EXTENSION_SERVER_KEY_PATH)?
+            {
+                Some(server) => read_string(&server, "ThreadingModel")?,
+                None => None,
+            };
+            let ownership = match (handler_ownership, server_ownership) {
+                (FileOwnership::Foreign, _) | (_, FileOwnership::Foreign) => FileOwnership::Foreign,
+                (FileOwnership::Absent, FileOwnership::Absent) => FileOwnership::Absent,
+                _ => FileOwnership::Owned,
+            };
+            Ok(ShellHandlerState {
+                ownership,
+                handler_ownership,
+                server_ownership,
+                class_id,
+                server_path,
+                threading_model,
+            })
+        }
+
+        fn remove_shell_handler(&self, state: &ShellHandlerState) -> io::Result<bool> {
+            if state.ownership == FileOwnership::Foreign {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "shell handler không thuộc Morphix",
+                ));
+            }
+            let mut removed = false;
+            if state.handler_ownership == FileOwnership::Owned {
+                self.root.delete_subkey_all(SHELL_EXTENSION_KEY_PATH)?;
+                removed = true;
+            }
+            if state.server_ownership == FileOwnership::Owned {
+                self.root
+                    .delete_subkey_all(SHELL_EXTENSION_CLSID_KEY_PATH)?;
+                removed = true;
+            }
+            Ok(removed)
+        }
+
+        fn remove_previous_verbs(&self) -> io::Result<bool> {
+            let (ownership, _) = self.read_verb_at(VERB_KEY_PATH)?;
+            let mut removed = match ownership {
+                FileOwnership::Owned => {
+                    self.root.delete_subkey_all(VERB_KEY_PATH)?;
+                    true
+                }
+                FileOwnership::Absent => false,
+                FileOwnership::Foreign => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::PermissionDenied,
+                        "verb Morphix hiện có không thuộc Morphix",
+                    ));
+                }
+            };
+            removed |= self.remove_legacy_verb()?;
+            Ok(removed)
         }
 
         /// Xoá verb của bản cũ nếu nó mang marker Morphix; trả `true` khi đã xoá.
@@ -286,58 +433,85 @@ mod registry {
             }
         }
 
-        fn uninstall_verb(&self, id: ComponentId) -> IntegrationComponentReport {
-            let legacy_removed = match self.remove_legacy_verb() {
-                Ok(removed) => removed,
-                Err(error) => return io_failure(id, LEGACY_VERB_KEY_PATH, &error),
+        fn uninstall_shell_handler(&self, id: ComponentId) -> IntegrationComponentReport {
+            let state = match self.read_shell_handler_state() {
+                Ok(state) => state,
+                Err(error) => return io_failure(id, SHELL_EXTENSION_KEY_PATH, &error),
             };
-            match self.read_verb() {
-                Err(error) => io_failure(id, VERB_KEY_PATH, &error),
-                Ok((FileOwnership::Absent, _)) if legacy_removed => report(
+            if state.ownership == FileOwnership::Foreign {
+                return conflict(id, SHELL_EXTENSION_KEY_PATH);
+            }
+            let previous_verb = match self.read_verb_at(VERB_KEY_PATH) {
+                Ok((ownership, _)) => ownership,
+                Err(error) => return io_failure(id, VERB_KEY_PATH, &error),
+            };
+            if previous_verb == FileOwnership::Foreign {
+                return conflict(id, VERB_KEY_PATH);
+            }
+            let had_owned_registration =
+                state.ownership == FileOwnership::Owned || previous_verb == FileOwnership::Owned;
+            match self.remove_shell_handler(&state) {
+                Ok(_) => {}
+                Err(error) => return io_failure(id, SHELL_EXTENSION_KEY_PATH, &error),
+            }
+            match self.remove_previous_verbs() {
+                Ok(removed) if had_owned_registration || removed => report(
                     id,
                     ComponentStatus::Removed,
                     true,
-                    LEGACY_VERB_KEY_PATH,
+                    SHELL_EXTENSION_KEY_PATH,
                     "đã gỡ",
                 ),
-                Ok((FileOwnership::Absent, _)) => absent(id, VERB_KEY_PATH),
-                Ok((FileOwnership::Foreign, _)) => conflict(id, VERB_KEY_PATH),
-                Ok((FileOwnership::Owned, _)) => match self.root.delete_subkey_all(VERB_KEY_PATH) {
-                    Ok(()) => report(id, ComponentStatus::Removed, true, VERB_KEY_PATH, "đã gỡ"),
-                    Err(error) => io_failure(id, VERB_KEY_PATH, &error),
-                },
+                Ok(_) => absent(id, SHELL_EXTENSION_KEY_PATH),
+                Err(error) => io_failure(id, SHELL_EXTENSION_KEY_PATH, &error),
             }
         }
 
-        fn inspect_verb(
+        fn inspect_shell_handler(
             &self,
             id: ComponentId,
             binaries: &BinaryPaths,
         ) -> IntegrationComponentReport {
-            let entry = match menu_entry(&binaries.morphix) {
-                Ok(entry) => entry,
-                Err(message) => {
-                    return report(id, ComponentStatus::Failed, false, VERB_KEY_PATH, &message)
-                }
+            let state = match self.read_shell_handler_state() {
+                Ok(state) => state,
+                Err(error) => return io_failure(id, SHELL_EXTENSION_KEY_PATH, &error),
             };
-            match self.read_verb() {
-                Err(error) => io_failure(id, VERB_KEY_PATH, &error),
-                Ok((FileOwnership::Absent, _)) => missing(id, VERB_KEY_PATH),
-                Ok((FileOwnership::Foreign, _)) => conflict(id, VERB_KEY_PATH),
-                Ok((FileOwnership::Owned, current)) if current.as_ref() == Some(&entry) => report(
-                    id,
-                    ComponentStatus::Installed,
-                    false,
-                    VERB_KEY_PATH,
-                    "đang hoạt động",
-                ),
-                Ok((FileOwnership::Owned, _)) => stale(id, VERB_KEY_PATH),
+            if state.ownership == FileOwnership::Foreign {
+                return conflict(id, SHELL_EXTENSION_KEY_PATH);
             }
-        }
-
-        /// Đọc verb và sở hữu trong một lần; `None` khi key không có đủ value để dựng lại mục menu.
-        fn read_verb(&self) -> io::Result<(FileOwnership, Option<MenuEntry>)> {
-            self.read_verb_at(VERB_KEY_PATH)
+            let previous_verb = match self.read_verb_at(VERB_KEY_PATH) {
+                Ok((ownership, _)) => ownership,
+                Err(error) => return io_failure(id, VERB_KEY_PATH, &error),
+            };
+            if previous_verb == FileOwnership::Foreign {
+                return conflict(id, VERB_KEY_PATH);
+            }
+            let library_path = shell_extension_dll_path(&binaries.morphix);
+            let library_path_text = library_path.to_str();
+            match state.ownership {
+                FileOwnership::Foreign => conflict(id, SHELL_EXTENSION_KEY_PATH),
+                FileOwnership::Owned
+                    if library_path.is_file()
+                        && library_path_text.is_some_and(|path| state.matches(path)) =>
+                {
+                    report(
+                        id,
+                        ComponentStatus::Installed,
+                        false,
+                        SHELL_EXTENSION_KEY_PATH,
+                        "đang hoạt động",
+                    )
+                }
+                FileOwnership::Owned => stale(id, SHELL_EXTENSION_KEY_PATH),
+                FileOwnership::Absent if previous_verb == FileOwnership::Owned => {
+                    stale(id, SHELL_EXTENSION_KEY_PATH)
+                }
+                FileOwnership::Absent => match self.read_verb_at(LEGACY_VERB_KEY_PATH) {
+                    Ok((FileOwnership::Owned, _)) => stale(id, SHELL_EXTENSION_KEY_PATH),
+                    Ok(_) => missing(id, SHELL_EXTENSION_KEY_PATH),
+                    Err(error) => io_failure(id, LEGACY_VERB_KEY_PATH, &error),
+                },
+            }
         }
 
         fn read_verb_at(&self, path: &str) -> io::Result<(FileOwnership, Option<MenuEntry>)> {
@@ -502,7 +676,7 @@ mod registry {
 
         fn install(&self, id: ComponentId, binaries: &BinaryPaths) -> IntegrationComponentReport {
             match id {
-                ComponentId::WindowsContextMenu => self.install_verb(id, binaries),
+                ComponentId::WindowsContextMenu => self.install_shell_handler(id, binaries),
                 ComponentId::Autostart => self.install_autostart(id, binaries),
                 _ => not_applicable(id),
             }
@@ -510,7 +684,7 @@ mod registry {
 
         fn uninstall(&self, id: ComponentId) -> IntegrationComponentReport {
             match id {
-                ComponentId::WindowsContextMenu => self.uninstall_verb(id),
+                ComponentId::WindowsContextMenu => self.uninstall_shell_handler(id),
                 ComponentId::Autostart => self.uninstall_autostart(id),
                 _ => not_applicable(id),
             }
@@ -518,7 +692,7 @@ mod registry {
 
         fn inspect(&self, id: ComponentId, binaries: &BinaryPaths) -> IntegrationComponentReport {
             match id {
-                ComponentId::WindowsContextMenu => self.inspect_verb(id, binaries),
+                ComponentId::WindowsContextMenu => self.inspect_shell_handler(id, binaries),
                 ComponentId::Autostart => self.inspect_autostart(id, binaries),
                 _ => not_applicable(id),
             }
@@ -532,6 +706,23 @@ mod registry {
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(error),
         }
+    }
+
+    fn read_registration_pair(
+        root: &RegKey,
+        path: &str,
+    ) -> io::Result<(FileOwnership, Option<String>, Option<String>)> {
+        let Some(key) = open_optional(root, path)? else {
+            return Ok((FileOwnership::Absent, None, None));
+        };
+        let value = read_string(&key, "")?;
+        let owner = read_string(&key, SHELL_EXTENSION_OWNER_VALUE)?;
+        let ownership = match (owner.as_deref(), value.as_deref()) {
+            (Some(owner), Some(value)) if owner == value => FileOwnership::Owned,
+            (Some(_), None) => FileOwnership::Owned,
+            _ => FileOwnership::Foreign,
+        };
+        Ok((ownership, value, owner))
     }
 
     fn read_string(key: &RegKey, name: &str) -> io::Result<Option<String>> {

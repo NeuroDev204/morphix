@@ -5,6 +5,7 @@ members = [
     "crates/morphix-cli",
     "crates/morphix-gui",
     "crates/morphix-ipc",
+    "crates/morphix-shell",
 ]
 
 [workspace.package]

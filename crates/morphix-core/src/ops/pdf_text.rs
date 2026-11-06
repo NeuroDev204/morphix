@@ -5,6 +5,7 @@ use std::sync::OnceLock;
 use pdfium_render::prelude::{Pdfium, PdfiumError, PdfiumInternalError};
 
 use crate::error::{MorphixError, Result};
+use crate::ops::markdown::pages_to_markdown;
 use crate::paths::find_pdfium_dir;
 
 /// WHY: PDFium chỉ nạp một lần cho mỗi tiến trình. Bind lần hai trả lỗi, nên giữ một bản
@@ -56,10 +57,31 @@ fn load_error(path: &Path, error: PdfiumError) -> MorphixError {
 }
 
 /// Ghi lớp văn bản có sẵn của mọi trang PDF ra `out`. Không OCR.
-///
-/// WHY: đọc hết mọi trang trước khi ghi byte nào. Nếu trang N không có chữ thì cả file
-/// báo lỗi và `out` không nhận gì, để người gọi không bao giờ có file đầu ra cụt.
 pub fn pdf_to_text(path: &Path, out: &mut impl Write) -> Result<()> {
+    let mut text = String::new();
+    for page in pdf_pages_text(path)? {
+        text.push_str(&page);
+        text.push('\n');
+    }
+    write_all(path, out, &text)
+}
+
+/// Lớp văn bản ra Markdown: mỗi trang một mục `## Trang N`, không đoán cấu trúc trong trang.
+pub fn pdf_to_markdown(path: &Path, out: &mut impl Write) -> Result<()> {
+    write_all(path, out, &pages_to_markdown(&pdf_pages_text(path)?))
+}
+
+fn write_all(path: &Path, out: &mut impl Write, text: &str) -> Result<()> {
+    out.write_all(text.as_bytes())
+        .map_err(|source| MorphixError::Io {
+            path: path.to_path_buf(),
+            source,
+        })
+}
+
+/// Chữ của từng trang. WHY: đọc hết mọi trang trước khi ghi byte nào. Nếu trang N không có chữ thì
+/// cả file báo lỗi và `out` không nhận gì, để người gọi không bao giờ có file đầu ra cụt.
+pub fn pdf_pages_text(path: &Path) -> Result<Vec<String>> {
     let pdfium = pdfium()?;
     let document = pdfium
         .load_pdf_from_file(path, None)
@@ -81,14 +103,5 @@ pub fn pdf_to_text(path: &Path, out: &mut impl Write) -> Result<()> {
         }
         pages.push(text);
     }
-
-    for text in &pages {
-        out.write_all(text.as_bytes())
-            .and_then(|()| out.write_all(b"\n"))
-            .map_err(|source| MorphixError::Io {
-                path: path.to_path_buf(),
-                source,
-            })?;
-    }
-    Ok(())
+    Ok(pages)
 }

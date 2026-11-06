@@ -18,7 +18,7 @@ use crate::{
     error::{MorphixError, Result},
     kind::ImgFormat,
     naming::{desired_output, write_output_like},
-    ops::ffmpeg::run_ffmpeg,
+    ops::{compress::image_format_of, ffmpeg::run_ffmpeg},
     quality::Quality,
 };
 
@@ -206,6 +206,31 @@ fn write_with_format(
         .map_err(|e| failure(e.to_string()))
 }
 
+/// Mã hoá cho việc đổi định dạng, chọn kiểu theo định dạng nguồn `from`: nguồn lossless sang WebP thì
+/// lossless (nhỏ hơn mà không mất điểm ảnh); các đích lossy dùng mức cao nhất để không mất thêm chất
+/// lượng, trừ JPEG từ nguồn đã lossy thì theo preset người dùng chọn. `compress_image` và `resize_image`
+/// vẫn gọi `encode_image` thẳng nên không đổi hành vi.
+pub(crate) fn encode_converted(
+    img: &DynamicImage,
+    from: ImgFormat,
+    to: ImgFormat,
+    quality: Quality,
+) -> Result<Vec<u8>> {
+    if to == ImgFormat::WebP && from.is_lossless_source() {
+        let normalized = to_eight_bit(img);
+        let encoder = webp::Encoder::from_image(&normalized).map_err(|e| {
+            MorphixError::InvalidInput(format!("không mã hoá được {}: {e}", to.label()))
+        })?;
+        return Ok(encoder.encode_lossless().to_vec());
+    }
+    let effective = if to == ImgFormat::Jpeg && !from.is_lossless_source() {
+        quality
+    } else {
+        Quality::High
+    };
+    encode_image(img, to, effective)
+}
+
 /// Đổi định dạng ảnh. Mã hoá lại nên mọi siêu dữ liệu bị bỏ (chỉ giữ hướng ảnh đã bake vào điểm ảnh);
 /// muốn xoá metadata mà không mã hoá lại thì dùng `strip_metadata`.
 pub fn convert_image(
@@ -214,8 +239,9 @@ pub fn convert_image(
     quality: Quality,
     out_dir: Option<&Path>,
 ) -> Result<PathBuf> {
+    let from = image_format_of(input)?;
     let img = load_oriented(input)?;
-    let bytes = with_source_icc(input, encode_image(&img, to, quality)?, to);
+    let bytes = with_source_icc(input, encode_converted(&img, from, to, quality)?, to);
     let desired = desired_output(input, "", to.extension(), out_dir);
     write_output_like(&desired, input, |file| {
         file.write_all(&bytes).map_err(|source| MorphixError::Io {
@@ -332,5 +358,35 @@ mod tests {
         assert!(!is_rgb_profile(&profile_with_space(b"CMYK")));
         assert!(!is_rgb_profile(&profile_with_space(b"GRAY")));
         assert!(!is_rgb_profile(&[0u8; 10]));
+    }
+
+    fn gradient(side: u32) -> DynamicImage {
+        DynamicImage::ImageRgb8(RgbImage::from_fn(side, side, |x, y| {
+            Rgb([
+                (x * 13 % 256) as u8,
+                (y * 7 % 256) as u8,
+                (x * y % 256) as u8,
+            ])
+        }))
+    }
+
+    fn jpeg_bytes(from: ImgFormat, quality: Quality) -> Vec<u8> {
+        encode_converted(&gradient(64), from, ImgFormat::Jpeg, quality).unwrap()
+    }
+
+    #[test]
+    fn lossless_source_to_jpeg_ignores_preset() {
+        assert_eq!(
+            jpeg_bytes(ImgFormat::Png, Quality::Small),
+            jpeg_bytes(ImgFormat::Png, Quality::High)
+        );
+    }
+
+    #[test]
+    fn lossy_source_to_jpeg_follows_preset() {
+        assert!(
+            jpeg_bytes(ImgFormat::WebP, Quality::Small).len()
+                < jpeg_bytes(ImgFormat::WebP, Quality::High).len()
+        );
     }
 }
