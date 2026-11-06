@@ -28,10 +28,29 @@ fn bundled_lib_dir() -> Option<PathBuf> {
     std::fs::canonicalize(exe.parent()?.join("..").join("lib").join("morphix")).ok()
 }
 
-#[cfg(not(target_os = "linux"))]
+/// Trên Windows, setup đặt ffmpeg.exe và pdfium.dll cạnh morphix-gui.exe, nên thư mục đi kèm là thư mục của exe.
+#[cfg(windows)]
+fn bundled_lib_dir() -> Option<PathBuf> {
+    std::env::current_exe().ok()?.parent().map(PathBuf::from)
+}
+
+#[cfg(not(any(target_os = "linux", windows)))]
 fn bundled_lib_dir() -> Option<PathBuf> {
     None
 }
+
+/// Tên ffmpeg đi kèm trong thư mục đi kèm.
+const BUNDLED_FFMPEG: &str = if cfg!(windows) {
+    "ffmpeg.exe"
+} else {
+    "ffmpeg"
+};
+/// Tên thư viện PDFium cần tìm trong thư mục PDFium.
+const PDFIUM_LIBRARY: &str = if cfg!(windows) {
+    "pdfium.dll"
+} else {
+    "libpdfium.so"
+};
 
 /// Đường dẫn `ffmpeg` để chạy video và âm thanh (đợt 2). Thứ tự: bản đi kèm, rồi
 /// `MORPHIX_FFMPEG`, rồi PATH.
@@ -39,7 +58,7 @@ fn bundled_lib_dir() -> Option<PathBuf> {
 /// (cấu hình GPL có libx264). `MORPHIX_FFMPEG` chỉ để test trỏ tới ffmpeg giả.
 pub fn find_ffmpeg() -> Option<PathBuf> {
     pick_ffmpeg(
-        bundled_lib_dir().map(|dir| dir.join("ffmpeg")),
+        bundled_lib_dir().map(|dir| dir.join(BUNDLED_FFMPEG)),
         std::env::var_os("MORPHIX_FFMPEG"),
         || which::which("ffmpeg").ok(),
     )
@@ -63,14 +82,20 @@ fn pick_ffmpeg(
 /// Thứ tự giống `find_ffmpeg`: bản đi kèm, rồi `MORPHIX_PDFIUM_DIR`.
 pub fn find_pdfium_dir() -> Option<PathBuf> {
     pick_pdfium_dir(
-        bundled_lib_dir().map(|dir| dir.join("pdfium")),
+        bundled_lib_dir().map(|dir| {
+            if cfg!(windows) {
+                dir
+            } else {
+                dir.join("pdfium")
+            }
+        }),
         std::env::var_os("MORPHIX_PDFIUM_DIR"),
     )
 }
 
 fn pick_pdfium_dir(bundled: Option<PathBuf>, env_override: Option<OsString>) -> Option<PathBuf> {
     bundled
-        .filter(|dir| dir.join("libpdfium.so").is_file())
+        .filter(|dir| dir.join(PDFIUM_LIBRARY).is_file())
         .or_else(|| env_override.map(PathBuf::from))
 }
 
@@ -133,7 +158,7 @@ mod tests {
     #[test]
     fn pick_pdfium_dir_prefers_bundled_library_over_env() {
         let dir: tempfile::TempDir = tempfile::tempdir().expect("tạo thư mục tạm");
-        std::fs::write(dir.path().join("libpdfium.so"), b"").expect("ghi file giả");
+        std::fs::write(dir.path().join(PDFIUM_LIBRARY), b"").expect("ghi file giả");
         let picked: Option<PathBuf> =
             pick_pdfium_dir(Some(dir.path().to_path_buf()), Some("/env/pdfium".into()));
         assert_eq!(picked, Some(dir.path().to_path_buf()));

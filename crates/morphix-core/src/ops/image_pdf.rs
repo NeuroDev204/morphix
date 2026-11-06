@@ -10,8 +10,13 @@ use pdf_writer::{Content, Filter, Finish, Name, Pdf, Rect, Ref};
 use crate::{
     cancel::CancelToken,
     error::{MorphixError, Result},
+    kind::ImgFormat,
     naming::{desired_output, natural_sort, write_output_like},
-    ops::image_io::{flatten_on_white, load_oriented},
+    ops::{
+        compress::image_format_of,
+        image_io::{encode_image, flatten_on_white, load_oriented},
+    },
+    quality::Quality,
 };
 
 /// A4 theo điểm PDF (1/72 inch).
@@ -36,6 +41,16 @@ fn prepare_page_image(path: &Path) -> Result<PageImage> {
         return Ok(passthrough);
     }
     let img = load_oriented(path)?;
+    // WHY JPEG cho nguồn lossy (WebP/AVIF/JPEG xoay EXIF): zlib trên điểm ảnh thô làm PDF phình gấp nhiều lần.
+    if !image_format_of(path)?.is_lossless_source() {
+        return Ok(PageImage {
+            width: img.width(),
+            height: img.height(),
+            data: encode_image(&img, ImgFormat::Jpeg, Quality::High)?,
+            filter: Filter::DctDecode,
+            is_gray: false,
+        });
+    }
     let rgb = flatten_on_white(&img);
     let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
     let io_error = |source| MorphixError::Io {

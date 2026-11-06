@@ -1,8 +1,80 @@
 mod common;
 
-use common::{make_jpeg, make_png_rgba};
-use morphix_core::{convert_image, ImgFormat, MorphixError, Quality};
+use std::path::Path;
+
+use common::{make_jpeg, make_png, make_png_pattern, make_png_rgba};
+use morphix_core::{
+    convert_image, run_job, CancelToken, ImgFormat, Job, JobReport, MorphixError, Operation,
+    Quality,
+};
 use tempfile::tempdir;
+
+fn convert_job(input: &Path, to: ImgFormat) -> JobReport {
+    let job = Job {
+        inputs: vec![input.to_path_buf()],
+        operation: Operation::ConvertImage { to },
+        quality: Quality::Balanced,
+        out_dir: None,
+    };
+    run_job(&job, &CancelToken::new(), &|_| {})
+}
+
+#[test]
+fn tiny_png_to_avif_keeps_output_and_warns() {
+    let d = tempdir().unwrap();
+    // WHY 8x8 trơn: PNG chỉ vài chục byte, còn phần đầu container AVIF cố định lớn hơn thế.
+    let src = make_png(d.path(), "t.png", 8, 8);
+    let report = convert_job(&src, ImgFormat::Avif);
+    let item = &report.items[0];
+    assert!(item.result.as_ref().unwrap().exists());
+    assert_eq!(item.warnings.len(), 1, "{:?}", item.warnings);
+    assert!(item.warnings[0].contains("lớn hơn file gốc"));
+}
+
+#[test]
+fn jpeg_to_png_never_warns() {
+    let d = tempdir().unwrap();
+    let src = make_jpeg(d.path(), "a.jpg", 64, 32, None);
+    let report = convert_job(&src, ImgFormat::Png);
+    assert!(report.items[0].result.is_ok());
+    assert!(report.items[0].warnings.is_empty());
+}
+
+/// Tên chunk dữ liệu đầu tiên của WebP: `VP8L` là lossless, `VP8 ` là lossy.
+fn webp_chunk(path: &Path) -> Vec<u8> {
+    std::fs::read(path).unwrap()[12..16].to_vec()
+}
+
+#[test]
+fn png_to_webp_is_lossless_and_pixel_exact() {
+    let d = tempdir().unwrap();
+    let src = make_png_pattern(d.path(), "p.png", 32, 32, false);
+    let out = convert_image(&src, ImgFormat::WebP, Quality::Balanced, None).unwrap();
+    assert_eq!(webp_chunk(&out), b"VP8L");
+    assert_eq!(
+        image::open(&out).unwrap().to_rgb8(),
+        image::open(&src).unwrap().to_rgb8()
+    );
+}
+
+#[test]
+fn png_with_alpha_to_webp_keeps_alpha_exactly() {
+    let d = tempdir().unwrap();
+    let src = make_png_pattern(d.path(), "a.png", 32, 32, true);
+    let out = convert_image(&src, ImgFormat::WebP, Quality::Balanced, None).unwrap();
+    assert_eq!(
+        image::open(&out).unwrap().to_rgba8(),
+        image::open(&src).unwrap().to_rgba8()
+    );
+}
+
+#[test]
+fn jpeg_to_webp_is_lossy() {
+    let d = tempdir().unwrap();
+    let src = make_jpeg(d.path(), "a.jpg", 32, 32, None);
+    let out = convert_image(&src, ImgFormat::WebP, Quality::Balanced, None).unwrap();
+    assert_eq!(webp_chunk(&out), b"VP8 ");
+}
 
 #[test]
 fn jpg_to_png_keeps_dimensions() {

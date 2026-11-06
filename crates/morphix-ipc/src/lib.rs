@@ -34,21 +34,29 @@ const CLIENT_READ_DEADLINE: Duration = Duration::from_secs(2);
 /// khi client gửi một dòng khổng lồ không có xuống dòng; 1 MiB chứa hàng nghìn đường dẫn.
 const MAX_REQUEST_LINE_BYTES: usize = 1024 * 1024;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MenuRequest {
     pub paths: Vec<PathBuf>,
+    /// Id việc cần chạy ngay trên `paths` (ví dụ `convert:webp`); `None` là hành vi mở menu như cũ.
+    pub action: Option<String>,
 }
 
 /// DTO trên dây: `PathBuf` không luôn là UTF-8 nên chỉ chuỗi mới đi qua serde.
+/// WHY deny_unknown_fields: DLL hoặc CLI bản cũ còn gửi trường của hình quạt; từ chối rõ ràng thay vì bỏ qua
+/// rồi mở nhầm vòng tròn.
 #[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct WireRequest {
     paths: Vec<String>,
+    #[serde(default)]
+    action: Option<String>,
 }
 
 /// Mã hoá yêu cầu thành một dòng JSON. Tên file không phải UTF-8 bị từ chối (`InvalidData`, nêu tên).
 /// WHY: đổi lén sang U+FFFD sẽ cho GUI một đường dẫn không tồn tại và lỗi "không tìm thấy" khó hiểu;
 /// giao diện (chuỗi JavaScript) cũng không giữ được tên như vậy, nên báo rõ ngay từ đầu.
 pub fn encode(request: &MenuRequest) -> io::Result<String> {
+    validate_request(request).map_err(|reason| io::Error::new(ErrorKind::InvalidInput, reason))?;
     let paths = request
         .paths
         .iter()
@@ -65,8 +73,11 @@ pub fn encode(request: &MenuRequest) -> io::Result<String> {
         })
         .collect::<io::Result<Vec<String>>>()?;
     // WHY: serde_json thoát ký tự xuống dòng trong chuỗi, nên cả yêu cầu luôn nằm trên một dòng.
-    let mut line = serde_json::to_string(&WireRequest { paths })
-        .expect("WireRequest of strings always serializes");
+    let mut line = serde_json::to_string(&WireRequest {
+        paths,
+        action: request.action.clone(),
+    })
+    .expect("WireRequest of strings always serializes");
     line.push('\n');
     Ok(line)
 }
@@ -74,9 +85,25 @@ pub fn encode(request: &MenuRequest) -> io::Result<String> {
 pub fn decode(line: &str) -> Result<MenuRequest, String> {
     let wire: WireRequest = serde_json::from_str(line)
         .map_err(|error| format!("yêu cầu menu không hợp lệ: {error}"))?;
-    Ok(MenuRequest {
+    let request = MenuRequest {
         paths: wire.paths.into_iter().map(PathBuf::from).collect(),
-    })
+        action: wire.action,
+    };
+    validate_request(&request)?;
+    Ok(request)
+}
+
+fn validate_request(request: &MenuRequest) -> Result<(), String> {
+    let Some(action) = &request.action else {
+        return Ok(());
+    };
+    if action.is_empty() {
+        return Err("yêu cầu chạy việc thiếu mã việc".to_string());
+    }
+    if request.paths.is_empty() {
+        return Err("yêu cầu chạy việc cần ít nhất một file".to_string());
+    }
+    Ok(())
 }
 
 /// Tên socket duy nhất theo người dùng. `MORPHIX_IPC_NAME` ghi đè để tiến trình test không đụng nhau.
@@ -140,6 +167,7 @@ pub struct Batcher {
     pending: Vec<PathBuf>,
     pending_set: HashSet<PathBuf>,
     window_opened_at: Option<Instant>,
+    context: MenuRequest,
 }
 
 impl Batcher {
@@ -149,24 +177,47 @@ impl Batcher {
             pending: Vec::new(),
             pending_set: HashSet::new(),
             window_opened_at: None,
+            context: MenuRequest::default(),
         }
     }
 
     /// Trả snapshot của toàn bộ lô hiện tại để GUI hiện trạng thái "đang nhận file" ngay lập tức.
     pub fn push(&mut self, paths: Vec<PathBuf>, now: Instant) -> Vec<PathBuf> {
+        self.push_request(
+            MenuRequest {
+                paths,
+                ..MenuRequest::default()
+            },
+            now,
+        )
+        .paths
+    }
+
+    pub fn push_request(&mut self, mut request: MenuRequest, now: Instant) -> MenuRequest {
         // WHY: cửa sổ tính từ lần đẩy đầu, để dòng yêu cầu nhỏ giọt liên tục không hoãn lô mãi.
-        if self.window_opened_at.is_none() && !paths.is_empty() {
+        if self.window_opened_at.is_none() && !request.paths.is_empty() {
             self.window_opened_at = Some(now);
         }
-        for path in paths {
+        for path in request.paths.drain(..) {
             if self.pending_set.insert(path.clone()) {
                 self.pending.push(path);
             }
         }
-        self.pending.clone()
+        request.paths.clone_from(&self.pending);
+        let paths = std::mem::take(&mut request.paths);
+        let snapshot = MenuRequest {
+            paths,
+            ..request.clone()
+        };
+        self.context = request;
+        snapshot
     }
 
     pub fn take_ready(&mut self, now: Instant) -> Option<Vec<PathBuf>> {
+        self.take_ready_request(now).map(|request| request.paths)
+    }
+
+    pub fn take_ready_request(&mut self, now: Instant) -> Option<MenuRequest> {
         let opened_at = self.window_opened_at?;
         if now.duration_since(opened_at) < self.window {
             return None;
@@ -176,13 +227,20 @@ impl Batcher {
 
     /// Lấy lô đang chờ ngay cả khi cửa sổ chưa đóng, dùng lúc dừng server để không rơi file.
     pub fn drain(&mut self) -> Option<Vec<PathBuf>> {
+        self.drain_request().map(|request| request.paths)
+    }
+
+    pub fn drain_request(&mut self) -> Option<MenuRequest> {
         self.flush()
     }
 
-    fn flush(&mut self) -> Option<Vec<PathBuf>> {
+    fn flush(&mut self) -> Option<MenuRequest> {
         self.window_opened_at.take()?;
         self.pending_set.clear();
-        Some(std::mem::take(&mut self.pending))
+        Some(MenuRequest {
+            paths: std::mem::take(&mut self.pending),
+            ..std::mem::take(&mut self.context)
+        })
     }
 }
 
@@ -191,6 +249,13 @@ pub fn send_request(name: &str, request: &MenuRequest) -> io::Result<()> {
     let line = encode(request)?;
     let mut stream = Stream::connect(local_socket_name(name)?)?;
     stream.write_all(line.as_bytes())?;
+    #[cfg(windows)]
+    {
+        // WHY: local-socket flush is a no-op; process exit can discard an undrained pipe.
+        let Stream::NamedPipe(pipe) = &stream;
+        pipe.inner().flush()
+    }
+    #[cfg(not(windows))]
     stream.flush()
 }
 
@@ -204,6 +269,18 @@ impl IpcServer {
         name: &str,
         on_pending: impl Fn(Vec<PathBuf>) + Send + Sync + 'static,
         on_batch: impl Fn(Vec<PathBuf>) + Send + Sync + 'static,
+    ) -> io::Result<Self> {
+        Self::start_requests(
+            name,
+            move |request| on_pending(request.paths),
+            move |request| on_batch(request.paths),
+        )
+    }
+
+    pub fn start_requests(
+        name: &str,
+        on_pending: impl Fn(MenuRequest) + Send + Sync + 'static,
+        on_batch: impl Fn(MenuRequest) + Send + Sync + 'static,
     ) -> io::Result<Self> {
         // WHY: bind trên luồng của bên gọi, để tên đang bận hay không ghi được báo thẳng cho bên gọi.
         let listener = bind_listener(name)?;
@@ -291,30 +368,39 @@ fn run_accept_loop(
     listener: Listener,
     stop_requested: &AtomicBool,
     mut batcher: Batcher,
-    on_pending: &impl Fn(Vec<PathBuf>),
-    on_batch: &impl Fn(Vec<PathBuf>),
+    on_pending: &impl Fn(MenuRequest),
+    on_batch: &impl Fn(MenuRequest),
 ) {
-    let (requests, received): (Sender<Vec<PathBuf>>, Receiver<Vec<PathBuf>>) = mpsc::channel();
+    let (requests, received): (Sender<MenuRequest>, Receiver<MenuRequest>) = mpsc::channel();
     while !stop_requested.load(Ordering::SeqCst) {
         match listener.accept() {
             Ok(stream) => spawn_reader(stream, requests.clone()),
             Err(error) if error.kind() == ErrorKind::WouldBlock => {}
             Err(error) => tracing::warn!(error = %error, "accept socket IPC thất bại"),
         }
-        while let Ok(paths) = received.try_recv() {
-            on_pending(batcher.push(paths, Instant::now()));
+        while let Ok(request) = received.try_recv() {
+            // WHY: yêu cầu chạy việc đã có đủ file Explorer chọn; gom lô sẽ trộn chúng với việc khác.
+            if request.action.is_some() {
+                on_batch(request);
+            } else {
+                on_pending(batcher.push_request(request, Instant::now()));
+            }
         }
-        if let Some(batch) = batcher.take_ready(Instant::now()) {
+        if let Some(batch) = batcher.take_ready_request(Instant::now()) {
             on_batch(batch);
         }
         thread::sleep(POLL_INTERVAL);
     }
     // WHY: yêu cầu đã đọc xong nhưng chưa vào lô, hay lô còn trong cửa sổ, sẽ mất nếu không gom nốt.
     // ponytail: client còn đang gửi dở lúc thoát thì vẫn mất; chờ luồng đọc nếu có người gặp.
-    while let Ok(paths) = received.try_recv() {
-        batcher.push(paths, Instant::now());
+    while let Ok(request) = received.try_recv() {
+        if request.action.is_some() {
+            on_batch(request);
+        } else {
+            batcher.push_request(request, Instant::now());
+        }
     }
-    if let Some(batch) = batcher.drain() {
+    if let Some(batch) = batcher.drain_request() {
         on_batch(batch);
     }
     // WHY: listener bị drop ở đây, trả tên socket cho server kế tiếp.
@@ -323,6 +409,8 @@ fn run_accept_loop(
 /// Đọc một dòng yêu cầu trong tổng thời gian `deadline` và tối đa `MAX_REQUEST_LINE_BYTES` byte.
 /// Trả về byte trước `\n` (hoặc toàn bộ dữ liệu nếu client đóng kết nối trước khi gửi `\n`).
 fn read_request_line(stream: Stream, deadline: Instant) -> io::Result<Vec<u8>> {
+    #[cfg(windows)]
+    stream.set_nonblocking(true)?;
     let mut reader = BufReader::new(stream);
     let mut line: Vec<u8> = Vec::new();
     loop {
@@ -336,11 +424,16 @@ fn read_request_line(stream: Stream, deadline: Instant) -> io::Result<Vec<u8>> {
                 )
             })?;
         // WHY: đặt lại timeout từng lần đọc bằng thời gian còn lại biến nó thành hạn chót tổng.
+        #[cfg(unix)]
         reader.get_ref().set_recv_timeout(Some(remaining))?;
         // WHY: lần đọc bị ngắt được thử lại như `read_line`, để tín hiệu không làm rơi yêu cầu hợp lệ.
         let chunk = match reader.fill_buf() {
             Ok(chunk) => chunk,
             Err(error) if error.kind() == ErrorKind::Interrupted => continue,
+            Err(error) if error.kind() == ErrorKind::WouldBlock => {
+                thread::sleep(remaining.min(Duration::from_millis(5)));
+                continue;
+            }
             Err(error) => return Err(error),
         };
         if chunk.is_empty() {
@@ -368,7 +461,7 @@ fn read_request_line(stream: Stream, deadline: Instant) -> io::Result<Vec<u8>> {
 /// Đọc yêu cầu của một client trên luồng riêng rồi gửi đường dẫn về vòng accept.
 /// WHY: đọc ngay trên vòng accept thì một client im lặng giữ mọi yêu cầu khác (và việc chốt lô) tới
 /// hết hạn chót đọc. Mỗi luồng sống tối đa `CLIENT_READ_DEADLINE`.
-fn spawn_reader(stream: Stream, requests: Sender<Vec<PathBuf>>) {
+fn spawn_reader(stream: Stream, requests: Sender<MenuRequest>) {
     let spawned = thread::Builder::new()
         .name("morphix-ipc-client".to_string())
         .spawn(move || {
@@ -383,7 +476,7 @@ fn spawn_reader(stream: Stream, requests: Sender<Vec<PathBuf>>) {
     }
 }
 
-fn read_request(stream: Stream) -> Option<Vec<PathBuf>> {
+fn read_request(stream: Stream) -> Option<MenuRequest> {
     let deadline = Instant::now() + CLIENT_READ_DEADLINE;
     let line_bytes = match read_request_line(stream, deadline) {
         Ok(bytes) => bytes,
@@ -400,7 +493,7 @@ fn read_request(stream: Stream) -> Option<Vec<PathBuf>> {
         }
     };
     match decode(&line) {
-        Ok(request) => Some(request.paths),
+        Ok(request) => Some(request),
         Err(reason) => {
             tracing::warn!(reason = %reason, "bỏ qua yêu cầu IPC sai định dạng");
             None

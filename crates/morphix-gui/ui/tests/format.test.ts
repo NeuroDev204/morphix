@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatRelativeTime, formatSize, hasMixedExtensions, progressPercent, summaryLine, truncateName } from "../src/format";
+import { formatRelativeTime, formatSize, hasMixedExtensions, progressPercent, summaryLine, truncateName, warningLines } from "../src/format";
 
 const MEGABYTE: number = 1024 * 1024;
 
@@ -100,5 +100,20 @@ describe("formatRelativeTime", () => {
   });
   it("treats a timestamp in the future (clock skew) as just finished", () => {
     expect(formatRelativeTime(NOW, NOW + 500)).toBe("Vừa xong");
+  });
+});
+
+describe("warningLines", () => {
+  it("shows every warning when they fit", () => {
+    expect(warningLines(["a", "b"], 3)).toEqual({ lines: ["a", "b"], hidden: 0 });
+  });
+  it("counts the warnings that do not fit", () => {
+    expect(warningLines(["a", "b", "c", "d", "e"], 3)).toEqual({
+      lines: ["a", "b", "c"],
+      hidden: 2,
+    });
+  });
+  it("is empty without warnings", () => {
+    expect(warningLines([], 3)).toEqual({ lines: [], hidden: 0 });
   });
 });

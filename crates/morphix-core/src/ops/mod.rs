@@ -1,8 +1,12 @@
 pub mod archive;
 pub mod compress;
+pub mod doc;
+pub mod docx;
 pub mod ffmpeg;
+pub mod html;
 pub mod image_io;
 pub mod image_pdf;
+pub mod markdown;
 pub mod media;
 pub mod pdf_text;
 pub mod strip_meta;

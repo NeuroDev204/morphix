@@ -29,7 +29,7 @@ pub enum ResizeSpec {
     MaxEdge(u32),
 }
 
-fn image_format_of(input: &Path) -> Result<ImgFormat> {
+pub(crate) fn image_format_of(input: &Path) -> Result<ImgFormat> {
     match detect(input)? {
         FileKind::Image(format) => Ok(format),
         _ => Err(MorphixError::Unsupported {

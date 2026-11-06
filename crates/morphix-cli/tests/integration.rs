@@ -2075,16 +2075,20 @@ mod windows_registry {
     use std::time::SystemTime;
 
     use morphix_cli::integration::windows::{
-        menu_command, AUTOSTART_OWNER_VALUE, COMMAND_SUBKEY, LEGACY_VERB_KEY_PATH,
-        MENU_DISPLAY_NAME, MULTI_SELECT_MODEL, OWNER_KEY_PATH, RUN_KEY_PATH, RUN_VALUE_NAME,
-        VERB_KEY_PATH, VERB_OWNER_VALUE,
+        menu_command, AUTOSTART_OWNER_VALUE, COMMAND_SUBKEY, LEGACY_VERB_KEY_PATH, OWNER_KEY_PATH,
+        RUN_KEY_PATH, RUN_VALUE_NAME, VERB_KEY_PATH, VERB_OWNER_VALUE,
     };
     use morphix_cli::integration::{
         windows::WindowsBackend, BinaryPaths, ComponentId, ComponentStatus, IntegrationBackend,
     };
     use winreg::{enums::HKEY_CURRENT_USER, RegKey};
 
-    const SHELL_PARENT: &str = r"Software\Classes\*\shell";
+    const SHELL_PARENT: &str = r"Software\Classes\*\shellex\ContextMenuHandlers";
+    const SHELL_EXTENSION_CLSID: &str = "{2131F98F-8888-464C-B3D7-80E2BBEEDDE1}";
+    const SHELL_EXTENSION_REGISTRATION_KEY: &str =
+        r"Software\Classes\*\shellex\ContextMenuHandlers\Morphix";
+    const SHELL_EXTENSION_CLSID_KEY: &str =
+        r"Software\Classes\CLSID\{2131F98F-8888-464C-B3D7-80E2BBEEDDE1}";
 
     /// Nhánh HKCU dành riêng cho một test. Drop xoá nhánh này kể cả khi assert lỗi (unwind).
     struct RegistrySandbox {
@@ -2135,7 +2139,14 @@ mod windows_registry {
     }
 
     fn binaries(dir_name: &str) -> BinaryPaths {
-        let dir = std::env::temp_dir().join(dir_name);
+        let nanos = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .expect("system clock is after UNIX epoch")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("{dir_name}-{}-{nanos}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("create binary directory");
+        std::fs::write(dir.join("morphix_shell.dll"), b"test shell library")
+            .expect("create shell library");
         BinaryPaths {
             morphix: dir.join("morphix.exe"),
             gui: dir.join("morphix-gui.exe"),
@@ -2143,7 +2154,7 @@ mod windows_registry {
     }
 
     #[test]
-    fn install_and_uninstall_remove_the_owned_image_only_verb_of_older_versions() {
+    fn install_replaces_the_owned_legacy_image_verb_with_the_native_shell_handler() {
         let sandbox = RegistrySandbox::new();
         let backend = sandbox.backend();
         let paths = binaries("Morphix Legacy");
@@ -2163,49 +2174,24 @@ mod windows_registry {
             .expect("ghi command cũ");
 
         backend.install(ComponentId::WindowsContextMenu, &paths);
-        assert!(sandbox.key_exists(VERB_KEY_PATH));
+        assert!(sandbox.key_exists(SHELL_EXTENSION_REGISTRATION_KEY));
+        assert!(!sandbox.key_exists(VERB_KEY_PATH));
         assert!(
             !sandbox.key_exists(LEGACY_VERB_KEY_PATH),
             "verb chỉ-ảnh cũ phải bị dọn"
         );
         backend.uninstall(ComponentId::WindowsContextMenu);
-        assert!(!sandbox.key_exists(VERB_KEY_PATH));
+        assert!(!sandbox.key_exists(SHELL_EXTENSION_REGISTRATION_KEY));
     }
 
     #[test]
-    fn install_writes_player_verb_with_menu_command_and_quoted_run_value() {
+    fn install_writes_quoted_run_value_for_autostart() {
         let sandbox = RegistrySandbox::new();
         let backend = sandbox.backend();
         let paths = binaries("Morphix App");
-        let verb = VERB_KEY_PATH;
-        assert_eq!(
-            backend
-                .install(ComponentId::WindowsContextMenu, &paths)
-                .status,
-            ComponentStatus::Installed
-        );
         assert_eq!(
             backend.install(ComponentId::Autostart, &paths).status,
             ComponentStatus::Installed
-        );
-        assert_eq!(
-            sandbox.read(verb, "MUIVerb").as_deref(),
-            Some(MENU_DISPLAY_NAME)
-        );
-        assert_eq!(
-            sandbox.read(verb, "MultiSelectModel").as_deref(),
-            Some(MULTI_SELECT_MODEL)
-        );
-        let expected_command = menu_command(&paths.morphix).unwrap();
-        assert_eq!(
-            sandbox
-                .read(&format!(r"{verb}\{COMMAND_SUBKEY}"), "")
-                .as_deref(),
-            Some(expected_command.as_str())
-        );
-        assert_eq!(
-            sandbox.read(verb, VERB_OWNER_VALUE).as_deref(),
-            Some(expected_command.as_str())
         );
         let expected_run = format!("\"{}\"", paths.gui.display());
         assert_eq!(
@@ -2217,6 +2203,106 @@ mod windows_registry {
                 .read(OWNER_KEY_PATH, AUTOSTART_OWNER_VALUE)
                 .as_deref(),
             Some(expected_run.as_str())
+        );
+    }
+
+    #[test]
+    fn native_shell_handler_installs_inspects_and_removes_only_its_registration() {
+        let sandbox = RegistrySandbox::new();
+        let backend = sandbox.backend();
+        let binaries_dir = tempfile::tempdir().expect("create binaries directory");
+        let binaries = BinaryPaths {
+            morphix: binaries_dir.path().join("morphix.exe"),
+            gui: binaries_dir.path().join("morphix-gui.exe"),
+        };
+        let shell_library = binaries_dir.path().join("morphix_shell.dll");
+        std::fs::write(&shell_library, b"test shell library").expect("create shell library");
+
+        let other_handler_key = r"Software\Classes\*\shellex\ContextMenuHandlers\OtherExtension";
+        sandbox
+            .root()
+            .create_subkey(other_handler_key)
+            .expect("create unrelated shell handler")
+            .0
+            .set_value("", &"{00000000-0000-0000-0000-000000000001}".to_owned())
+            .expect("write unrelated shell handler");
+
+        assert_eq!(
+            backend
+                .install(ComponentId::WindowsContextMenu, &binaries)
+                .status,
+            ComponentStatus::Installed
+        );
+        assert_eq!(
+            sandbox
+                .read(SHELL_EXTENSION_REGISTRATION_KEY, "")
+                .as_deref(),
+            Some(SHELL_EXTENSION_CLSID)
+        );
+        let inproc_server_key = format!(r"{SHELL_EXTENSION_CLSID_KEY}\InprocServer32");
+        assert_eq!(
+            sandbox.read(&inproc_server_key, "").as_deref(),
+            Some(shell_library.display().to_string().as_str())
+        );
+        assert_eq!(
+            sandbox
+                .read(&inproc_server_key, "ThreadingModel")
+                .as_deref(),
+            Some("Apartment")
+        );
+        assert_eq!(
+            backend
+                .inspect(ComponentId::WindowsContextMenu, &binaries)
+                .status,
+            ComponentStatus::Installed
+        );
+        assert_eq!(
+            backend.uninstall(ComponentId::WindowsContextMenu).status,
+            ComponentStatus::Removed
+        );
+        assert!(!sandbox.key_exists(SHELL_EXTENSION_REGISTRATION_KEY));
+        assert!(!sandbox.key_exists(SHELL_EXTENSION_CLSID_KEY));
+        assert_eq!(
+            sandbox.read(other_handler_key, "").as_deref(),
+            Some("{00000000-0000-0000-0000-000000000001}")
+        );
+    }
+
+    #[test]
+    fn native_shell_handler_conflict_is_preserved_on_install_and_uninstall() {
+        let sandbox = RegistrySandbox::new();
+        let backend = sandbox.backend();
+        let binaries_dir = tempfile::tempdir().expect("create binaries directory");
+        let binaries = BinaryPaths {
+            morphix: binaries_dir.path().join("morphix.exe"),
+            gui: binaries_dir.path().join("morphix-gui.exe"),
+        };
+        let shell_library = binaries_dir.path().join("morphix_shell.dll");
+        std::fs::write(&shell_library, b"test shell library").expect("create shell library");
+        let foreign_clsid = "{00000000-0000-0000-0000-000000000002}";
+        sandbox
+            .root()
+            .create_subkey(SHELL_EXTENSION_REGISTRATION_KEY)
+            .expect("create foreign shell handler")
+            .0
+            .set_value("", &foreign_clsid.to_owned())
+            .expect("write foreign shell handler");
+
+        assert_eq!(
+            backend
+                .install(ComponentId::WindowsContextMenu, &binaries)
+                .status,
+            ComponentStatus::Conflict
+        );
+        assert_eq!(
+            backend.uninstall(ComponentId::WindowsContextMenu).status,
+            ComponentStatus::Conflict
+        );
+        assert_eq!(
+            sandbox
+                .read(SHELL_EXTENSION_REGISTRATION_KEY, "")
+                .as_deref(),
+            Some(foreign_clsid)
         );
     }
 
@@ -2253,12 +2339,11 @@ mod windows_registry {
     }
 
     #[test]
-    fn rewritten_verb_command_is_conflict_and_survives_uninstall() {
+    fn rewritten_shell_handler_registration_is_conflict_and_survives_uninstall() {
         let sandbox = RegistrySandbox::new();
         let backend = sandbox.backend();
         let paths = binaries("Morphix App");
-        let command_path = format!(r"{VERB_KEY_PATH}\{COMMAND_SUBKEY}");
-        let rewritten = "\"C:\\Other\\other.exe\" \"%1\"";
+        let rewritten = "{00000000-0000-0000-0000-000000000003}";
         assert_eq!(
             backend
                 .install(ComponentId::WindowsContextMenu, &paths)
@@ -2267,21 +2352,26 @@ mod windows_registry {
         );
         sandbox
             .root()
-            .create_subkey(&command_path)
-            .expect("mở command của verb")
+            .create_subkey(SHELL_EXTENSION_REGISTRATION_KEY)
+            .expect("mở shell handler")
             .0
             .set_value("", &rewritten.to_owned())
-            .expect("ghi đè command");
+            .expect("ghi đè CLSID");
 
         assert_eq!(
             backend.uninstall(ComponentId::WindowsContextMenu).status,
             ComponentStatus::Conflict
         );
         assert!(
-            sandbox.key_exists(VERB_KEY_PATH),
-            "không được xoá verb đã bị ghi đè"
+            sandbox.key_exists(SHELL_EXTENSION_REGISTRATION_KEY),
+            "không được xoá shell handler đã bị ghi đè"
         );
-        assert_eq!(sandbox.read(&command_path, "").as_deref(), Some(rewritten));
+        assert_eq!(
+            sandbox
+                .read(SHELL_EXTENSION_REGISTRATION_KEY, "")
+                .as_deref(),
+            Some(rewritten)
+        );
     }
 
     #[test]
@@ -2310,9 +2400,15 @@ mod windows_registry {
         let paths = binaries("Morphix App");
         let other_run = r"Software\Microsoft\Windows\CurrentVersion\Run";
         let other_class = r"Software\Classes\.other";
+        let other_shell_handler = format!(r"{SHELL_PARENT}\OtherExtension");
         let root = sandbox.root();
         root.create_subkey(other_class)
             .expect("tạo key ngoài Morphix");
+        root.create_subkey(&other_shell_handler)
+            .expect("tạo shell handler khác")
+            .0
+            .set_value("", &"{00000000-0000-0000-0000-000000000004}".to_owned())
+            .expect("ghi shell handler khác");
         root.create_subkey(other_run)
             .expect("mở Run")
             .0
@@ -2324,10 +2420,14 @@ mod windows_registry {
         backend.uninstall(ComponentId::WindowsContextMenu);
         backend.uninstall(ComponentId::Autostart);
 
-        assert!(!sandbox.key_exists(VERB_KEY_PATH));
+        assert!(!sandbox.key_exists(SHELL_EXTENSION_REGISTRATION_KEY));
         assert!(
             sandbox.key_exists(SHELL_PARENT),
             "không được xoá parent shell"
+        );
+        assert_eq!(
+            sandbox.read(&other_shell_handler, "").as_deref(),
+            Some("{00000000-0000-0000-0000-000000000004}")
         );
         assert!(
             sandbox.key_exists(other_class),
@@ -2392,17 +2492,17 @@ mod windows_registry {
     }
 
     #[test]
-    fn moved_binary_is_stale_until_reinstalled_and_paths_with_spaces_quotes_and_ampersand_round_trip(
-    ) {
+    fn moved_binary_is_stale_until_reinstalled_and_paths_with_spaces_and_unicode_round_trip()
+    {
         let sandbox = RegistrySandbox::new();
         let backend = sandbox.backend();
+        let awkward_dir = std::env::temp_dir().join("Apps v1 & Ứng dụng");
+        std::fs::create_dir_all(&awkward_dir).expect("create awkward binaries directory");
+        std::fs::write(awkward_dir.join("morphix_shell.dll"), b"test shell library")
+            .expect("create awkward shell library");
         let awkward = BinaryPaths {
-            morphix: std::env::temp_dir()
-                .join("Apps \"v1\" & Ứng dụng")
-                .join("morphix.exe"),
-            gui: std::env::temp_dir()
-                .join("Apps \"v1\" & Ứng dụng")
-                .join("morphix-gui.exe"),
+            morphix: awkward_dir.join("morphix.exe"),
+            gui: awkward_dir.join("morphix-gui.exe"),
         };
         backend.install(ComponentId::WindowsContextMenu, &awkward);
         backend.install(ComponentId::Autostart, &awkward);

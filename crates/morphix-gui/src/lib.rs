@@ -8,6 +8,7 @@ use clap::{Parser, Subcommand};
 use morphix_ipc::{send_request, socket_name, IpcServer, MenuRequest};
 use state::{AppPaths, AppState};
 use tauri::{AppHandle, Manager, RunEvent, WindowEvent};
+use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 
 #[cfg(target_os = "linux")]
 pub mod capture;
@@ -130,16 +131,30 @@ fn should_show_menu(exiting: bool) -> bool {
 }
 
 /// Mở Menu nhanh rồi log lỗi thay vì panic: một lô lỗi không được làm sập server IPC.
-fn show_menu_for(app: &AppHandle, paths: Vec<PathBuf>, collecting: bool) {
+fn show_menu_for(app: &AppHandle, request: MenuRequest, collecting: bool) {
+    tracing::info!(action = ?request.action, files = request.paths.len(), collecting, "menu request received");
     let state = app.state::<AppState>();
     if !should_show_menu(state.exiting.load(Ordering::SeqCst)) {
         tracing::warn!(
-            files = paths.len(),
+            files = request.paths.len(),
             collecting,
             "bỏ lô file vì Morphix đang thoát"
         );
         return;
     }
+    if let Some(id) = request.action.as_deref() {
+        if let Err(message) = commands::start_action(app, id, request.paths.clone()) {
+            tracing::error!(%message, action = id, "không chạy được việc nhận qua IPC");
+            // WHY hộp thoại: lúc này không có webview nào mở để hiện banner lỗi, nên không thể chỉ ghi log.
+            app.dialog()
+                .message(message)
+                .title("Morphix")
+                .kind(MessageDialogKind::Error)
+                .show(|_| {});
+        }
+        return;
+    }
+    let paths = request.paths;
     let route = {
         let mut wait = state.khay_wait_guard();
         // WHY: callback lô đang gom không được tiêu thụ yêu cầu chờ; Khay cần toàn bộ lô cuối.
@@ -150,7 +165,14 @@ fn show_menu_for(app: &AppHandle, paths: Vec<PathBuf>, collecting: bool) {
     };
     let result = match route {
         state::BatchRoute::Khay => windows::open_khay_with_files(app, paths),
-        state::BatchRoute::Wheel => windows::open_menu(app, paths, collecting),
+        state::BatchRoute::Wheel => windows::open_menu(
+            app,
+            MenuRequest {
+                paths,
+                ..MenuRequest::default()
+            },
+            collecting,
+        ),
     };
     if let Err(reason) = result {
         tracing::error!(%reason, collecting, "không mở được Menu nhanh");
@@ -186,6 +208,7 @@ fn forward_paths(paths: Vec<PathBuf>, cwd: &str) -> Result<(), String> {
         &socket_name(),
         &MenuRequest {
             paths: absolute_paths,
+            ..MenuRequest::default()
         },
     )
     .map_err(|error| format!("không chuyển được file tới Morphix đang chạy: {error}"))
@@ -227,6 +250,7 @@ pub fn run(startup: StartupRequest) -> Result<(), String> {
     // WHY kiểm sớm: tên file không phải UTF-8 không gửi qua IPC được; để tới setup thì app khởi động hỏng.
     if let Err(error) = morphix_ipc::encode(&MenuRequest {
         paths: initial_paths.clone(),
+        ..MenuRequest::default()
     }) {
         tracing::error!(%error, "tên file không gửi được tới Menu nhanh");
         return Err(error.to_string());
@@ -236,6 +260,7 @@ pub fn run(startup: StartupRequest) -> Result<(), String> {
     let unsupported_selection_requested = startup.unsupported_selection;
     let request = MenuRequest {
         paths: initial_paths,
+        ..MenuRequest::default()
     };
     if !request.paths.is_empty() {
         match send_request(&socket_name(), &request) {
@@ -275,10 +300,10 @@ pub fn run(startup: StartupRequest) -> Result<(), String> {
             }
             let pending_handle = handle.clone();
             // WHY before any window: yêu cầu đến từ CLI phải có nơi nhận ngay khi cửa sổ hiện.
-            let server = IpcServer::start(
+            let server = IpcServer::start_requests(
                 &socket_name(),
-                move |paths| show_menu_for(&pending_handle, paths, true),
-                move |paths| show_menu_for(&handle, paths, false),
+                move |request| show_menu_for(&pending_handle, request, true),
+                move |request| show_menu_for(&handle, request, false),
             )
             .inspect_err(|error| {
                 tracing::error!(error = %error, "không mở được socket IPC của Morphix");

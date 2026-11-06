@@ -3,7 +3,10 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use tauri::{AppHandle, Emitter, LogicalPosition, Manager, PhysicalPosition, WebviewWindow};
+use morphix_ipc::MenuRequest;
+use tauri::{
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, PhysicalPosition, WebviewWindow,
+};
 
 use crate::state::AppState;
 
@@ -181,7 +184,11 @@ pub fn toggle_khay(app: &AppHandle) -> Result<(), String> {
 ///
 /// Cửa sổ đã hiện thì chỉ cập nhật lô, không định vị lại và không tạo cửa sổ thứ hai.
 /// Giao diện vẫn đọc `pending_request` khi tải nên không mất lô nếu sự kiện đến trước khi trang sẵn sàng.
-pub fn open_menu(app: &AppHandle, paths: Vec<PathBuf>, collecting: bool) -> Result<(), String> {
+pub fn open_menu(
+    app: &AppHandle,
+    menu_request: MenuRequest,
+    collecting: bool,
+) -> Result<(), String> {
     let window = app
         .get_webview_window(MENU_WINDOW_LABEL)
         .ok_or_else(|| "Không tìm thấy cửa sổ Menu nhanh.".to_string())?;
@@ -192,7 +199,7 @@ pub fn open_menu(app: &AppHandle, paths: Vec<PathBuf>, collecting: bool) -> Resu
     let state = app.state::<AppState>();
     let request = {
         let mut pending = state.pending_guard();
-        pending.paths = paths;
+        pending.paths = menu_request.paths;
         pending.collecting = collecting;
         pending.revision += 1;
         if !was_visible {
@@ -202,7 +209,13 @@ pub fn open_menu(app: &AppHandle, paths: Vec<PathBuf>, collecting: bool) -> Resu
     };
 
     if !was_visible {
+        window
+            .set_size(LogicalSize::new(320.0, 460.0))
+            .map_err(|error| format!("Không đặt được kích thước Menu nhanh: {error}"))?;
         place_near_cursor(&window);
+    }
+
+    if !was_visible {
         window
             .show()
             .map_err(|error| format!("Không hiện được cửa sổ Menu nhanh: {error}"))?;

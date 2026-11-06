@@ -18,6 +18,7 @@ fn round_trip_keeps_unicode_quotes_spaces_and_newlines_in_names() {
             PathBuf::from("/home/a/it's \"quoted\".png"),
             PathBuf::from("/home/a/ghi\nchú.jpg"),
         ],
+        ..MenuRequest::default()
     };
     let line = encode(&req).unwrap();
     assert!(line.ends_with('\n'));
@@ -40,7 +41,11 @@ fn decode_rejects_garbage_with_a_reason() {
 fn non_utf8_path_is_rejected_with_its_name_instead_of_silently_rewritten() {
     use std::os::unix::ffi::OsStringExt;
     let path = PathBuf::from(std::ffi::OsString::from_vec(vec![b'/', b'a', 0xff]));
-    let error = encode(&MenuRequest { paths: vec![path] }).unwrap_err();
+    let error = encode(&MenuRequest {
+        paths: vec![path],
+        ..MenuRequest::default()
+    })
+    .unwrap_err();
     assert_eq!(error.kind(), ErrorKind::InvalidData);
     assert!(error.to_string().contains("UTF-8"), "{error}");
 }
@@ -96,6 +101,7 @@ fn server_and_client_talk_over_a_real_local_socket() {
             &name,
             &MenuRequest {
                 paths: vec![PathBuf::from("x.png")],
+                ..MenuRequest::default()
             },
         );
         if sent.is_ok() {
@@ -125,6 +131,67 @@ fn server_and_client_talk_over_a_real_local_socket() {
 }
 
 #[test]
+fn old_fan_request_line_is_rejected() {
+    // WHY: DLL hoặc CLI bản cũ vẫn gửi dòng này; GUI mới phải từ chối chứ không được mở vòng tròn.
+    let line = r#"{"paths":["a.png"],"presentation":"explorer_fan","anchor":{"x":1,"y":2,"width":110,"height":220},"session_id":"s"}"#;
+    assert!(decode(line).is_err());
+}
+
+fn action_request(file: &str, action: &str) -> MenuRequest {
+    MenuRequest {
+        paths: vec![PathBuf::from(file)],
+        action: Some(action.to_string()),
+    }
+}
+
+#[test]
+fn action_request_round_trips() {
+    let request = action_request("a.png", "convert:webp");
+    let line = encode(&request).unwrap();
+    assert_eq!(decode(line.trim_end()).unwrap(), request);
+}
+
+#[test]
+fn action_request_without_paths_is_rejected() {
+    let request = MenuRequest {
+        action: Some("convert:webp".to_string()),
+        ..MenuRequest::default()
+    };
+    assert!(encode(&request).is_err());
+}
+
+#[test]
+fn empty_action_id_is_rejected() {
+    assert!(encode(&action_request("a.png", "")).is_err());
+}
+
+#[test]
+fn action_requests_are_not_merged_into_a_batch() {
+    let name = format!("morphix-action-test-{}", std::process::id());
+    let received = Arc::new(Mutex::new(Vec::<MenuRequest>::new()));
+    let pending = Arc::new(Mutex::new(Vec::<MenuRequest>::new()));
+    let final_sink = Arc::clone(&received);
+    let pending_sink = Arc::clone(&pending);
+    let server = IpcServer::start_requests(
+        &name,
+        move |request| pending_sink.lock().unwrap().push(request),
+        move |request| final_sink.lock().unwrap().push(request),
+    )
+    .unwrap();
+    let first = action_request("a.png", "convert:webp");
+    let second = action_request("b.png", "compress");
+    morphix_ipc::send_request(&name, &first).unwrap();
+    morphix_ipc::send_request(&name, &second).unwrap();
+
+    assert!(wait_until(Instant::now() + Duration::from_secs(2), || {
+        let received = received.lock().unwrap();
+        received.contains(&first) && received.contains(&second)
+    }));
+    assert!(pending.lock().unwrap().is_empty());
+    server.shutdown().unwrap();
+}
+
+#[test]
 fn shutdown_releases_the_socket_name_for_a_new_server() {
     let name = format!("morphix-shutdown-test-{}", std::process::id());
     let first = morphix_ipc::IpcServer::start(&name, |_| {}, |_| {}).unwrap();
@@ -145,6 +212,7 @@ fn connect_raw(name: &str) -> io::Result<Stream> {
 fn menu_request(paths: &[&str]) -> MenuRequest {
     MenuRequest {
         paths: paths.iter().map(PathBuf::from).collect(),
+        ..MenuRequest::default()
     }
 }
 

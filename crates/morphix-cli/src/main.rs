@@ -57,8 +57,8 @@ struct Cli {
 enum Command {
     /// Đổi định dạng ảnh. Mã hoá lại nên siêu dữ liệu bị bỏ (dùng `strip-meta` để xoá mà không mã hoá lại);
     /// GIF động chỉ lấy khung đầu. `--to pdf` tạo mỗi ảnh một PDF; thêm `--merge` để gộp thành một PDF.
-    /// Văn bản và phụ đề: `--to txt|md|srt|vtt|csv|tsv`, chỉ trong cùng nhóm (xem `formats`).
-    /// PDF: `--to txt` lấy lớp chữ có sẵn (không OCR).
+    /// Văn bản, tài liệu và phụ đề: `--to txt|md|html|docx|srt|vtt|csv|tsv`, chỉ trong cùng nhóm
+    /// (xem `formats`). PDF: `--to txt|md` lấy lớp chữ có sẵn (không OCR).
     Convert {
         #[arg(required = true)]
         files: Vec<PathBuf>,
@@ -178,6 +178,9 @@ enum Target {
     Pdf,
     Txt,
     Md,
+    #[value(alias = "htm")]
+    Html,
+    Docx,
     Srt,
     Vtt,
     Csv,
@@ -255,6 +258,8 @@ impl Target {
         match self {
             Target::Txt => Some(TextFormat::Txt),
             Target::Md => Some(TextFormat::Markdown),
+            Target::Html => Some(TextFormat::Html),
+            Target::Docx => Some(TextFormat::Docx),
             Target::Srt => Some(TextFormat::Srt),
             Target::Vtt => Some(TextFormat::Vtt),
             Target::Csv => Some(TextFormat::Csv),
@@ -310,11 +315,11 @@ fn build_jobs(cli: &Cli) -> Result<Vec<Job>, String> {
                 return Ok(files
                     .iter()
                     .map(|file| {
-                        // WHY: PDF sang TXT đọc lớp chữ của PDF, không đi qua bộ chuyển văn bản; chọn theo đầu vào như GIF.
-                        let operation = if format == TextFormat::Txt && is_pdf_input(file) {
-                            Operation::PdfToText
-                        } else {
-                            Operation::ConvertText { to: format }
+                        // WHY: PDF sang TXT/MD đọc lớp chữ của PDF, không đi qua bộ chuyển văn bản; chọn theo đầu vào như GIF.
+                        let operation = match format {
+                            TextFormat::Txt if is_pdf_input(file) => Operation::PdfToText,
+                            TextFormat::Markdown if is_pdf_input(file) => Operation::PdfToMarkdown,
+                            _ => Operation::ConvertText { to: format },
                         };
                         job(vec![file.clone()], operation)
                     })
@@ -488,8 +493,8 @@ fn unsupported_reason(name: &str, kind: &FileKind, operation: &Operation) -> Opt
         | (_, Operation::ExtractAudio { .. }) => Some(format!(
             "{name}: chỉ âm thanh và video mới dùng được với lệnh này"
         )),
-        // WHY: build_jobs chỉ tạo PdfToText cho PDF; khớp với catalog để CLI và vòng tròn không lệch nhau.
-        (FileKind::Pdf, Operation::PdfToText) => None,
+        // WHY: build_jobs chỉ tạo PdfToText/PdfToMarkdown cho PDF; khớp với catalog để CLI và vòng tròn không lệch nhau.
+        (FileKind::Pdf, Operation::PdfToText | Operation::PdfToMarkdown) => None,
         // WHY: mọi file nhận dạng được đều gộp được; file không nhận dạng được đã bỏ qua ở trên.
         (_, Operation::CreateArchive { .. }) => None,
         (FileKind::Archive(ArchiveFormat::Rar), Operation::ExtractArchive) => Some(
@@ -503,6 +508,9 @@ fn unsupported_reason(name: &str, kind: &FileKind, operation: &Operation) -> Opt
         (_, Operation::ExtractArchive) => Some(format!("{name}: không phải file nén nên không giải nén được")),
         (_, Operation::PdfToText) => Some(format!(
             "{name}: không chuyển được sang TXT: chỉ PDF mới chuyển được sang TXT bằng việc này"
+        )),
+        (_, Operation::PdfToMarkdown) => Some(format!(
+            "{name}: không chuyển được sang MD: chỉ PDF mới chuyển được sang MD bằng việc này"
         )),
         (FileKind::Text(from), Operation::ConvertText { to }) => {
             if text_pair_supported(*from, *to) {
@@ -826,16 +834,27 @@ fn connect_with_retries(
     ))
 }
 
-/// Gửi file tới GUI đang chạy; không có thì khởi động và gửi lại. Trả `Ok` ngay khi server nhận yêu cầu.
+/// Gửi file tới GUI đang chạy; không có thì khởi động và gửi lại. Chỉ dùng trên Linux.
 fn run_menu(files: &[PathBuf], newline_list: Option<&str>, uris: &[String]) -> ExitCode {
+    // WHY: trên Windows menu chuột phải của Explorer đã thay vòng tròn, nên lệnh này không còn việc để làm.
+    if cfg!(windows) {
+        eprintln!(
+            "lỗi: trên Windows hãy chuột phải file → Morphix trong Explorer, hoặc dùng morphix convert."
+        );
+        return ExitCode::from(2);
+    }
     let paths = if uris.is_empty() {
         collect_menu_paths(files, newline_list)
     } else {
         file_uris_to_paths(uris)
     };
     let request = match paths {
-        Ok(paths) => MenuRequest { paths },
+        Ok(paths) => MenuRequest {
+            paths,
+            ..MenuRequest::default()
+        },
         Err(message) => {
+            tracing::warn!(%message, "menu request rejected");
             eprintln!("lỗi: {message}");
             return ExitCode::from(2);
         }
@@ -844,7 +863,12 @@ fn run_menu(files: &[PathBuf], newline_list: Option<&str>, uris: &[String]) -> E
     let first_error = match send_request(&socket, &request) {
         Ok(()) => return ExitCode::SUCCESS,
         // WHY: tên file không mã hoá được là lỗi của yêu cầu; khởi động GUI cũng không giúp gì.
-        Err(error) if error.kind() == std::io::ErrorKind::InvalidData => {
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::InvalidData | std::io::ErrorKind::InvalidInput
+            ) =>
+        {
             eprintln!("lỗi: {error}");
             return ExitCode::from(2);
         }

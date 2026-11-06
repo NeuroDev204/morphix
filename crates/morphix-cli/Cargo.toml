@@ -12,6 +12,7 @@ path = "src/main.rs"
 clap = { version = "4.6.7", features = ["derive"] }
 morphix-core = { path = "../morphix-core" }
 morphix-ipc = { path = "../morphix-ipc" }
+morphix-shell = { path = "../morphix-shell" }
 tempfile = "3.27.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"

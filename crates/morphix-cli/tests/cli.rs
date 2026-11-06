@@ -156,6 +156,28 @@ fn json_output_is_a_single_parsable_object() {
 }
 
 #[test]
+fn output_not_smaller_than_source_warns_on_stderr_but_succeeds() {
+    let s = Sandbox::new();
+    // WHY 8x8 trơn: PNG chỉ vài chục byte nên AVIF chắc chắn lớn hơn.
+    s.png("a.png", 8, 8);
+    s.run(&["convert", "a.png", "--to", "avif"])
+        .success()
+        .stderr(contains("cảnh báo"));
+    assert!(s.path("a.avif").exists());
+}
+
+#[test]
+fn json_output_lists_warnings_per_item() {
+    let s = Sandbox::new();
+    s.png("a.png", 8, 8);
+    let assert = s
+        .run(&["--json", "convert", "a.png", "--to", "avif"])
+        .success();
+    let value: serde_json::Value = serde_json::from_slice(&assert.get_output().stdout).unwrap();
+    assert_eq!(value["results"][0]["warnings"].as_array().unwrap().len(), 1);
+}
+
+#[test]
 fn dry_run_prints_plan_and_creates_nothing() {
     let s = Sandbox::new();
     s.jpeg("a.jpg", 16, 16, 90, false);
@@ -335,6 +357,11 @@ fn formats_without_files_lists_supported_targets() {
 
 /// Exit doctor khi chưa cài tích hợp: Linux kiểm được và thấy `missing` (0); nơi khác không kiểm được gì (3).
 const DOCTOR_EMPTY_EXIT_CODE: i32 = if cfg!(target_os = "linux") { 0 } else { 3 };
+const DOCTOR_EXIT_CODES_WITH_USER_INTEGRATION: &[i32] = if cfg!(target_os = "windows") {
+    &[0, 1, 3]
+} else {
+    &[DOCTOR_EMPTY_EXIT_CODE]
+};
 
 /// HOME và XDG nằm trong sandbox để doctor không đọc cấu hình tích hợp thật của người dùng.
 fn doctor_isolated_from_user_integration(s: &Sandbox) -> assert_cmd::Command {
@@ -357,8 +384,12 @@ fn doctor_reports_ffmpeg_and_data_dir_and_exits_3_without_integration_backend() 
         .env("MORPHIX_DATA_DIR", s.data.path())
         .env("PATH", "") // chắc chắn không có ffmpeg
         .arg("doctor")
-        .assert()
-        .code(DOCTOR_EMPTY_EXIT_CODE);
+        .assert();
+    let code = assert.get_output().status.code().unwrap();
+    assert!(
+        DOCTOR_EXIT_CODES_WITH_USER_INTEGRATION.contains(&code),
+        "doctor exited {code}"
+    );
     let out = stdout_of(&assert);
     assert!(out.contains("ffmpeg: không tìm thấy"), "{out}");
     assert!(
@@ -458,7 +489,7 @@ fn formats_for_srt_lists_the_text_targets_from_the_catalog() {
     // WHY: file phụ đề không phải file nén nên catalog cũng đề nghị ba đích nén (việc này trước bị CLI giấu).
     assert_eq!(
         out,
-        "convert\tVTT\nconvert\tTXT\nconvert\tNén thành ZIP\nconvert\tNén thành TAR.GZ\nconvert\tNén thành 7Z\n"
+        "convert\tVTT\nconvert\tTXT\nconvert\tMD\nconvert\tNén thành ZIP\nconvert\tNén thành TAR.GZ\nconvert\tNén thành 7Z\n"
     );
 }
 
@@ -651,11 +682,15 @@ fn pdf_without_text_layer_exits_1_with_vietnamese_reason_and_creates_nothing() {
 }
 
 #[test]
-fn pdf_to_md_is_unsupported_exits_2_and_creates_nothing() {
+fn pdf_to_md_writes_one_heading_per_page_and_keeps_source() {
+    // WHY: D2 thêm PDF sang MD (trước đây là cặp không hỗ trợ); cần PDFium như test PDF sang TXT.
     let s = Sandbox::new();
     std::fs::write(s.path("sach.pdf"), pdf_with_text(Some("Hello"))).unwrap();
-    s.run(&["convert", "sach.pdf", "--to", "md"]).code(2);
-    assert!(!s.path("sach.md").exists());
+    s.run(&["convert", "sach.pdf", "--to", "md"]).success();
+    let md = std::fs::read_to_string(s.path("sach.md")).unwrap();
+    assert!(md.starts_with("## Trang 1\n\n"), "{md:?}");
+    assert!(md.contains("Hello"), "{md:?}");
+    assert!(s.path("sach.pdf").exists());
 }
 
 #[test]
@@ -666,6 +701,69 @@ fn formats_for_pdf_lists_txt_and_archive_targets() {
     let out = stdout_of(&s.run(&["formats", "sach.pdf"]).success());
     assert_eq!(
         out,
-        "convert\tTXT\nconvert\tNén thành ZIP\nconvert\tNén thành TAR.GZ\nconvert\tNén thành 7Z\n"
+        "convert\tTXT\nconvert\tMD\nconvert\tNén thành ZIP\nconvert\tNén thành TAR.GZ\nconvert\tNén thành 7Z\n"
     );
+}
+
+#[test]
+fn csv_to_md_writes_a_markdown_table() {
+    let s = Sandbox::new();
+    std::fs::write(s.path("a.csv"), "a,b\n1,2\n").unwrap();
+    s.run(&["convert", "a.csv", "--to", "md"]).success();
+    assert_eq!(
+        std::fs::read_to_string(s.path("a.md")).unwrap(),
+        "| a | b |\n| --- | --- |\n| 1 | 2 |\n"
+    );
+}
+
+#[test]
+fn md_to_txt_strips_markdown_syntax() {
+    let s = Sandbox::new();
+    std::fs::write(s.path("a.md"), "# Tiêu đề\n\n**đậm**\n").unwrap();
+    s.run(&["convert", "a.md", "--to", "txt"]).success();
+    assert_eq!(
+        std::fs::read_to_string(s.path("a.txt")).unwrap(),
+        "Tiêu đề\n\nđậm\n"
+    );
+}
+
+#[test]
+fn png_to_md_is_a_usage_error_and_creates_nothing() {
+    let s = Sandbox::new();
+    s.png("a.png", 8, 8);
+    s.run(&["convert", "a.png", "--to", "md"])
+        .code(2)
+        .stderr(contains("a.png"));
+    assert!(!s.path("a.md").exists());
+}
+
+#[test]
+fn pdf_to_md_dry_run_plans_an_md_next_to_the_pdf() {
+    let s = Sandbox::new();
+    std::fs::write(s.path("a.pdf"), b"%PDF-1.4\n%%EOF\n").unwrap();
+    s.run(&["--dry-run", "convert", "a.pdf", "--to", "md"])
+        .success()
+        .stdout(contains("a.md"));
+}
+
+#[test]
+fn md_to_docx_and_html_write_documents_next_to_source() {
+    let s = Sandbox::new();
+    std::fs::write(s.path("a.md"), "# Tiêu đề\n\n**đậm**\n").unwrap();
+    s.run(&["convert", "a.md", "--to", "docx"]).success();
+    let docx = std::fs::read(s.path("a.docx")).unwrap();
+    assert!(docx.starts_with(b"PK"), "DOCX phải là zip");
+    s.run(&["convert", "a.md", "--to", "html"]).success();
+    let html = std::fs::read_to_string(s.path("a.html")).unwrap();
+    assert!(html.contains("<h1>Tiêu đề</h1>"), "{html}");
+}
+
+#[test]
+fn txt_to_docx_is_a_usage_error_and_creates_nothing() {
+    let s = Sandbox::new();
+    std::fs::write(s.path("a.txt"), "x\n").unwrap();
+    s.run(&["convert", "a.txt", "--to", "docx"])
+        .code(2)
+        .stderr(contains("a.txt"));
+    assert!(!s.path("a.docx").exists());
 }

@@ -82,5 +82,6 @@ export const S = {
   errorTitle: "Có lỗi xảy ra",
   runningTitle: "Đang chuyển",
   failedFiles: (count: number): string => `${count} file không chuyển được. Xem Lịch sử để biết lý do.`,
+  moreWarnings: (count: number): string => `… và ${count} cảnh báo khác (xem Lịch sử)`,
   menuAriaLabel: (summary: string): string => `Việc cần làm với ${summary}`,
 } as const;

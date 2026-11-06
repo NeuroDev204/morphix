@@ -11,7 +11,12 @@ use serde::{Deserialize, Serialize};
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum JobState {
     Running,
-    Finished { ok: usize, failed: usize },
+    /// `warnings`: cảnh báo của các file đã xong (ví dụ bỏ ảnh, bỏ chú thích); rỗng khi không có gì đáng nói.
+    Finished {
+        ok: usize,
+        failed: usize,
+        warnings: Vec<String>,
+    },
     Cancelled,
 }
 
@@ -297,6 +302,11 @@ fn final_state(report: &JobReport) -> JobState {
         JobState::Finished {
             ok: report.succeeded(),
             failed: report.failed(),
+            warnings: report
+                .items
+                .iter()
+                .flat_map(|item| item.warnings.iter().cloned())
+                .collect(),
         }
     }
 }
@@ -335,6 +345,7 @@ mod tests {
         ItemReport {
             inputs: vec![PathBuf::from("a.jpg")],
             result,
+            warnings: Vec::new(),
         }
     }
 
@@ -348,7 +359,11 @@ mod tests {
         };
         assert_eq!(
             final_state(&report),
-            JobState::Finished { ok: 2, failed: 0 }
+            JobState::Finished {
+                ok: 2,
+                failed: 0,
+                warnings: Vec::new(),
+            }
         );
         let cancelled = JobReport {
             items: vec![
@@ -357,5 +372,22 @@ mod tests {
             ],
         };
         assert_eq!(final_state(&cancelled), JobState::Cancelled);
+    }
+
+    #[test]
+    fn finished_state_carries_item_warnings() {
+        let mut warned = item(Ok(PathBuf::from("a.html")));
+        warned.warnings = vec!["a.html: bỏ 1 ảnh (chỉ giữ chữ thay thế)".to_string()];
+        let report = JobReport {
+            items: vec![warned],
+        };
+        assert_eq!(
+            final_state(&report),
+            JobState::Finished {
+                ok: 1,
+                failed: 0,
+                warnings: vec!["a.html: bỏ 1 ảnh (chỉ giữ chữ thay thế)".to_string()],
+            }
+        );
     }
 }

@@ -35,6 +35,32 @@ pub fn make_png(dir: &Path, name: &str, w: u32, h: u32) -> PathBuf {
     path
 }
 
+/// PNG có gradient để so điểm ảnh sau khi convert. Alpha (nếu bật) nằm trong 100..=255: libwebp lossless
+/// bỏ RGB của điểm ảnh trong suốt hoàn toàn, nên ảnh thử không được có điểm nào như vậy.
+pub fn make_png_pattern(dir: &Path, name: &str, w: u32, h: u32, with_alpha: bool) -> PathBuf {
+    let path = dir.join(name);
+    let rgb = |x: u32, y: u32| {
+        [
+            (x * 7 % 256) as u8,
+            (y * 11 % 256) as u8,
+            ((x + y) * 3 % 256) as u8,
+        ]
+    };
+    if with_alpha {
+        RgbaImage::from_fn(w, h, |x, y| {
+            let [r, g, b] = rgb(x, y);
+            Rgba([r, g, b, 100 + ((x + y) % 156) as u8])
+        })
+        .save(&path)
+        .unwrap();
+    } else {
+        RgbImage::from_fn(w, h, |x, y| Rgb(rgb(x, y)))
+            .save(&path)
+            .unwrap();
+    }
+    path
+}
+
 /// PNG mà mọi điểm ảnh trong suốt hoàn toàn: dán nền trắng đúng thì ra trắng, sai thì ra đen.
 pub fn make_png_rgba(dir: &Path, name: &str, w: u32, h: u32) -> PathBuf {
     let path = dir.join(name);

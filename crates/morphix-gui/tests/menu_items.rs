@@ -1,6 +1,6 @@
 use morphix_core::kind::{ArchiveFormat, MediaFormat, TextFormat};
-use morphix_core::{FileKind, ImgFormat, Operation, Quality, ResizeSpec};
-use morphix_gui::menu_items::{operation_for, quality_for, wheel_items, WheelItem, WIRED_TOOL_IDS};
+use morphix_core::{FileKind, ImgFormat, Operation, Quality, ResizeSpec, WIRED_TOOL_IDS};
+use morphix_gui::menu_items::{operation_for, quality_for, wheel_items, WheelItem};
 use morphix_gui::settings::{QualityChoice, Settings};
 use std::path::PathBuf;
 
@@ -156,11 +156,15 @@ fn single_pdf_wheel_offers_txt_as_the_suggested_convert() {
         .into_iter()
         .filter(|i| !i.id.starts_with("archive:"))
         .collect();
-    assert_eq!(items.len(), 1, "{items:?}");
+    assert_eq!(items.len(), 2, "{items:?}");
     assert_eq!(items[0].label, "TXT");
     assert_eq!(items[0].id, "pdf-to-text");
     assert!(!items[0].is_tool);
     assert!(items[0].is_suggested);
+    assert_eq!(
+        (items[1].label.as_str(), items[1].id.as_str()),
+        ("MD", "pdf-to-markdown")
+    );
 }
 
 #[test]
@@ -241,6 +245,10 @@ fn every_wheel_item_maps_to_an_operation() {
     let selections = [
         vec![FileKind::Image(ImgFormat::Jpeg)],
         vec![FileKind::Archive(ArchiveFormat::Zip)],
+        vec![FileKind::Pdf],
+        vec![FileKind::Media(MediaFormat::Mp4)],
+        vec![FileKind::Text(TextFormat::Srt)],
+        vec![FileKind::Image(ImgFormat::Png), FileKind::Pdf],
     ];
     for kinds in &selections {
         for item in wheel_items(kinds) {
@@ -251,4 +259,32 @@ fn every_wheel_item_maps_to_an_operation() {
             );
         }
     }
+}
+
+#[test]
+fn pdf_to_markdown_id_maps_to_operation() {
+    let s = Settings::default();
+    let inputs = vec![PathBuf::from("a.pdf")];
+    assert_eq!(
+        operation_for("pdf-to-markdown", &inputs, &s).unwrap(),
+        Operation::PdfToMarkdown
+    );
+}
+
+#[test]
+fn document_text_ids_map_to_operations() {
+    let s = Settings::default();
+    let inputs = vec![PathBuf::from("a.md")];
+    assert_eq!(
+        operation_for("text:docx", &inputs, &s).unwrap(),
+        Operation::ConvertText {
+            to: TextFormat::Docx
+        }
+    );
+    assert_eq!(
+        operation_for("text:html", &inputs, &s).unwrap(),
+        Operation::ConvertText {
+            to: TextFormat::Html
+        }
+    );
 }

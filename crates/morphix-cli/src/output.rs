@@ -11,6 +11,7 @@ struct JsonItem {
     inputs: Vec<String>,
     output: Option<String>,
     error: Option<String>,
+    warnings: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -55,6 +56,7 @@ pub fn print_results(items: &[ItemReport], as_json: bool) {
                 inputs: names(&item.inputs),
                 output: item.result.as_ref().ok().map(|p| p.display().to_string()),
                 error: item.result.as_ref().err().map(ToString::to_string),
+                warnings: item.warnings.clone(),
             })
             .collect();
         let ok = results.iter().filter(|r| r.error.is_none()).count();
@@ -77,6 +79,10 @@ pub fn print_results(items: &[ItemReport], as_json: bool) {
                 output.display()
             ),
             Err(error) => eprintln!("{}", error_line(&item.inputs, error)),
+        }
+        // WHY stderr: cảnh báo không làm việc thất bại nên không đổi mã thoát, nhưng phải nhìn thấy được.
+        for warning in &item.warnings {
+            eprintln!("cảnh báo  {warning}");
         }
     }
 }

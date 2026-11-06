@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use morphix_core::kind::{ArchiveFormat, MediaFormat, TextFormat};
-use morphix_core::{actions_for, ActionKind, FileKind, ImgFormat, Operation, Quality, ResizeSpec};
+use morphix_core::{action_id, menu_actions, FileKind, ImgFormat, Operation, Quality, ResizeSpec};
 use serde::{Deserialize, Serialize};
 
 use crate::settings::Settings;
@@ -19,52 +19,17 @@ pub struct WheelItem {
     pub is_suggested: bool,
 }
 
-/// Danh sách định danh công cụ đã được nối đầy đủ từ lõi xử lý đến giao diện.
-///
-/// Các công cụ bổ sung trong tương lai nếu chưa có giao diện sẽ bị lọc bỏ khỏi vòng tròn
-/// để đảm bảo người dùng chỉ tương tác với các tính năng đã sẵn sàng.
-pub const WIRED_TOOL_IDS: [&str; 4] = ["compress", "strip", "resize", "compress-media"];
-
-fn action_to_id(kind: ActionKind) -> String {
-    match kind {
-        ActionKind::ConvertTo(format) => format!("convert:{}", format.extension()),
-        ActionKind::MergeToPdf => "merge".to_string(),
-        ActionKind::Compress => "compress".to_string(),
-        ActionKind::StripMetadata => "strip".to_string(),
-        ActionKind::Resize => "resize".to_string(),
-        ActionKind::ConvertText(format) => format!("text:{}", format.extension()),
-        ActionKind::ConvertMedia(format) => format!("media:{}", format.extension()),
-        ActionKind::CompressMedia => "compress-media".to_string(),
-        ActionKind::CutMedia => "cut".to_string(),
-        ActionKind::ChangeSpeed => "speed".to_string(),
-        ActionKind::ExtractAudio(format) => format!("extract:{}", format.extension()),
-        ActionKind::PdfToText => "pdf-to-text".to_string(),
-        ActionKind::CreateArchive(format) => format!("archive:{}", format.extension()),
-        ActionKind::ExtractArchive => "extract".to_string(),
-    }
-}
-
 /// Chuyển đổi danh sách định dạng file được chọn thành danh sách các múi tác vụ cho vòng tròn.
 ///
-/// Lấy hành động từ `actions_for`, loại trừ các công cụ không nằm trong `WIRED_TOOL_IDS`,
+/// Lấy hành động từ `menu_actions` (đã lọc việc chỉ có ở CLI và công cụ chưa nối giao diện)
 /// và gán `is_suggested = true` duy nhất cho mục đầu tiên của nhóm Chuyển đổi.
 pub fn wheel_items(kinds: &[FileKind]) -> Vec<WheelItem> {
-    let actions = actions_for(kinds);
+    let actions = menu_actions(kinds);
     let mut items = Vec::with_capacity(actions.len());
     let mut suggested_found = false;
 
     for action in actions {
-        // WHY: cắt, đổi tốc độ và tách âm thanh chỉ có ở CLI trong bản này (spec mục 2a), nên không hiện múi.
-        if matches!(
-            action.kind,
-            ActionKind::CutMedia | ActionKind::ChangeSpeed | ActionKind::ExtractAudio(_)
-        ) {
-            continue;
-        }
-        let id = action_to_id(action.kind);
-        if action.is_tool && !WIRED_TOOL_IDS.contains(&id.as_str()) {
-            continue;
-        }
+        let id = action_id(action.kind);
 
         let is_suggested = if !action.is_tool && !suggested_found {
             suggested_found = true;
@@ -93,7 +58,7 @@ pub fn wheel_items(kinds: &[FileKind]) -> Vec<WheelItem> {
 /// - `resize` → `ResizeImage(ResizeSpec::Percent(settings.default_resize_percent))`
 /// - `media:<đuôi>` → `ConvertMedia { to }`; `compress-media` → `CompressMedia`
 /// - `text:<đuôi>` → `ConvertText { to }`
-/// - `pdf-to-text` → `PdfToText`
+/// - `pdf-to-text` → `PdfToText`; `pdf-to-markdown` → `PdfToMarkdown`
 /// - `archive:<đuôi>` → `CreateArchive { format }`; `extract` → `ExtractArchive`
 /// - Các mã khác hoặc định dạng không nhận dạng được trả về `Err`.
 pub fn operation_for(
@@ -132,6 +97,7 @@ pub fn operation_for(
         "compress-media" => Ok(Operation::CompressMedia),
         "strip" => Ok(Operation::StripMetadata),
         "pdf-to-text" => Ok(Operation::PdfToText),
+        "pdf-to-markdown" => Ok(Operation::PdfToMarkdown),
         "extract" => Ok(Operation::ExtractArchive),
         "resize" => Ok(Operation::ResizeImage(ResizeSpec::Percent(
             settings.default_resize_percent,

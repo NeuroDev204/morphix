@@ -98,3 +98,12 @@ export function formatRelativeTime(nowUnix: number, thenUnix: number): string {
   }
   return S.timeDaysAgo(Math.floor(ageSeconds / DAY_SECONDS));
 }
+
+/// Các dòng cảnh báo cho toast: tối đa `maxLines` dòng, phần còn lại đếm thành `hidden`.
+export function warningLines(
+  warnings: readonly string[],
+  maxLines: number,
+): { lines: string[]; hidden: number } {
+  const shown: number = Math.min(warnings.length, maxLines);
+  return { lines: warnings.slice(0, shown), hidden: warnings.length - shown };
+}

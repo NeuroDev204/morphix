@@ -1,8 +1,8 @@
 mod common;
 
-use common::{make_jpeg, make_png, make_png_rgba};
+use common::{make_jpeg, make_png, make_png_pattern, make_png_rgba};
 use lopdf::{Document, Object};
-use morphix_core::{images_to_pdf, CancelToken, MorphixError};
+use morphix_core::{convert_image, images_to_pdf, CancelToken, ImgFormat, MorphixError, Quality};
 use tempfile::tempdir;
 
 const A4_LONG: f64 = 841.890;
@@ -112,6 +112,71 @@ fn exif_rotated_jpeg_gets_portrait_page() {
         media_box(&Document::load(&out).unwrap(), 1),
         (A4_SHORT, A4_LONG),
     );
+}
+
+/// Tên bộ lọc của từng ảnh trong tài liệu, theo thứ tự đối tượng.
+fn image_filters(doc: &Document) -> Vec<String> {
+    let mut filters = Vec::new();
+    for object in doc.objects.values() {
+        if let Object::Stream(stream) = object {
+            let is_image = stream
+                .dict
+                .get(b"Subtype")
+                .ok()
+                .and_then(|s| s.as_name().ok())
+                == Some(b"Image".as_slice());
+            if is_image {
+                let name = stream
+                    .dict
+                    .get(b"Filter")
+                    .ok()
+                    .and_then(|f| f.as_name().ok())
+                    .map(|n| String::from_utf8_lossy(n).into_owned())
+                    .unwrap_or_default();
+                filters.push(name);
+            }
+        }
+    }
+    filters
+}
+
+#[test]
+fn lossy_webp_goes_into_the_pdf_as_jpeg() {
+    let d = tempdir().unwrap();
+    let png = make_png_pattern(d.path(), "p.png", 128, 128, false);
+    let webp = convert_image(&png, ImgFormat::WebP, Quality::High, None).unwrap();
+    let out = images_to_pdf(&[webp], None, &CancelToken::new()).unwrap();
+    assert_eq!(image_filters(&Document::load(&out).unwrap()), ["DCTDecode"]);
+}
+
+#[test]
+fn lossless_png_stays_flate() {
+    let d = tempdir().unwrap();
+    let png = make_png_pattern(d.path(), "p.png", 64, 64, false);
+    let out = images_to_pdf(&[png], None, &CancelToken::new()).unwrap();
+    assert_eq!(
+        image_filters(&Document::load(&out).unwrap()),
+        ["FlateDecode"]
+    );
+}
+
+#[test]
+fn exif_rotated_jpeg_is_reencoded_as_jpeg_not_raw_pixels() {
+    let d = tempdir().unwrap();
+    let src = make_jpeg(d.path(), "p.jpg", 40, 20, Some(6));
+    let out = images_to_pdf(&[src], None, &CancelToken::new()).unwrap();
+    assert_eq!(image_filters(&Document::load(&out).unwrap()), ["DCTDecode"]);
+}
+
+#[test]
+fn lossy_source_pdf_is_much_smaller_than_raw_pixels() {
+    let d = tempdir().unwrap();
+    let png = make_png_pattern(d.path(), "p.png", 128, 128, false);
+    let webp = convert_image(&png, ImgFormat::WebP, Quality::High, None).unwrap();
+    let out = images_to_pdf(&[webp], None, &CancelToken::new()).unwrap();
+    let raw_pixels = 128 * 128 * 3;
+    let pdf_len = std::fs::metadata(&out).unwrap().len() as usize;
+    assert!(pdf_len < raw_pixels / 2, "{pdf_len} >= {}", raw_pixels / 2);
 }
 
 #[test]
