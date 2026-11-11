@@ -23,7 +23,7 @@ Chưa đo được tự động (cần cửa sổ thật). Cách đo tay cho ng�
 
 | Phép đo | Trước | Sau cột mốc A |
 |---|---|---|
-| Khởi động nguội tới lúc cửa sổ **menu (vòng tròn)** hiện (`morphix-gui menu a.png`, app chưa chạy; đo bằng script, 3 lần, cửa sổ gọi `show()` nhưng nội dung chưa chắc đã vẽ xong) | 283, 243, 263 ms | (vòng tròn bị xoá ở Task 6; đo lại bằng Khay) |
+| Khởi động nguội tới lúc cửa sổ **menu (vòng tròn)** hiện (`morphix-gui menu a.png`, app chưa chạy; đo bằng script, 3 lần, cửa sổ gọi `show()` nhưng nội dung chưa chắc đã vẽ xong) | 283, 243, 263 ms (TB 263) | 303, 222, 242 ms (TB 256): không đổi trong sai số. Task 2 (lệnh nền) và 3 (Cài đặt tạo khi cần) không nằm trên đường khởi động này; vòng tròn bị xoá ở Task 6 |
 | Khởi động nguội tới lúc Khay hiện (`morphix tray`, app chưa chạy) | chưa đo (không có log mốc này) | |
 | Bấm khay tới lúc Khay hiện (app đã chạy) | | |
 | Thả 50 file ở thư mục chậm vào Khay: cửa sổ còn kéo/cuộn được | | |
@@ -60,3 +60,7 @@ Quyết định: không gỡ gì. `rav1e` là bộ mã hoá AVIF (feature `avif`
 ffmpeg tĩnh là 172254856 byte, tức chiếm khoảng 80% dung lượng cài đặt, gấp hơn 7 lần `morphix-gui` đã strip. Đây là nguyên nhân chính của "bản build nặng", không phải code Morphix.
 
 Hướng giảm: dựng ffmpeg riêng chỉ bật các codec mà `MediaFormat` cần (`crates/morphix-core/src/kind.rs`) với `--disable-everything` rồi bật từng encoder/decoder/muxer/demuxer cần thiết; thường còn khoảng 15–30 MB. Phải kiểm: (1) đủ codec cho mọi `MediaFormat` kể cả libx264, (2) vẫn giữ nghĩa vụ giấy phép GPL và `ffmpeg-source-offer.txt`, (3) CI tự dựng được và ghim SHA256. Ngưỡng của plan: chỉ đổi khi giảm ≥ 30% tổng gói; ước tính này vượt xa ngưỡng đó, nhưng đây là việc lớn, đề xuất làm thành plan riêng sau khi các cột mốc A–C xong.
+
+## Ghi chú kiểm Windows
+
+Từ Task 3, `cargo check --workspace --all-targets --target x86_64-pc-windows-gnu` (cần `gcc-mingw-w64-x86-64`) dùng làm cổng biên dịch cho nhánh Windows trên máy Linux. Nó chỉ chứng minh code biên dịch được; chạy thật trên Windows chỉ kiểm được bằng job CI ở Task 13 và kiểm tay.
