@@ -3,6 +3,9 @@ on:
   push:
     tags: ['v*']
 
+permissions:
+  contents: read
+
 jobs:
   test:
     uses: ./.github/workflows/ci.yml
@@ -14,9 +17,11 @@ jobs:
     container: ubuntu:22.04
     steps:
       - run: apt-get update && apt-get install -y --no-install-recommends git ca-certificates curl
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
       - run: scripts/ci/setup-build-deps.sh
@@ -24,7 +29,7 @@ jobs:
         working-directory: crates/morphix-gui/ui
       # WHY /tmp/dist: trong container, runner.temp trỏ đường dẫn máy chủ; build-tarball.sh cấm đầu ra trong repo.
       - run: scripts/build-tarball.sh /tmp/dist
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: tarball
           path: /tmp/dist/morphix-x86_64-linux.tar.gz*
@@ -34,9 +39,11 @@ jobs:
     needs: test
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
       - run: scripts/ci/setup-build-deps.sh
@@ -52,23 +59,74 @@ jobs:
         env:
           MORPHIX_DING_SOURCE: ${{ runner.temp }}/ding/usr/share/gnome-shell/extensions/ding@rastersoft.com
       - run: scripts/check-deb.sh "$RUNNER_TEMP"/dist/*.deb
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: deb
           path: ${{ runner.temp }}/dist/*.deb
           if-no-files-found: error
 
+  windows:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      # WHY dừng sớm: tag, Cargo.toml và tauri.conf.json phải cùng một phiên bản trước khi dựng gì.
+      - id: version
+        shell: pwsh
+        run: |
+          $version = python scripts/ci/check_version.py $env:GITHUB_REF_NAME
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          "version=$version" >> $env:GITHUB_OUTPUT
+      - run: ./scripts/ci/setup-windows-deps.ps1
+        shell: pwsh
+      - run: npm ci && npm run build
+        working-directory: crates/morphix-gui/ui
+      # WHY custom-protocol: thiếu nó thì binary nạp localhost:5173 thay vì nhúng ui/dist.
+      - run: cargo build --locked --release -p morphix-cli -p morphix-gui -p morphix-shell --features morphix-gui/custom-protocol
+      # WHY: như bản Linux, thiếu custom-protocol thì binary nạp localhost:5173 và cửa sổ báo lỗi kết nối.
+      - run: ./scripts/ci/check-gui-embeds-ui.ps1 -Binary target/release/morphix-gui.exe
+        shell: pwsh
+      - run: ./scripts/ci/package-windows.ps1 -Version "${{ steps.version.outputs.version }}" -OutDir dist
+        shell: pwsh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows-setup
+          path: dist/MorphixSetup.exe*
+          if-no-files-found: error
+      # WHY chỉ là artifact của workflow: gói này tải tay lên Partner Center, không phát hành trên GitHub.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: store-msix
+          path: dist/Morphix-*.msix
+          if-no-files-found: error
+
   publish:
-    needs: [tarball, deb]
+    needs: [tarball, deb, windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
+          name: tarball
           path: dist
-          merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: deb
+          path: dist
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: windows-setup
+          path: dist
+      # WHY kiểm trước: thiếu exe thì Release vẫn phát hành được nhưng trang tải về sẽ 404.
+      - run: test -f dist/MorphixSetup.exe && test -f dist/MorphixSetup.exe.sha256
       - run: gh release create "$GITHUB_REF_NAME" dist/* scripts/install.sh --title "Morphix $GITHUB_REF_NAME" --generate-notes
         env:
           GH_TOKEN: ${{ github.token }}

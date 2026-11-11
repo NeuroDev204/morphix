@@ -12,3 +12,9 @@ members = [
 version = "0.1.2"
 edition = "2021"
 license = "GPL-3.0-or-later"
+
+# WHY không panic = "abort": jobs.rs và capture/mod.rs bắt panic của luồng nền để app không sập.
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = true

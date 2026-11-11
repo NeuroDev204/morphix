@@ -2,7 +2,6 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-#[cfg(target_os = "linux")]
 use std::{ffi::OsString, process::Command};
 
 use morphix_core::job::require_ffmpeg;
@@ -10,13 +9,14 @@ use morphix_core::{Job, JobReport, MorphixError, Operation};
 use morphix_ipc::{send_request, socket_name, MenuRequest};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_notification::NotificationExt;
 
 use crate::history::{format_size_vn, EntryStatus, History, HistoryEntry};
 use crate::jobs::{describe_error, JobSnapshot, JobState};
 use crate::menu_items::{operation_for, quality_for};
 use crate::settings::{save, validate, Settings};
 use crate::state::{
-    prepare_menu, push_history, unix_now, AppState, MenuRequestState, WheelPayload,
+    prepare_menu, push_history, unix_now, AppState, WheelPayload,
 };
 use crate::windows;
 
@@ -25,6 +25,18 @@ pub const JOB_FINISHED_EVENT: &str = "job-finished";
 
 /// Chuyển danh sách đường dẫn từ giao diện thành `PathBuf`, từ chối mục rỗng hoặc chỉ có khoảng trắng.
 /// WHY: một đường dẫn rỗng sẽ trỏ vào thư mục hiện tại và xử lý nhầm, nên phải chặn ngay ở biên.
+/// Chạy `work` trên luồng nền của Tauri rồi trả kết quả.
+/// WHY: lệnh Tauri đồng bộ chạy trên luồng giao diện; đọc file, ghi đĩa hay chờ tiến trình con ở đó làm cửa sổ đứng hình.
+async fn blocking<T, F>(work: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|error| format!("Việc nền bị dừng bất thường: {error}"))?
+}
+
 pub fn parse_paths(raw: Vec<String>) -> Result<Vec<PathBuf>, String> {
     if raw.is_empty() {
         return Err("Chưa chọn file nào để xử lý.".to_string());
@@ -36,8 +48,8 @@ pub fn parse_paths(raw: Vec<String>) -> Result<Vec<PathBuf>, String> {
 }
 
 #[tauri::command]
-pub fn menu_payload(paths: Vec<String>) -> Result<WheelPayload, String> {
-    prepare_menu(&parse_paths(paths)?)
+pub async fn menu_payload(paths: Vec<String>) -> Result<WheelPayload, String> {
+    blocking(move || prepare_menu(&parse_paths(paths)?)).await
 }
 
 /// Dựng job cho một việc đã chọn: kiểm id có áp dụng cho loại file không, đổi id thành `Operation`, gắn
@@ -73,7 +85,16 @@ pub fn job_for_action(
 }
 
 /// Chạy một việc: dùng chung cho lệnh `run_action` của webview và cho yêu cầu IPC từ menu Explorer.
-pub fn start_action(app: &AppHandle, id: &str, inputs: Vec<PathBuf>) -> Result<u64, String> {
+/// Bắt đầu một việc. `notify` bật thông báo hệ thống khi việc xong: dành cho việc chạy từ menu chuột phải, vì lúc đó
+/// không có cửa sổ nào hiện kết quả. Việc chạy từ Khay đã hiện kết quả ngay trong Khay nên không bật.
+/// WHY không hỏi Khay có đang hiện không: đọc trạng thái cửa sổ từ luồng việc có thể treo khi thoát, lúc luồng
+/// chính đang chờ luồng việc kết thúc.
+pub fn start_action(
+    app: &AppHandle,
+    id: &str,
+    inputs: Vec<PathBuf>,
+    notify: bool,
+) -> Result<u64, String> {
     let state = app.state::<AppState>();
     let settings = state.settings_guard().clone();
     let (job, label) = job_for_action(id, inputs, &settings)?;
@@ -82,13 +103,13 @@ pub fn start_action(app: &AppHandle, id: &str, inputs: Vec<PathBuf>) -> Result<u
     let history_job = job.clone();
     let handle = app.clone();
     let on_update =
-        Arc::new(move |snapshot: JobSnapshot| publish_update(&handle, snapshot, &history_job));
+        Arc::new(move |snapshot: JobSnapshot| publish_update(&handle, snapshot, &history_job, notify));
     state.jobs.start(job, label, on_update)
 }
 
 #[tauri::command]
-pub fn run_action(id: String, paths: Vec<String>, app: AppHandle) -> Result<u64, String> {
-    start_action(&app, &id, parse_paths(paths)?)
+pub async fn run_action(id: String, paths: Vec<String>, app: AppHandle) -> Result<u64, String> {
+    blocking(move || start_action(&app, &id, parse_paths(paths)?, false)).await
 }
 
 #[tauri::command]
@@ -101,31 +122,6 @@ pub fn active_job(state: State<'_, AppState>) -> Option<JobSnapshot> {
     state.jobs.active()
 }
 
-#[tauri::command]
-pub fn pending_request(state: State<'_, AppState>) -> MenuRequestState {
-    state.pending_guard().request_state()
-}
-
-/// Bỏ lô đang giữ khi người dùng chọn Bỏ qua.
-/// WHY: kiểm tra cả danh sách lẫn revision, để không xoá nhầm lô mới vừa tới sau khi giao diện đọc trạng thái.
-#[tauri::command]
-pub fn discard_pending(
-    paths: Vec<String>,
-    revision: u64,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
-    let mut pending = state.pending_guard();
-    let current = pending.request_state();
-    if current.paths != paths || current.revision != revision {
-        return Err("Lô file đã thay đổi, không bỏ qua lô mới.".to_string());
-    }
-    pending.paths.clear();
-    pending.collecting = false;
-    pending.first_request_at = None;
-    Ok(())
-}
-
-/// Các dòng lịch sử mới nhất, tối đa `limit`; phần thuần của `recent_history` để test không cần Tauri.
 pub fn recent_from(history: &History, limit: usize) -> Vec<HistoryEntry> {
     history.recent(limit).to_vec()
 }
@@ -166,37 +162,52 @@ pub fn output_directory_for_history(history: &History, path: &str) -> Result<Pat
     Ok(parent.to_path_buf())
 }
 
-#[cfg(target_os = "linux")]
-fn gio_open_args(directory: &Path) -> [OsString; 2] {
-    [OsString::from("open"), directory.as_os_str().to_os_string()]
+/// Lệnh mở một thư mục trong trình quản lý file của hệ điều hành: Explorer trên Windows, `gio open` còn lại.
+fn open_directory_command(directory: &Path) -> (OsString, Vec<OsString>) {
+    #[cfg(windows)]
+    {
+        (
+            OsString::from("explorer"),
+            vec![directory.as_os_str().to_os_string()],
+        )
+    }
+    #[cfg(not(windows))]
+    {
+        (
+            OsString::from("gio"),
+            vec![OsString::from("open"), directory.as_os_str().to_os_string()],
+        )
+    }
 }
 
 #[tauri::command]
-pub fn open_output_directory(path: String, state: State<'_, AppState>) -> Result<(), String> {
-    let directory = output_directory_for_history(&state.history_guard(), &path)?;
-    #[cfg(target_os = "linux")]
-    {
-        let status = Command::new("gio")
-            .args(gio_open_args(&directory))
-            .status()
-            .map_err(|error| format!("Không mở được trình quản lý file: {error}"))?;
-        if status.success() {
-            Ok(())
-        } else {
-            Err(format!("gio open kết thúc với mã {}.", status))
-        }
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = directory;
-        Err("Mở thư mục đầu ra hiện chỉ hỗ trợ Ubuntu/Linux.".to_string())
+pub async fn open_output_directory(path: String, app: AppHandle) -> Result<(), String> {
+    blocking(move || open_output_directory_blocking(&app, &path)).await
+}
+
+fn open_output_directory_blocking(app: &AppHandle, path: &str) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let directory = output_directory_for_history(&state.history_guard(), path)?;
+    let (program, args) = open_directory_command(&directory);
+    let status = Command::new(&program)
+        .args(&args)
+        .status()
+        .map_err(|error| format!("Không mở được trình quản lý file: {error}"))?;
+    // WHY bỏ qua mã thoát trên Windows: explorer.exe trả 1 ngay cả khi đã mở thư mục thành công.
+    if cfg!(windows) || status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "{} kết thúc với mã {status}.",
+            program.to_string_lossy()
+        ))
     }
 }
 
 /// Xoá toàn bộ lịch sử, báo lỗi ghi file cho giao diện hiện lên thay vì chỉ nằm trong log.
 #[tauri::command]
-pub fn clear_history(state: State<'_, AppState>) -> Result<(), String> {
-    state.history_guard().clear()
+pub async fn clear_history(app: AppHandle) -> Result<(), String> {
+    blocking(move || app.state::<AppState>().history_guard().clear()).await
 }
 
 /// Cài đặt đang áp dụng, để trang Cài đặt điền form khi mở.
@@ -215,16 +226,21 @@ pub fn save_settings_to(path: &Path, settings: Settings) -> Result<(), String> {
 /// Lưu cài đặt từ trang Cài đặt. Ghi file xong mới đổi trạng thái đang dùng.
 /// WHY lock across the write: hai lần lưu đồng thời không được để file và bộ nhớ lệch nhau.
 #[tauri::command]
-pub fn save_settings(settings: Settings, state: State<'_, AppState>) -> Result<(), String> {
-    let mut current = state.settings_guard();
-    save_settings_to(&state.paths.settings, settings.clone())?;
-    *current = settings;
-    Ok(())
+pub async fn save_settings(settings: Settings, app: AppHandle) -> Result<(), String> {
+    blocking(move || {
+        let state = app.state::<AppState>();
+        let mut current = state.settings_guard();
+        // WHY ghi đĩa xong mới đổi giá trị trong bộ nhớ: lỗi ghi thì cài đặt đang dùng không bị đổi.
+        save_settings_to(&state.paths.settings, settings.clone())?;
+        *current = settings;
+        Ok(())
+    })
+    .await
 }
 
 /// Mở cửa sổ Cài đặt từ nút bánh răng trong Khay.
 #[tauri::command]
-pub fn open_settings(app: AppHandle) -> Result<(), String> {
+pub async fn open_settings(app: AppHandle) -> Result<(), String> {
     windows::open_settings(&app)
 }
 
@@ -242,27 +258,51 @@ pub fn request_quit(app: &AppHandle) {
 
 /// Gửi file từ giao diện qua cùng socket với Khay và CLI, để mọi nguồn đi chung luồng gom lô.
 #[tauri::command]
-pub fn submit_menu_request(paths: Vec<String>) -> Result<(), String> {
-    let request = MenuRequest {
-        paths: parse_paths(paths)?,
-        ..MenuRequest::default()
-    };
-    send_request(&socket_name(), &request)
-        .map_err(|error| format!("Không gửi được yêu cầu tới Morphix đang chạy: {error}"))
+pub async fn submit_menu_request(paths: Vec<String>) -> Result<(), String> {
+    blocking(move || {
+        let request = MenuRequest {
+            paths: parse_paths(paths)?,
+            ..MenuRequest::default()
+        };
+        send_request(&socket_name(), &request)
+            .map_err(|error| format!("Không gửi được yêu cầu tới Morphix đang chạy: {error}"))
+    })
+    .await
 }
 
 /// Đẩy tiến trình ra giao diện. Khi việc kết thúc thì ghi lịch sử đúng một lần rồi mới báo `job-finished`.
 /// WHY: ghi ở đây thay vì trong cửa sổ, để việc vẫn được ghi dù người dùng đã đóng vòng tròn.
-fn publish_update(app: &AppHandle, snapshot: JobSnapshot, job: &Job) {
+fn publish_update(app: &AppHandle, snapshot: JobSnapshot, job: &Job, notify: bool) {
     if snapshot.state == JobState::Running {
         emit_or_log(app, JOB_UPDATE_EVENT, snapshot);
         return;
     }
-    record_finished(app, &snapshot, job);
+    let entry = record_finished(app, &snapshot, job);
+    if notify {
+        notify_finished(app, &entry);
+    }
     emit_or_log(app, JOB_FINISHED_EVENT, snapshot);
 }
 
-fn record_finished(app: &AppHandle, snapshot: &JobSnapshot, job: &Job) {
+/// Nội dung thông báo: tiêu đề kết quả rồi chi tiết (trạng thái, số file, lý do lỗi đầu tiên) của dòng lịch sử.
+pub fn notification_body(entry: &HistoryEntry) -> String {
+    format!("{}\n{}", entry.title, entry.detail)
+}
+
+fn notify_finished(app: &AppHandle, entry: &HistoryEntry) {
+    // WHY chỉ log: thông báo là phần thêm; máy không có dịch vụ thông báo thì việc vẫn xong và có trong lịch sử.
+    if let Err(error) = app
+        .notification()
+        .builder()
+        .title("Morphix")
+        .body(notification_body(entry))
+        .show()
+    {
+        tracing::warn!(%error, "không gửi được thông báo hệ thống: {error}");
+    }
+}
+
+fn record_finished(app: &AppHandle, snapshot: &JobSnapshot, job: &Job) -> HistoryEntry {
     let state: State<'_, AppState> = app.state();
     let entry = match state.jobs.take_report(snapshot.id) {
         Some(report) => history_entry_for_report(job, &report),
@@ -281,7 +321,8 @@ fn record_finished(app: &AppHandle, snapshot: &JobSnapshot, job: &Job) {
             )
         }
     };
-    push_history(&state, entry);
+    push_history(&state, entry.clone());
+    entry
 }
 
 /// Dựng dòng lịch sử cho một việc đã kết thúc. Không phụ thuộc Tauri nên kiểm thử được trực tiếp.
@@ -446,10 +487,26 @@ mod output_directory_tests {
             output_directory_for_history(&history, &path).unwrap(),
             directory.path()
         );
-        #[cfg(target_os = "linux")]
+        // WHY nối đường dẫn nguyên văn vào argv (không qua shell): tên file có `;` hay `$(…)` vẫn là một đối số.
+        #[cfg(not(windows))]
         assert_eq!(
-            super::gio_open_args(Path::new(&path)),
-            [std::ffi::OsString::from("open"), path.into()]
+            super::open_directory_command(Path::new(&path)),
+            (
+                std::ffi::OsString::from("gio"),
+                vec![std::ffi::OsString::from("open"), path.into()]
+            )
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn opens_the_folder_with_explorer() {
+        assert_eq!(
+            super::open_directory_command(Path::new(r"C:\a b")),
+            (
+                std::ffi::OsString::from("explorer"),
+                vec![std::ffi::OsString::from(r"C:\a b")]
+            )
         );
     }
 
@@ -483,5 +540,32 @@ mod output_directory_tests {
             .unwrap();
         assert!(output_directory_for_history(&history, &missing.to_string_lossy()).is_err());
         assert!(output_directory_for_history(&history, "/tmp/unlisted.png").is_err());
+    }
+}
+
+#[cfg(test)]
+mod blocking_tests {
+    use super::blocking;
+
+    #[test]
+    fn blocking_runs_the_work_on_another_thread_than_the_caller() {
+        let caller = std::thread::current().id();
+        let worker = tauri::async_runtime::block_on(blocking(|| Ok(std::thread::current().id())))
+            .unwrap();
+        assert_ne!(worker, caller, "việc đọc/ghi không được chạy trên luồng gọi (luồng giao diện)");
+    }
+
+    #[test]
+    fn blocking_turns_a_panic_into_an_error_instead_of_taking_the_caller_down() {
+        let result: Result<(), String> =
+            tauri::async_runtime::block_on(blocking(|| -> Result<(), String> { panic!("giả lập") }));
+        assert!(result.unwrap_err().contains("Việc nền bị dừng bất thường"));
+    }
+
+    #[test]
+    fn blocking_passes_the_error_of_the_work_through_unchanged() {
+        let result: Result<(), String> =
+            tauri::async_runtime::block_on(blocking(|| Err("lỗi gốc".to_string())));
+        assert_eq!(result.unwrap_err(), "lỗi gốc");
     }
 }

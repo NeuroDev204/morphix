@@ -9,7 +9,10 @@ pub mod paths;
 pub mod quality;
 
 pub use cancel::CancelToken;
-pub use catalog::{action_id, actions_for, menu_actions, Action, ActionKind, WIRED_TOOL_IDS};
+pub use catalog::{
+    action_id, actions_for, menu_actions, menu_label, static_menu_groups, Action, ActionKind,
+    MenuGroup, WIRED_TOOL_IDS,
+};
 pub use error::{MorphixError, Result};
 pub use job::{
     item_count, planned_outputs, run_job, ItemReport, Job, JobReport, Operation, Progress,

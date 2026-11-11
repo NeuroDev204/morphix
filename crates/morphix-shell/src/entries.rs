@@ -40,7 +40,7 @@ pub fn shell_menu(paths: &[PathBuf]) -> ShellMenu {
         .into_iter()
         .map(|action| ShellItem {
             id: morphix_core::action_id(action.kind),
-            label: action.label,
+            label: morphix_core::menu_label(&action),
             is_tool: action.is_tool,
         })
         .collect();

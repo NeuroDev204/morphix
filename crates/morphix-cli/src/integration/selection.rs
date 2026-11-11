@@ -191,6 +191,10 @@ pub(super) fn accelerator(
             {
                 fs::remove_file(&path)?;
                 fs::remove_file(&marker)?;
+                // WHY bỏ qua lỗi: thư mục còn file khác của người dùng thì giữ nguyên, không phải lỗi.
+                if let Some(dir) = path.parent() {
+                    let _ = fs::remove_dir(dir);
+                }
             }
         }
         tx.commit();
@@ -588,6 +592,28 @@ mod tests {
         );
         assert_eq!(fs::read_to_string(marker).unwrap(), "user data");
         assert!(!roots.config_home.join("nautilus/scripts-accels").exists());
+    }
+    #[test]
+    fn accel_uninstall_removes_the_nautilus_folder_it_created_but_not_a_users_other_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let roots = XdgRoots {
+            data_home: dir.path().into(),
+            config_home: dir.path().into(),
+        };
+        assert_eq!(accelerator(&roots, &nautilus, Action::Install).status, ComponentStatus::Installed);
+        assert_eq!(accelerator(&roots, &nautilus, Action::Uninstall).status, ComponentStatus::Removed);
+        // WHY: thư mục rỗng do lần cài tạo ra không được ở lại sau khi gỡ.
+        assert!(!roots.config_home.join("nautilus").exists());
+
+        let dir = tempfile::tempdir().unwrap();
+        let roots = XdgRoots {
+            data_home: dir.path().into(),
+            config_home: dir.path().into(),
+        };
+        accelerator(&roots, &nautilus, Action::Install);
+        fs::write(roots.config_home.join("nautilus/mine.txt"), "của tôi").unwrap();
+        accelerator(&roots, &nautilus, Action::Uninstall);
+        assert_eq!(fs::read_to_string(roots.config_home.join("nautilus/mine.txt")).unwrap(), "của tôi");
     }
     #[test]
     fn accel_older_nautilus_is_not_applicable() {

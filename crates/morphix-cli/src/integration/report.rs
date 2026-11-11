@@ -18,9 +18,12 @@ pub enum ComponentId {
     NautilusExtension,
     DesktopContextMenu,
     ApplicationLauncher,
-    NemoAction,
     CajaScript,
     ThunarAction,
+    /// Cây việc trong thư mục Scripts của Nautilus (khi không có nautilus-python), Nemo và Caja.
+    NautilusScriptMenu,
+    NemoScriptMenu,
+    CajaScriptMenu,
 }
 
 impl ComponentId {
@@ -37,9 +40,11 @@ impl ComponentId {
             ComponentId::NautilusExtension => "nautilus_extension",
             ComponentId::DesktopContextMenu => "desktop_context_menu",
             ComponentId::ApplicationLauncher => "application_launcher",
-            ComponentId::NemoAction => "nemo_action",
             ComponentId::CajaScript => "caja_script",
             ComponentId::ThunarAction => "thunar_action",
+            ComponentId::NautilusScriptMenu => "nautilus_script_menu",
+            ComponentId::NemoScriptMenu => "nemo_script_menu",
+            ComponentId::CajaScriptMenu => "caja_script_menu",
         }
     }
 }

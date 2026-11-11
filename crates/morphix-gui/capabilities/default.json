@@ -3,7 +3,6 @@
   "identifier": "default",
   "description": "Default capabilities for morphix windows",
   "windows": [
-    "menu",
     "khay",
     "settings"
   ],

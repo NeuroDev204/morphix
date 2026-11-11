@@ -15,9 +15,3 @@ export interface WheelPayload {
   readonly items: WheelItem[];
   readonly total_bytes: number;
 }
-
-export interface MenuRequestState {
-  readonly paths: string[];
-  readonly collecting: boolean;
-  readonly revision: number;
-}

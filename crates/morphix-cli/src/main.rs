@@ -23,6 +23,7 @@ use morphix_core::{
     Operation, Quality, ResizeSpec,
 };
 use morphix_ipc::{send_request, socket_name, MenuRequest};
+use morphix_shell::entries::{shell_menu, ShellMenu};
 
 /// Số lần thử kết nối lại sau khi khởi động GUI. WHY: GUI cần vài trăm ms để dựng Tauri và mở socket.
 /// WHY khoảng 15 giây: lần khởi động nguội của GUI (WebKit, máy không có GPU) có thể mất vài giây trước khi
@@ -118,6 +119,12 @@ enum Command {
         /// URI `file:` từ Dolphin (`%U`); không dùng cùng file đặt trực tiếp hoặc `--newline-list`.
         #[arg(long, num_args = 1.., conflicts_with_all = ["files", "newline_list"])]
         uris: Vec<String>,
+        /// Chạy ngay việc có id này (ví dụ `convert:webp`) trên các file, không mở giao diện chọn việc.
+        #[arg(long, conflicts_with = "list")]
+        action: Option<String>,
+        /// In danh sách việc áp dụng được cho các file dưới dạng một dòng JSON `{"too_many","items"}`; không mở GUI.
+        #[arg(long)]
+        list: bool,
     },
     /// Mở Khay qua morphix-gui, dùng khi GNOME thiếu AppIndicator; không chờ GUI thoát và không gửi file.
     Tray {
@@ -754,6 +761,21 @@ fn stop_gui() {
 
 /// Gộp đường dẫn positional trước, rồi tới từng dòng của `--newline-list` (CRLF được chuẩn hoá).
 /// Dòng rỗng bị bỏ; không còn đường dẫn nào thì từ chối để GUI không mở cửa sổ rỗng.
+/// In danh sách việc cho các file, từ cùng hàm `shell_menu` mà menu Explorer dùng, để mọi nền tảng liệt kê giống nhau.
+fn print_menu_list(paths: &[PathBuf]) -> ExitCode {
+    let (too_many, items) = match shell_menu(paths) {
+        ShellMenu::TooMany => (true, Vec::new()),
+        ShellMenu::Hidden => (false, Vec::new()),
+        ShellMenu::Items(items) => (false, items),
+    };
+    let items: Vec<serde_json::Value> = items
+        .iter()
+        .map(|item| serde_json::json!({"id": item.id, "label": item.label, "is_tool": item.is_tool}))
+        .collect();
+    println!("{}", serde_json::json!({"too_many": too_many, "items": items}));
+    ExitCode::SUCCESS
+}
+
 fn collect_menu_paths(
     files: &[PathBuf],
     newline_list: Option<&str>,
@@ -835,9 +857,16 @@ fn connect_with_retries(
 }
 
 /// Gửi file tới GUI đang chạy; không có thì khởi động và gửi lại. Chỉ dùng trên Linux.
-fn run_menu(files: &[PathBuf], newline_list: Option<&str>, uris: &[String]) -> ExitCode {
-    // WHY: trên Windows menu chuột phải của Explorer đã thay vòng tròn, nên lệnh này không còn việc để làm.
-    if cfg!(windows) {
+fn run_menu(
+    files: &[PathBuf],
+    newline_list: Option<&str>,
+    uris: &[String],
+    action: Option<&str>,
+    list: bool,
+) -> ExitCode {
+    // WHY: trên Windows menu chuột phải của Explorer đã thay vòng tròn, nên `menu` trơn không còn việc để làm;
+    // `--action` và `--list` vẫn dùng được vì không mở vòng tròn.
+    if cfg!(windows) && action.is_none() && !list {
         eprintln!(
             "lỗi: trên Windows hãy chuột phải file → Morphix trong Explorer, hoặc dùng morphix convert."
         );
@@ -848,10 +877,19 @@ fn run_menu(files: &[PathBuf], newline_list: Option<&str>, uris: &[String]) -> E
     } else {
         file_uris_to_paths(uris)
     };
+    if list {
+        return match paths {
+            Ok(paths) => print_menu_list(&paths),
+            Err(message) => {
+                eprintln!("lỗi: {message}");
+                ExitCode::from(2)
+            }
+        };
+    }
     let request = match paths {
         Ok(paths) => MenuRequest {
             paths,
-            ..MenuRequest::default()
+            action: action.map(str::to_owned),
         },
         Err(message) => {
             tracing::warn!(%message, "menu request rejected");
@@ -879,9 +917,23 @@ fn run_menu(files: &[PathBuf], newline_list: Option<&str>, uris: &[String]) -> E
         Ok(()) => ExitCode::SUCCESS,
         Err(reason) => {
             tracing::error!(%reason, "không khởi động được Morphix");
-            eprintln!("lỗi: không khởi động được Morphix ({reason})");
+            let message = format!("không khởi động được Morphix ({reason})");
+            eprintln!("lỗi: {message}");
+            if action.is_some() {
+                notify_failure(&message);
+            }
             ExitCode::from(1)
         }
+    }
+}
+
+/// Báo lỗi bằng thông báo desktop (nếu có `notify-send`). WHY: việc bấm từ menu chuột phải không có terminal
+/// nào để đọc stderr, nên không báo thì người dùng bấm mà không thấy gì. Lỗi của chính thông báo thì bỏ qua.
+fn notify_failure(message: &str) {
+    if cfg!(unix) {
+        let _ = std::process::Command::new("notify-send")
+            .args(["Morphix", message])
+            .status();
     }
 }
 
@@ -936,7 +988,9 @@ fn main() -> ExitCode {
             files,
             newline_list,
             uris,
-        } => return run_menu(files, newline_list.as_deref(), uris),
+            action,
+            list,
+        } => return run_menu(files, newline_list.as_deref(), uris, action.as_deref(), *list),
         _ => {}
     }
     let jobs = match build_jobs(&cli) {

@@ -74,7 +74,16 @@ fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
     let result = match id {
         "show" => open_khay(app),
         "hide" => hide_khay(app),
-        "settings" => open_settings(app),
+        // WHY luồng riêng: tạo cửa sổ trong event handler bị treo trên Windows.
+        "settings" => {
+            let app = app.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                if let Err(reason) = open_settings(&app) {
+                    tracing::error!(%reason, "không mở được Cài đặt từ khay: {reason}");
+                }
+            });
+            Ok(())
+        }
         // WHY shared: Thoát đi cùng đường với nút trong Khay, nên RunEvent::Exit là nơi dừng dịch vụ duy nhất.
         "quit" => {
             request_quit(app);

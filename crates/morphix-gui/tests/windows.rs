@@ -24,9 +24,26 @@ fn bottom_right_origin_clamps_to_the_work_area_origin_when_window_is_too_big() {
 }
 
 #[test]
-fn close_hides_the_khay_and_menu_windows_instead_of_destroying_them() {
+fn close_hides_the_khay_window_instead_of_destroying_it() {
     assert!(close_hides_window("khay"));
-    assert!(close_hides_window("menu"));
+}
+
+#[test]
+fn the_wheel_window_no_longer_exists() {
+    assert!(!close_hides_window("menu"));
+}
+
+#[test]
+fn only_the_khay_window_exists_at_startup() {
+    let config: serde_json::Value =
+        serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+    let labels: Vec<&str> = config["app"]["windows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|window| window["label"].as_str().unwrap())
+        .collect();
+    assert_eq!(labels, ["khay"]);
 }
 
 #[test]
@@ -61,4 +78,26 @@ fn khay_fallback_size_matches_tauri_conf() {
         khay["height"].as_f64().unwrap() as u32,
     );
     assert_eq!(khay_size((0, 0), 1.0), configured);
+}
+
+#[test]
+fn settings_window_is_not_created_at_startup_and_csp_is_set() {
+    let config: serde_json::Value =
+        serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+    let labels: Vec<&str> = config["app"]["windows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|window| window["label"].as_str().unwrap())
+        .collect();
+    assert!(!labels.contains(&"settings"));
+    assert!(config["app"]["security"]["csp"].is_string());
+}
+
+// WHY đọc nguồn: Tauri treo trên Windows khi tạo cửa sổ từ lệnh đồng bộ hoặc event handler của khay
+// (tài liệu `WebviewWindowBuilder::new`), nên lệnh phải async và khay phải mở Cài đặt trên luồng riêng.
+#[test]
+fn settings_is_opened_from_an_async_command_and_a_separate_thread() {
+    assert!(include_str!("../src/commands.rs").contains("pub async fn open_settings("));
+    assert!(include_str!("../src/tray.rs").contains("spawn_blocking"));
 }

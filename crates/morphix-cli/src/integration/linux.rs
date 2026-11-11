@@ -13,12 +13,13 @@ use super::{
         classify, publish_file, read_existing, remove_file_if_owned, ExistingFile, FileOwnership,
         Transaction, MANAGED_MARKER,
     },
+    multi::{self, FileSet, Scan},
+    static_menu::{dolphin_service_menus, scripts_menu_tree, SCRIPTS_MENU_DIR},
     tools::{system_tool, ToolOutcome, ToolRunner},
     BinaryPaths, ComponentId, ComponentStatus, IntegrationBackend, IntegrationComponentReport,
 };
 
 const NAUTILUS_SCRIPT_NAME: &str = "Morphix";
-const DOLPHIN_MENU_NAME: &str = "morphix.desktop";
 const AUTOSTART_NAME: &str = "morphix.desktop";
 const NAUTILUS_EXTENSION_PATH: &str = "/usr/share/nautilus-python/extensions/morphix_menu.py";
 const APPLICATION_LAUNCHER_PATH: &str = "/usr/share/applications/morphix.desktop";
@@ -58,6 +59,8 @@ pub struct SessionEnv {
     pub session_type: Option<String>,
     /// `PATH` lúc khởi tạo; dùng để biết trình quản lý file nào có trên máy.
     pub path: Option<std::ffi::OsString>,
+    /// Thư mục tìm `libnautilus-python.so`; `None` là các thư mục hệ thống thông dụng.
+    pub nautilus_python_dirs: Option<Vec<PathBuf>>,
 }
 
 impl SessionEnv {
@@ -73,6 +76,25 @@ impl SessionEnv {
             // (PATH thật còn cần cho gsettings, dpkg-query...). Cùng kiểu với `MORPHIX_GUI_BIN`.
             path: std::env::var_os("MORPHIX_FILE_MANAGER_PATH")
                 .or_else(|| std::env::var_os("PATH")),
+            // WHY biến riêng: như `MORPHIX_FILE_MANAGER_PATH`, để test không phụ thuộc gói nautilus-python của máy.
+            nautilus_python_dirs: std::env::var_os("MORPHIX_NAUTILUS_PYTHON_DIRS")
+                .map(|dirs| std::env::split_paths(&dirs).collect()),
+        }
+    }
+
+    /// Script `Scripts → Morphix` (mở Khay) chỉ còn cần cho Alt+C trên X11 hoặc khi Nautilus chưa có menu động.
+    /// WHY bỏ ở chỗ khác: nó là một mục "Scripts" thừa, bấm vào mở cả app thay vì submenu Morphix.
+    pub(super) fn needs_nautilus_script(&self) -> bool {
+        self.is_x11() || !self.has_nautilus_python()
+    }
+
+    /// Nautilus có binding Python nên nạp được extension (menu động).
+    pub fn has_nautilus_python(&self) -> bool {
+        match &self.nautilus_python_dirs {
+            Some(dirs) => dirs
+                .iter()
+                .any(|dir| dir.join("libnautilus-python.so").is_file()),
+            None => nautilus_python_present(&NAUTILUS_EXTENSION_DIRS),
         }
     }
 
@@ -102,13 +124,11 @@ impl SessionEnv {
 
 /// Marker đặt trong thư mục do lần cài tạo ra. WHY: chỉ thư mục có marker và không còn gì khác mới được gỡ,
 /// nên thư mục có sẵn (kể cả rỗng) của người dùng không bao giờ bị xoá.
-const CREATED_DIR_MARKER: &str = ".morphix-created";
+pub(super) const CREATED_DIR_MARKER: &str = ".morphix-created";
 
 /// Nautilus chỉ liệt kê script có bit thực thi.
 const EXECUTABLE_MODE: u32 = 0o755;
 const DESKTOP_ENTRY_MODE: u32 = 0o644;
-/// WHY 0755: KDE từng yêu cầu bit thực thi cho service menu. Chưa đo trên Dolphin thật (Chưa kiểm).
-const DOLPHIN_MENU_MODE: u32 = 0o755;
 
 /// Thư mục dữ liệu và cấu hình per-user theo XDG Base Directory.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -187,10 +207,10 @@ impl LinuxBackend {
 }
 
 /// File Morphix cần công bố: vị trí, nội dung đích và quyền (đặt trước khi rename để không lộ file thiếu quyền).
-struct DesiredFile {
-    path: PathBuf,
-    bytes: Vec<u8>,
-    mode: u32,
+pub(super) struct DesiredFile {
+    pub(super) path: PathBuf,
+    pub(super) bytes: Vec<u8>,
+    pub(super) mode: u32,
 }
 
 /// Vị trí file của thành phần Linux; `None` cho thành phần không thuộc Linux.
@@ -203,13 +223,6 @@ fn location(roots: &XdgRoots, id: ComponentId) -> Option<PathBuf> {
                 .join("scripts")
                 .join(NAUTILUS_SCRIPT_NAME),
         ),
-        ComponentId::DolphinServiceMenu => Some(
-            roots
-                .data_home
-                .join("kio")
-                .join("servicemenus")
-                .join(DOLPHIN_MENU_NAME),
-        ),
         ComponentId::Autostart => Some(roots.config_home.join("autostart").join(AUTOSTART_NAME)),
         ComponentId::NautilusExtension => Some(
             roots
@@ -221,13 +234,6 @@ fn location(roots: &XdgRoots, id: ComponentId) -> Option<PathBuf> {
         ComponentId::ApplicationLauncher => {
             Some(roots.data_home.join("applications").join("morphix.desktop"))
         }
-        ComponentId::NemoAction => Some(
-            roots
-                .data_home
-                .join("nemo")
-                .join("actions")
-                .join("morphix.nemo_action"),
-        ),
         ComponentId::CajaScript => Some(
             roots
                 .config_home
@@ -241,7 +247,11 @@ fn location(roots: &XdgRoots, id: ComponentId) -> Option<PathBuf> {
         | ComponentId::GnomeShortcut
         | ComponentId::DesktopValidation
         | ComponentId::DesktopContextMenu
-        | ComponentId::ThunarAction => None,
+        | ComponentId::ThunarAction
+        | ComponentId::DolphinServiceMenu
+        | ComponentId::NautilusScriptMenu
+        | ComponentId::NemoScriptMenu
+        | ComponentId::CajaScriptMenu => None,
     }
 }
 
@@ -277,6 +287,107 @@ fn thunar_path(roots: &XdgRoots) -> PathBuf {
     roots.config_home.join("Thunar").join("uca.xml")
 }
 
+/// Báo cáo khi Nautilus đã có nautilus-python: menu động thay cho cây Scripts.
+const NAUTILUS_DYNAMIC_MESSAGE: &str =
+    "Nautilus có nautilus-python nên dùng menu động (theo file đang chọn), không cần cây Scripts";
+
+/// Thư mục Scripts của trình quản lý file; thư mục con trong đó thành submenu.
+fn scripts_dir(roots: &XdgRoots, id: ComponentId) -> Option<PathBuf> {
+    match id {
+        ComponentId::NautilusScriptMenu => Some(roots.data_home.join("nautilus").join("scripts")),
+        ComponentId::NemoScriptMenu => Some(roots.data_home.join("nemo").join("scripts")),
+        ComponentId::CajaScriptMenu => Some(roots.config_home.join("caja").join("scripts")),
+        _ => None,
+    }
+}
+
+/// Thành phần gồm nhiều file sinh từ catalog (Dolphin và ba cây Scripts); `None` cho thành phần khác.
+/// WHY nhận `morphix` ngay cả khi gỡ: nội dung file chứa đường dẫn này, còn gỡ chỉ cần đường dẫn file nên truyền
+/// một đường dẫn giả được.
+fn file_set(
+    roots: &XdgRoots,
+    id: ComponentId,
+    morphix: &Path,
+) -> Option<Result<FileSet, String>> {
+    let to_files = |dir: &Path, generated: Vec<super::static_menu::GeneratedFile>| {
+        generated
+            .into_iter()
+            .map(|file| DesiredFile {
+                path: dir.join(&file.relative),
+                bytes: file.body.into_bytes(),
+                mode: file.mode,
+            })
+            .collect::<Vec<_>>()
+    };
+    if id == ComponentId::DolphinServiceMenu {
+        let dir = roots.data_home.join("kio").join("servicemenus");
+        return Some(dolphin_service_menus(morphix).map(|generated| FileSet {
+            id,
+            files: to_files(&dir, generated),
+            // WHY file cũ: bản trước ghi một mục `morphix.desktop` mở vòng tròn.
+            legacy: vec![dir.join("morphix.desktop")],
+            scan: Scan::Flat {
+                dir: dir.clone(),
+                prefix: "morphix-",
+                suffix: ".desktop",
+            },
+            dir,
+        }));
+    }
+    let scripts = scripts_dir(roots, id)?;
+    let legacy = if id == ComponentId::NemoScriptMenu {
+        // WHY file cũ: bản trước ghi Nemo Action một mục mở vòng tròn.
+        vec![roots
+            .data_home
+            .join("nemo")
+            .join("actions")
+            .join("morphix.nemo_action")]
+    } else {
+        Vec::new()
+    };
+    Some(scripts_menu_tree(morphix).map(|generated| FileSet {
+        id,
+        files: to_files(&scripts, generated),
+        legacy,
+        scan: Scan::Tree(scripts.join(SCRIPTS_MENU_DIR)),
+        dir: scripts,
+    }))
+}
+
+/// Kết quả khi script `Scripts → Morphix` không còn cần: báo "không áp dụng" sau khi dọn (nếu có).
+fn nautilus_script_skipped(path: &Path, cleanup: IntegrationComponentReport) -> IntegrationComponentReport {
+    if matches!(
+        cleanup.status,
+        ComponentStatus::Failed | ComponentStatus::Conflict
+    ) {
+        return cleanup;
+    }
+    report(
+        ComponentId::NautilusScript,
+        ComponentStatus::NotApplicable,
+        cleanup.changed,
+        Some(path),
+        "Nautilus đã có menu động; script Scripts → Morphix chỉ cần cho Alt+C trên X11",
+    )
+}
+
+/// Kết quả cho cây Scripts của Nautilus khi máy đã có nautilus-python: dọn cây (nếu có) rồi báo "không áp dụng".
+fn nautilus_dynamic_report(set: &FileSet, cleanup: IntegrationComponentReport) -> IntegrationComponentReport {
+    if matches!(
+        cleanup.status,
+        ComponentStatus::Failed | ComponentStatus::Conflict
+    ) {
+        return cleanup;
+    }
+    report(
+        set.id,
+        ComponentStatus::NotApplicable,
+        cleanup.changed,
+        Some(&set.dir),
+        NAUTILUS_DYNAMIC_MESSAGE,
+    )
+}
+
 fn desired_file(
     roots: &XdgRoots,
     id: ComponentId,
@@ -287,9 +398,6 @@ fn desired_file(
         ComponentId::NautilusScript => {
             nautilus_script_body(&binaries.morphix).map(|body| (body, EXECUTABLE_MODE))
         }
-        ComponentId::DolphinServiceMenu => {
-            dolphin_service_menu_body(&binaries.morphix).map(|body| (body, DOLPHIN_MENU_MODE))
-        }
         ComponentId::Autostart => {
             autostart_entry_body(&binaries.gui).map(|body| (body, DESKTOP_ENTRY_MODE))
         }
@@ -298,9 +406,6 @@ fn desired_file(
         }
         ComponentId::ApplicationLauncher => {
             application_launcher_body(&binaries.morphix).map(|body| (body, DESKTOP_ENTRY_MODE))
-        }
-        ComponentId::NemoAction => {
-            nemo_action_body(&binaries.morphix).map(|body| (body, DESKTOP_ENTRY_MODE))
         }
         // WHY dùng lại script Nautilus: Caja truyền file đã chọn qua argv giống hệt Nautilus.
         ComponentId::CajaScript => {
@@ -312,7 +417,11 @@ fn desired_file(
         | ComponentId::GnomeShortcut
         | ComponentId::DesktopValidation
         | ComponentId::DesktopContextMenu
-        | ComponentId::ThunarAction => return None,
+        | ComponentId::ThunarAction
+        | ComponentId::DolphinServiceMenu
+        | ComponentId::NautilusScriptMenu
+        | ComponentId::NemoScriptMenu
+        | ComponentId::CajaScriptMenu => return None,
     };
     Some(content.map(|(body, mode)| DesiredFile {
         path,
@@ -321,7 +430,7 @@ fn desired_file(
     }))
 }
 
-fn utf8(path: &Path) -> Result<&str, String> {
+pub(super) fn utf8(path: &Path) -> Result<&str, String> {
     path.to_str()
         .ok_or_else(|| format!("đường dẫn không phải UTF-8: {}", path.display()))
 }
@@ -338,33 +447,6 @@ pub fn nautilus_script_body(morphix: &Path) -> Result<String, String> {
         "    exit 1".to_string(),
         "fi".to_string(),
         exec_line,
-    ]
-    .join("\n")
-        + "\n")
-}
-
-/// Service menu Dolphin. `%F` là đường dẫn cục bộ của lựa chọn (không phải URI): Dolphin trên KDE 6 đưa
-/// đường dẫn thường cho `%U` ở một số máy, khiến `menu --uris` từ chối và menu im lặng.
-pub fn dolphin_service_menu_body(morphix: &Path) -> Result<String, String> {
-    let exec = escape_desktop_value(&format!(
-        "{} menu -- %F",
-        desktop_exec_argument(utf8(morphix)?)
-    ));
-    Ok([
-        format!("# {MANAGED_MARKER}"),
-        "[Desktop Entry]".to_string(),
-        "Type=Service".to_string(),
-        // WHY Name ở nhóm chính: desktop-file-validate báo lỗi nếu thiếu, dù menu hiển thị lấy tên từ nhóm action.
-        "Name=Morphix".to_string(),
-        // WHY mọi file: Morphix xử lý cả âm thanh, video, văn bản, PDF và file nén, không chỉ ảnh.
-        "MimeType=all/allfiles;".to_string(),
-        "Actions=Morphix;".to_string(),
-        // WHY ServiceTypes (không phải X-KDE-ServiceTypes): khóa theo KDE docs để Dolphin nhận diện service menu chuột phải.
-        "ServiceTypes=KonqPopupMenu/Plugin".to_string(),
-        String::new(),
-        "[Desktop Action Morphix]".to_string(),
-        "Name=Morphix".to_string(),
-        format!("Exec={exec}"),
     ]
     .join("\n")
         + "\n")
@@ -408,26 +490,6 @@ pub fn application_launcher_body(morphix: &Path) -> Result<String, String> {
         "Type=Application".to_string(),
         "Categories=Utility;".to_string(),
         "StartupNotify=true".to_string(),
-    ]
-    .join("\n")
-        + "\n")
-}
-
-/// Nemo action (Cinnamon). `%U` truyền URI `file:` của lựa chọn, như service menu Dolphin.
-pub fn nemo_action_body(morphix: &Path) -> Result<String, String> {
-    let exec = escape_desktop_value(&format!(
-        "{} menu --uris %U",
-        desktop_exec_argument(utf8(morphix)?)
-    ));
-    Ok([
-        format!("# {MANAGED_MARKER}"),
-        "[Nemo Action]".to_string(),
-        "Name=Morphix".to_string(),
-        "Comment=Mở Morphix cho các file đã chọn".to_string(),
-        format!("Exec={exec}"),
-        "Icon-Name=morphix".to_string(),
-        "Selection=notnone".to_string(),
-        "Extensions=nodirs;".to_string(),
     ]
     .join("\n")
         + "\n")
@@ -555,7 +617,7 @@ fn outside_linux(id: ComponentId) -> IntegrationComponentReport {
 
 /// `true` khi file hiện có đúng nội dung và quyền đích. WHY kiểm quyền: chmod -x làm script không chạy được
 /// dù nội dung đúng, nên không được báo `already_installed`.
-fn is_same(current: &ExistingFile, file: &DesiredFile) -> bool {
+pub(super) fn is_same(current: &ExistingFile, file: &DesiredFile) -> bool {
     current.bytes == file.bytes && current.mode & 0o777 == file.mode
 }
 
@@ -606,7 +668,7 @@ fn install_file(id: ComponentId, file: &DesiredFile) -> IntegrationComponentRepo
     }
 }
 
-fn write_with_created_dirs(file: &DesiredFile, tx: &mut Transaction) -> io::Result<()> {
+pub(super) fn write_with_created_dirs(file: &DesiredFile, tx: &mut Transaction) -> io::Result<()> {
     let install_dir = file.path.parent().ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -677,7 +739,7 @@ fn uninstall_file(id: ComponentId, path: &Path) -> IntegrationComponentReport {
 
 /// Gỡ thư mục do Morphix tạo, từ `start` lên trên, dừng ở thư mục đầu tiên không còn đúng marker và rỗng.
 /// WHY dừng: thư mục có file khác hoặc không có marker là của người dùng hoặc của lần cài khác.
-fn remove_created_dirs(start: &Path) -> io::Result<()> {
+pub(super) fn remove_created_dirs(start: &Path) -> io::Result<()> {
     let mut current = Some(start);
     while let Some(dir) = current {
         if !holds_only_created_marker(dir)? {
@@ -767,10 +829,11 @@ fn file_manager_of(id: ComponentId) -> Option<(&'static str, &'static str)> {
         ComponentId::NautilusScript
         | ComponentId::NautilusAccel
         | ComponentId::NautilusExtension => Some(("nautilus", "Nautilus")),
+        ComponentId::NautilusScriptMenu => Some(("nautilus", "Nautilus")),
         ComponentId::DolphinServiceMenu => Some(("dolphin", "Dolphin")),
-        ComponentId::NemoAction => Some(("nemo", "Nemo")),
+        ComponentId::NemoScriptMenu => Some(("nemo", "Nemo")),
         ComponentId::ThunarAction => Some(("thunar", "Thunar")),
-        ComponentId::CajaScript => Some(("caja", "Caja")),
+        ComponentId::CajaScript | ComponentId::CajaScriptMenu => Some(("caja", "Caja")),
         _ => None,
     }
 }
@@ -866,6 +929,28 @@ impl IntegrationBackend for LinuxBackend {
         if id == ComponentId::ThunarAction {
             return super::thunar::install(&thunar_path(roots), &binaries.morphix);
         }
+        if id == ComponentId::NautilusScript && !self.session.needs_nautilus_script() {
+            return match location(roots, id) {
+                Some(path) => {
+                    let cleanup = uninstall_file(id, &path);
+                    nautilus_script_skipped(&path, cleanup)
+                }
+                None => outside_linux(id),
+            };
+        }
+        if let Some(set) = file_set(roots, id, &binaries.morphix) {
+            return match set {
+                Err(message) => failed_report(id, &message),
+                Ok(set)
+                    if id == ComponentId::NautilusScriptMenu
+                        && self.session.has_nautilus_python() =>
+                {
+                    let cleanup = multi::uninstall(&set);
+                    nautilus_dynamic_report(&set, cleanup)
+                }
+                Ok(set) => multi::install(&set),
+            };
+        }
         match desired_file(roots, id, binaries) {
             None => outside_linux(id),
             Some(Err(message)) => failed_report(id, &message),
@@ -899,6 +984,12 @@ impl IntegrationBackend for LinuxBackend {
         }
         if id == ComponentId::ThunarAction {
             return super::thunar::uninstall(&thunar_path(roots));
+        }
+        if let Some(set) = file_set(roots, id, Path::new("morphix")) {
+            return match set {
+                Err(message) => failed_report(id, &message),
+                Ok(set) => multi::uninstall(&set),
+            };
         }
         if id == ComponentId::NautilusExtension {
             if let Some(path) = location(roots, id) {
@@ -986,12 +1077,51 @@ impl LinuxBackend {
         if id == ComponentId::ThunarAction {
             return super::thunar::inspect(&thunar_path(roots), &binaries.morphix);
         }
+        if id == ComponentId::NautilusScript && !self.session.needs_nautilus_script() {
+            let Some(path) = location(roots, id) else {
+                return outside_linux(id);
+            };
+            return match read_existing(&path) {
+                Ok(existing) if classify(existing.as_ref()) == FileOwnership::Owned => report(
+                    id,
+                    ComponentStatus::Stale,
+                    false,
+                    Some(&path),
+                    "script thừa vì Nautilus đã có menu động và Alt+C không chạy được trên phiên này; chạy lại install-integration",
+                ),
+                Ok(_) => nautilus_script_skipped(&path, report(id, ComponentStatus::AlreadyAbsent, false, Some(&path), "")),
+                Err(error) => io_failure(id, &path, &error),
+            };
+        }
+        if let Some(set) = file_set(roots, id, &binaries.morphix) {
+            return match set {
+                Err(message) => failed_report(id, &message),
+                Ok(set)
+                    if id == ComponentId::NautilusScriptMenu
+                        && self.session.has_nautilus_python() =>
+                {
+                    let inspected = multi::inspect(&set);
+                    match inspected.status {
+                        ComponentStatus::Missing => nautilus_dynamic_report(&set, inspected),
+                        ComponentStatus::Conflict | ComponentStatus::Failed => inspected,
+                        _ => report(
+                            id,
+                            ComponentStatus::Stale,
+                            false,
+                            Some(&set.dir),
+                            "còn cây Scripts thừa vì Nautilus đã có nautilus-python; chạy lại install-integration",
+                        ),
+                    }
+                }
+                Ok(set) => multi::inspect(&set),
+            };
+        }
         match desired_file(roots, id, binaries) {
             None => outside_linux(id),
             Some(Err(message)) => failed_report(id, &message),
             Some(Ok(file)) if id == ComponentId::NautilusExtension => {
                 // WHY: file extension có mà thiếu binding Python của Nautilus thì Nautilus không nạp nó; báo đã cài là sai.
-                if nautilus_python_present(&NAUTILUS_EXTENSION_DIRS) {
+                if self.session.has_nautilus_python() {
                     inspect_file(id, &file)
                 } else {
                     report(
@@ -1110,8 +1240,13 @@ fn lists_appindicator(listing: &str) -> bool {
 fn desktop_validation_report(roots: &XdgRoots, tools: &ToolRunner) -> IntegrationComponentReport {
     let id = ComponentId::DesktopValidation;
     let mut reports: Vec<IntegrationComponentReport> = Vec::new();
-    let entries = [ComponentId::DolphinServiceMenu, ComponentId::Autostart];
-    for path in entries.iter().filter_map(|&entry| location(roots, entry)) {
+    // WHY gom mọi file service menu: Dolphin giờ có một file mỗi nhóm loại file.
+    let mut paths: Vec<PathBuf> = file_set(roots, ComponentId::DolphinServiceMenu, Path::new("morphix"))
+        .and_then(Result::ok)
+        .map(|set| set.files.into_iter().map(|file| file.path).collect())
+        .unwrap_or_default();
+    paths.extend(location(roots, ComponentId::Autostart));
+    for path in paths {
         match read_existing(&path) {
             Ok(None) => continue,
             Ok(Some(_)) => reports.push(validate_desktop_file(id, &path, tools)),
@@ -1292,7 +1427,11 @@ mod tests {
             data_home: sandbox.path().join("data"),
             config_home: sandbox.path().join("config"),
         };
-        let dolphin = location(&roots, ComponentId::DolphinServiceMenu).unwrap();
+        let dolphin = roots
+            .data_home
+            .join("kio")
+            .join("servicemenus")
+            .join("morphix-image.desktop");
         let autostart = location(&roots, ComponentId::Autostart).unwrap();
         for path in [&dolphin, &autostart] {
             fs::create_dir_all(path.parent().unwrap()).unwrap();

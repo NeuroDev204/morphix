@@ -282,3 +282,64 @@ fn history_entry_for_report_cancelled_keeps_partial_counts() {
         entry.detail
     );
 }
+
+// WHY đọc nguồn: lệnh Tauri đồng bộ chạy ngay trên luồng giao diện; chữ ký `async` là điều kiện để
+// thân lệnh (đọc file, ghi đĩa, tiến trình con) đi qua `spawn_blocking`.
+#[test]
+fn commands_with_io_are_async() {
+    let source = include_str!("../src/commands.rs");
+    for name in [
+        "menu_payload",
+        "run_action",
+        "open_output_directory",
+        "submit_menu_request",
+        "save_settings",
+        "clear_history",
+    ] {
+        assert!(
+            source.contains(&format!("pub async fn {name}(")),
+            "{name} phải là async"
+        );
+    }
+}
+
+// Review Focus 5: việc không hợp với file (mức tĩnh cho phép bấm nhầm) phải ra lỗi rõ ràng, không im lặng.
+#[test]
+fn inapplicable_action_is_rejected_with_a_message() {
+    let d = tempfile::tempdir().unwrap();
+    let png = d.path().join("a.png");
+    image::RgbImage::from_pixel(8, 8, image::Rgb([1, 2, 3]))
+        .save(&png)
+        .unwrap();
+    let error = morphix_gui::commands::job_for_action(
+        "convert:png",
+        vec![png],
+        &morphix_gui::settings::Settings::default(),
+    )
+    .unwrap_err();
+    assert!(error.contains("không áp dụng"), "{error}");
+}
+
+#[test]
+fn notification_body_shows_the_result_title_then_the_detail() {
+    use morphix_gui::history::HistoryEntry;
+    let done = HistoryEntry::new(
+        "/tmp/anh.webp",
+        "1 file → anh.webp",
+        "Xong · Đổi sang WEBP · 1 thành công, 0 lỗi",
+        EntryStatus::Done,
+        1,
+    );
+    assert_eq!(
+        morphix_gui::commands::notification_body(&done),
+        "1 file → anh.webp\nXong · Đổi sang WEBP · 1 thành công, 0 lỗi"
+    );
+    let failed = HistoryEntry::new(
+        "/tmp/a.png",
+        "1 file → a.png",
+        "Lỗi · Nén ảnh · 0 thành công, 1 lỗi · a.png: file hỏng",
+        EntryStatus::Failed,
+        1,
+    );
+    assert!(morphix_gui::commands::notification_body(&failed).contains("a.png: file hỏng"));
+}
