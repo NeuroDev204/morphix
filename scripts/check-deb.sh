@@ -5,13 +5,11 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEB="${1:?usage: check-deb.sh <file.deb>}"
-# WHY: cùng MORPHIX_TARGET với build-deb.sh, để danh sách Depends kiểm đúng bản Ubuntu đã đóng gói.
 case "${MORPHIX_TARGET:-noble}" in
-  noble) RELY_FILE=rely-packages.txt ;;
+  noble) ;;
   jammy) echo "Jammy chưa được hỗ trợ: tích hợp Desktop ghim DING của Ubuntu 24.04" >&2; exit 1 ;;
   *) echo "MORPHIX_TARGET không hợp lệ: ${MORPHIX_TARGET:-}" >&2; exit 1 ;;
 esac
-RELY_LIST="$ROOT/crates/morphix-gui/packaging/deb/$RELY_FILE"
 WORK="$(mktemp -d "$(dirname "$DEB")/check.XXXXXX")"
 trap 'python3 -c "import shutil,sys; shutil.rmtree(sys.argv[1])" "$WORK"' EXIT
 
@@ -31,6 +29,9 @@ expected=(
   ./usr/share/doc/morphix/copyright
   ./usr/share/doc/morphix/LICENSES-THIRD-PARTY.md
   ./usr/share/doc/morphix/ffmpeg-source-offer.txt
+  ./usr/share/doc/morphix/ffmpeg/LICENSE.txt
+  ./usr/share/doc/morphix/ffmpeg/BUILD-INFO.txt
+  ./usr/share/doc/morphix/ffmpeg/third-party/x264/COPYING
 )
 
 listing="$(dpkg-deb -c "$DEB")"
@@ -111,13 +112,19 @@ echo "== desktop files, DING manifest/hash, maintainer scripts và Depends hợp
     --no-replaces --no-enhances libwebkit2gtk-4.1-0 libayatana-appindicator3-1 \
     libglib2.0-bin python3-nautilus python3-gi gir1.2-gtk-4.0 \
     | awk '/^[a-z0-9]/ {print $1}' | sed 's/:.*//'
-  grep -v '^#' "$RELY_LIST"
 } | sort -u > "$WORK/depends-closure.txt"
+
+# WHY: ffmpeg gọn phải là binary tĩnh hoàn toàn và gói không còn thư viện .so riêng cho nó.
+env -i PATH=/usr/bin:/bin ldd "$WORK/usr/lib/morphix/ffmpeg" 2>&1 | grep -q 'not a dynamic executable' \
+  || { echo "ffmpeg đóng gói không phải binary tĩnh" >&2; exit 1; }
+if [ -e "$WORK/usr/lib/morphix/lib" ]; then
+  echo "gói còn thư mục usr/lib/morphix/lib của ffmpeg cũ" >&2
+  exit 1
+fi
 
 # WHY: env -i để ldd không dùng thư viện của môi trường dev (LD_LIBRARY_PATH, PATH cục bộ).
 # Mỗi đường dẫn resolve phải nằm trong gói, hoặc thuộc bao đóng Depends.
-bins=("$WORK/usr/bin/morphix" "$WORK/usr/bin/morphix-gui" "$WORK/usr/lib/morphix/ffmpeg" "$WORK/usr/lib/morphix/pdfium/libpdfium.so")
-for lib in "$WORK"/usr/lib/morphix/lib/*.so*; do bins+=("$lib"); done
+bins=("$WORK/usr/bin/morphix" "$WORK/usr/bin/morphix-gui" "$WORK/usr/lib/morphix/pdfium/libpdfium.so")
 failed=0
 for bin in "${bins[@]}"; do
   while read -r soname arrow resolved _; do

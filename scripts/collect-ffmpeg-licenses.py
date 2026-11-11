@@ -24,6 +24,7 @@ COMPONENTS: list[tuple[str, str, str, str]] = [
     ("libogg", "libogg-", "BSD-3-Clause", "https://xiph.org/ogg/"),
     ("libvorbis", "libvorbis-", "BSD-3-Clause", "https://xiph.org/vorbis/"),
     ("dav1d", "dav1d-", "BSD-2-Clause", "https://code.videolan.org/videolan/dav1d"),
+    ("zlib", "zlib-", "Zlib", "https://zlib.net"),
 ]
 
 
