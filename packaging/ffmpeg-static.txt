@@ -18,4 +18,4 @@ Theo GPL, ai nhận bản ffmpeg này có thể yêu cầu mã nguồn tương �
 (https://github.com/NeuroDev204/morphix/issues) trong ít nhất ba năm kể từ ngày phát hành.
 
 Đổi phiên bản: chạy workflow `ffmpeg` (.github/workflows/ffmpeg.yml) với `publish` bật, rồi sửa URL và SHA256 ở trên
-(scripts/build-tarball.sh đọc hai dòng này) và FFMPEG_URL, FFMPEG_SHA256 trong packaging/windows-deps.txt.
+(scripts/install-ffmpeg-slim.sh đọc hai dòng này cho tarball và .deb) và FFMPEG_URL, FFMPEG_SHA256 trong packaging/windows-deps.txt.
