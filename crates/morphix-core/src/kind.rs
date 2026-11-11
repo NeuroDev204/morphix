@@ -94,6 +94,18 @@ pub enum TextFormat {
 }
 
 impl TextFormat {
+    /// Mọi định dạng văn bản, theo thứ tự khai báo.
+    pub const ALL: [TextFormat; 8] = [
+        TextFormat::Txt,
+        TextFormat::Markdown,
+        TextFormat::Srt,
+        TextFormat::Vtt,
+        TextFormat::Csv,
+        TextFormat::Tsv,
+        TextFormat::Html,
+        TextFormat::Docx,
+    ];
+
     pub fn extension(self) -> &'static str {
         match self {
             TextFormat::Txt => "txt",
@@ -145,7 +157,7 @@ pub enum MediaFormat {
 
 impl MediaFormat {
     /// Mọi định dạng âm thanh và video; `from_extension` tra theo đuôi trong danh sách này.
-    const ALL: [MediaFormat; 15] = [
+    pub const ALL: [MediaFormat; 15] = [
         MediaFormat::Mp3,
         MediaFormat::M4a,
         MediaFormat::Wav,

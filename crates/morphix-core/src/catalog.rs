@@ -289,6 +289,131 @@ pub fn action_id(kind: ActionKind) -> String {
     }
 }
 
+/// Một nhóm loại file cho trình quản lý file chỉ lọc được theo loại (Dolphin, Thunar, thư mục Scripts),
+/// không đọc được nội dung file như Explorer hay Nautilus có `nautilus-python`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MenuGroup {
+    /// "image" | "audio" | "video" | "text" | "pdf" | "archive" | "any"; dùng làm tên file và id sinh ra.
+    pub key: &'static str,
+    /// Nhãn hiển thị tiếng Việt của nhóm.
+    pub label: &'static str,
+    /// Kiểu MIME của nhóm; nhóm `any` là `all/allfiles`.
+    pub mime_types: Vec<&'static str>,
+    /// Đuôi file không có dấu chấm (kể cả bí danh như `jpeg`); nhóm `any` để rỗng.
+    pub extensions: Vec<&'static str>,
+    /// Hợp các việc của mọi định dạng trong nhóm, bỏ trùng theo `action_id`; việc thường đứng trước công cụ.
+    pub actions: Vec<Action>,
+}
+
+/// Hợp các việc trên menu của từng loại file, bỏ các việc nén thành file nén (đã có ở nhóm `any`).
+fn union_actions(kinds: &[FileKind]) -> Vec<Action> {
+    let mut actions: Vec<Action> = Vec::new();
+    for kind in kinds {
+        for action in menu_actions(std::slice::from_ref(kind)) {
+            let id = action_id(action.kind);
+            if id.starts_with("archive:") || actions.iter().any(|a| action_id(a.kind) == id) {
+                continue;
+            }
+            actions.push(action);
+        }
+    }
+    // WHY sắp ổn định: nhóm Công cụ luôn đứng sau nhóm Chuyển đổi, như vòng tròn và menu Explorer.
+    actions.sort_by_key(|action| action.is_tool);
+    actions
+}
+
+/// Các nhóm loại file cho menu tĩnh, sinh từ catalog để không có bảng việc thứ hai.
+pub fn static_menu_groups() -> Vec<MenuGroup> {
+    let images: Vec<FileKind> = ImgFormat::ALL_ORDERED.into_iter().map(FileKind::Image).collect();
+    // WHY bỏ GIF: `detect` luôn nhận GIF là ảnh, nên `Media(Gif)` chỉ là đích, không bao giờ là đầu vào.
+    let media = |audio: bool| -> Vec<FileKind> {
+        MediaFormat::ALL
+            .into_iter()
+            .filter(|f| *f != MediaFormat::Gif && f.is_audio() == audio)
+            .map(FileKind::Media)
+            .collect()
+    };
+    let texts: Vec<FileKind> = TextFormat::ALL.into_iter().map(FileKind::Text).collect();
+    // WHY bỏ RAR: Morphix chưa giải nén RAR (xem `type_actions`).
+    let archives: Vec<FileKind> = [ArchiveFormat::Zip, ArchiveFormat::TarGz, ArchiveFormat::SevenZ]
+        .into_iter()
+        .map(FileKind::Archive)
+        .collect();
+    let to_archive_actions = menu_actions(&[FileKind::Unknown])
+        .into_iter()
+        .filter(|a| action_id(a.kind).starts_with("archive:"))
+        .collect();
+    vec![
+        MenuGroup {
+            key: "image",
+            label: "Ảnh",
+            mime_types: vec![
+                "image/jpeg", "image/png", "image/webp", "image/avif", "image/gif", "image/tiff",
+                "image/bmp",
+            ],
+            extensions: vec!["jpg", "jpeg", "png", "webp", "avif", "gif", "tiff", "tif", "bmp"],
+            actions: union_actions(&images),
+        },
+        MenuGroup {
+            key: "audio",
+            label: "Âm thanh",
+            mime_types: vec![
+                "audio/mpeg", "audio/mp4", "audio/x-wav", "audio/flac", "audio/ogg",
+                "audio/x-opus+ogg", "audio/x-aiff", "audio/x-ms-wma",
+            ],
+            extensions: vec!["mp3", "m4a", "wav", "flac", "ogg", "opus", "aiff", "wma"],
+            actions: union_actions(&media(true)),
+        },
+        MenuGroup {
+            key: "video",
+            label: "Video",
+            mime_types: vec![
+                "video/mp4", "video/quicktime", "video/x-matroska", "video/webm",
+                "video/x-msvideo", "video/x-ms-wmv",
+            ],
+            extensions: vec!["mp4", "mov", "mkv", "webm", "avi", "wmv"],
+            actions: union_actions(&media(false)),
+        },
+        MenuGroup {
+            key: "text",
+            label: "Văn bản",
+            mime_types: vec![
+                "text/plain", "text/markdown", "text/csv", "text/tab-separated-values",
+                "text/html", "application/x-subrip", "text/vtt",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ],
+            extensions: vec![
+                "txt", "md", "markdown", "srt", "vtt", "csv", "tsv", "html", "htm", "docx",
+            ],
+            actions: union_actions(&texts),
+        },
+        MenuGroup {
+            key: "pdf",
+            label: "PDF",
+            mime_types: vec!["application/pdf"],
+            extensions: vec!["pdf"],
+            actions: union_actions(&[FileKind::Pdf]),
+        },
+        MenuGroup {
+            key: "archive",
+            label: "File nén",
+            mime_types: vec![
+                "application/zip", "application/gzip", "application/x-compressed-tar",
+                "application/x-7z-compressed",
+            ],
+            extensions: vec!["zip", "tar.gz", "tgz", "7z"],
+            actions: union_actions(&archives),
+        },
+        MenuGroup {
+            key: "any",
+            label: "Nén file",
+            mime_types: vec!["all/allfiles"],
+            extensions: Vec::new(),
+            actions: to_archive_actions,
+        },
+    ]
+}
+
 /// Các việc hiện trên menu: `actions_for` bỏ những việc chỉ có ở CLI và công cụ chưa nối giao diện.
 pub fn menu_actions(kinds: &[FileKind]) -> Vec<Action> {
     actions_for(kinds)
@@ -310,6 +435,59 @@ pub fn menu_actions(kinds: &[FileKind]) -> Vec<Action> {
 mod tests {
     use super::*;
     use crate::kind::{ArchiveFormat, MediaFormat};
+
+    #[test]
+    fn static_groups_cover_every_menu_action_exactly_like_the_catalog() {
+        let groups = static_menu_groups();
+        let keys: Vec<_> = groups.iter().map(|g| g.key).collect();
+        assert_eq!(
+            keys,
+            ["image", "audio", "video", "text", "pdf", "archive", "any"]
+        );
+        let any = groups.iter().find(|g| g.key == "any").unwrap();
+        assert_eq!(any.mime_types, ["all/allfiles"]);
+        assert!(any.extensions.is_empty());
+        assert!(!any.actions.is_empty());
+        assert!(any
+            .actions
+            .iter()
+            .all(|a| action_id(a.kind).starts_with("archive:")));
+        for group in groups.iter().filter(|g| g.key != "any") {
+            assert!(!group.actions.is_empty(), "{}", group.key);
+            assert!(!group.mime_types.is_empty(), "{}", group.key);
+            assert!(!group.extensions.is_empty(), "{}", group.key);
+            assert!(group
+                .actions
+                .iter()
+                .all(|a| !action_id(a.kind).starts_with("archive:")));
+        }
+        let image = &groups[0];
+        for format in ImgFormat::ALL_ORDERED {
+            for action in menu_actions(&[FileKind::Image(format)]) {
+                let id = action_id(action.kind);
+                assert!(
+                    id.starts_with("archive:")
+                        || image.actions.iter().any(|a| action_id(a.kind) == id),
+                    "{id}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn static_groups_have_no_duplicate_ids_and_keep_tools_last() {
+        for group in static_menu_groups() {
+            let ids: Vec<String> = group.actions.iter().map(|a| action_id(a.kind)).collect();
+            let mut unique = ids.clone();
+            unique.sort();
+            unique.dedup();
+            assert_eq!(ids.len(), unique.len(), "{} có id trùng", group.key);
+            let first_tool = group.actions.iter().position(|a| a.is_tool);
+            if let Some(index) = first_tool {
+                assert!(group.actions[index..].iter().all(|a| a.is_tool), "{}", group.key);
+            }
+        }
+    }
 
     fn labels(actions: &[Action], tool: bool) -> Vec<&str> {
         actions
