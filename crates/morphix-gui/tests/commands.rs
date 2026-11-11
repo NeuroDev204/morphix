@@ -282,3 +282,23 @@ fn history_entry_for_report_cancelled_keeps_partial_counts() {
         entry.detail
     );
 }
+
+// WHY đọc nguồn: lệnh Tauri đồng bộ chạy ngay trên luồng giao diện; chữ ký `async` là điều kiện để
+// thân lệnh (đọc file, ghi đĩa, tiến trình con) đi qua `spawn_blocking`.
+#[test]
+fn commands_with_io_are_async() {
+    let source = include_str!("../src/commands.rs");
+    for name in [
+        "menu_payload",
+        "run_action",
+        "open_output_directory",
+        "submit_menu_request",
+        "save_settings",
+        "clear_history",
+    ] {
+        assert!(
+            source.contains(&format!("pub async fn {name}(")),
+            "{name} phải là async"
+        );
+    }
+}
