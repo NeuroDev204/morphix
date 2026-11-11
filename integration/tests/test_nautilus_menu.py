@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib
+import json
+import subprocess
 import sys
 import types
 import unittest
@@ -20,12 +22,28 @@ class FakeGObject:
     pass
 
 
+class FakeMenu:
+    def __init__(self) -> None:
+        self.items: list[FakeMenuItem] = []
+
+    def append_item(self, item: FakeMenuItem) -> None:
+        self.items.append(item)
+
+    def get_items(self) -> list[FakeMenuItem]:
+        return list(self.items)
+
+
 class FakeMenuItem:
-    def __init__(self, *, name: str, label: str) -> None:
+    def __init__(self, *, name: str, label: str, sensitive: bool = True) -> None:
         self.name: str = name
         self.label: str = label
+        self.sensitive: bool = sensitive
+        self.submenu: FakeMenu | None = None
         self.callback: object | None = None
         self.user_data: tuple[object, ...] = ()
+
+    def set_submenu(self, submenu: FakeMenu) -> None:
+        self.submenu = submenu
 
     def connect(self, _signal: str, callback: object, *user_data: object) -> None:
         self.callback = callback
@@ -83,6 +101,7 @@ class FakeAlertDialog:
 def install_gi_stubs(nautilus_versions: tuple[str, ...] = ("4.0", "4.1")) -> None:
     nautilus: types.SimpleNamespace = types.SimpleNamespace(
         FileInfo=FakeFileInfo,
+        Menu=FakeMenu,
         MenuItem=FakeMenuItem,
         MenuProvider=FakeMenuProvider,
     )
@@ -130,11 +149,32 @@ def load_menu_module(nautilus_versions: tuple[str, ...] = ("4.0", "4.1")) -> typ
 menu: types.ModuleType = load_menu_module()
 
 
+LISTING_PNG: str = json.dumps(
+    {
+        "too_many": False,
+        "items": [
+            {"id": "merge", "label": "PDF", "is_tool": False},
+            {"id": "convert:webp", "label": "WebP", "is_tool": False},
+            {"id": "compress", "label": "Nén ảnh", "is_tool": True},
+        ],
+    }
+)
+
+
+def completed(stdout: str, returncode: int = 0) -> subprocess.CompletedProcess[str]:
+    return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr="")
+
+
 class NautilusMenuTests(unittest.TestCase):
     def setUp(self) -> None:
         FakeSubprocess.calls.clear()
         FakeSubprocess.error = None
         FakeAlertDialog.instances.clear()
+        # WHY mặc định không có morphix: các test cũ kiểm đường lùi (một mục mở Khay), và máy chạy test
+        # có thể đã cài /usr/bin/morphix thật.
+        patcher = patch.object(menu.subprocess, "run", side_effect=FileNotFoundError)
+        self.run = patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_selection_preserves_argv(self) -> None:
         self.assertEqual(
@@ -217,6 +257,115 @@ class NautilusMenuTests(unittest.TestCase):
             FakeAlertDialog.instances[0].message,
             "Không thể mở Morphix. Hãy kiểm tra cài đặt rồi thử lại.",
         )
+
+    # ---- submenu động: một mục con cho mỗi việc áp dụng được ----
+
+    def test_list_command(self) -> None:
+        self.assertEqual(
+            menu.list_command(["file:///tmp/a%20b.png"]),
+            ["/usr/bin/morphix", "--json", "menu", "--list", "--uris", "file:///tmp/a%20b.png"],
+        )
+
+    def test_action_command(self) -> None:
+        self.assertEqual(
+            menu.action_command("convert:webp", ["file:///tmp/a.png", "file:///tmp/b.png"]),
+            [
+                "/usr/bin/morphix",
+                "menu",
+                "--action",
+                "convert:webp",
+                "--uris",
+                "file:///tmp/a.png",
+                "file:///tmp/b.png",
+            ],
+        )
+
+    def test_parse_listing_valid(self) -> None:
+        too_many, items = menu.parse_listing(LISTING_PNG)
+        self.assertFalse(too_many)
+        self.assertEqual(
+            [(item["id"], item["label"], item["is_tool"]) for item in items],
+            [("merge", "PDF", False), ("convert:webp", "WebP", False), ("compress", "Nén ảnh", True)],
+        )
+
+    def test_parse_listing_rejects_garbage(self) -> None:
+        for text in ["", "not json", "{}", '{"too_many": false}', '{"too_many": 1, "items": []}',
+                     '{"too_many": false, "items": [{"id": 3, "label": "x"}]}', "[]", None]:
+            with self.subTest(text=text):
+                self.assertIsNone(menu.parse_listing(text))
+
+    def test_valid_listing_becomes_one_submenu_with_an_item_per_action(self) -> None:
+        self.run.side_effect = None
+        self.run.return_value = completed(LISTING_PNG)
+        provider: object = menu.MorphixMenuProvider()
+        items: list[FakeMenuItem] = provider.get_file_items([FakeFileInfo("file:///tmp/a.png")])
+        self.assertEqual([item.label for item in items], ["Morphix"])
+        sub = items[0].submenu.get_items()
+        self.assertEqual([item.label for item in sub], ["PDF", "WebP", "Nén ảnh"])
+        sub[1].activate()
+        self.assertEqual(
+            FakeSubprocess.calls[0][0],
+            ["/usr/bin/morphix", "menu", "--action", "convert:webp", "--uris", "file:///tmp/a.png"],
+        )
+
+    def test_empty_listing_adds_no_menu_item(self) -> None:
+        self.run.side_effect = None
+        self.run.return_value = completed('{"too_many": false, "items": []}')
+        provider: object = menu.MorphixMenuProvider()
+        self.assertEqual(provider.get_file_items([FakeFileInfo("file:///tmp/a.rar")]), [])
+
+    def test_too_many_files_do_not_call_cli(self) -> None:
+        files = [FakeFileInfo(f"file:///tmp/{n}.png") for n in range(menu.MAX_FILES + 1)]
+        provider: object = menu.MorphixMenuProvider()
+        items: list[FakeMenuItem] = provider.get_file_items(files)
+        self.run.assert_not_called()
+        sub = items[0].submenu.get_items()
+        self.assertEqual([item.label for item in sub], [menu.TOO_MANY_LABEL])
+        self.assertFalse(sub[0].sensitive)
+        self.assertEqual(menu.TOO_MANY_LABEL, "Chọn quá nhiều file (tối đa 100)")
+
+    def test_timeout_falls_back_to_tray_item(self) -> None:
+        self.run.side_effect = subprocess.TimeoutExpired(cmd="morphix", timeout=0.3)
+        provider: object = menu.MorphixMenuProvider()
+        items: list[FakeMenuItem] = provider.get_file_items([FakeFileInfo("file:///tmp/a.png")])
+        self.assertEqual([item.label for item in items], ["Morphix"])
+        self.assertIsNone(items[0].submenu)
+        items[0].activate()
+        self.assertEqual(
+            FakeSubprocess.calls[0][0], ["/usr/bin/morphix", "menu", "--uris", "file:///tmp/a.png"]
+        )
+        self.assertEqual(self.run.call_args.kwargs["timeout"], menu.LIST_TIMEOUT_SECONDS)
+        self.assertEqual(menu.LIST_TIMEOUT_SECONDS, 0.3)
+
+    def test_failed_or_garbled_cli_falls_back_to_tray_item(self) -> None:
+        provider: object = menu.MorphixMenuProvider()
+        for result in [completed(LISTING_PNG, returncode=1), completed("không phải JSON")]:
+            with self.subTest(stdout=result.stdout, code=result.returncode):
+                self.run.side_effect = None
+                self.run.return_value = result
+                provider._cache = None
+                items = provider.get_file_items([FakeFileInfo("file:///tmp/a.png")])
+                self.assertEqual([item.label for item in items], ["Morphix"])
+                self.assertIsNone(items[0].submenu)
+
+    def test_second_call_with_same_selection_uses_cache(self) -> None:
+        self.run.side_effect = None
+        self.run.return_value = completed(LISTING_PNG)
+        provider: object = menu.MorphixMenuProvider()
+        selection = [FakeFileInfo("file:///tmp/a.png")]
+        provider.get_file_items(selection)
+        provider.get_file_items(selection)
+        self.assertEqual(self.run.call_count, 1)
+        provider.get_file_items([FakeFileInfo("file:///tmp/b.png")])
+        self.assertEqual(self.run.call_count, 2)
+
+    def test_a_failed_listing_is_cached_too_so_nautilus_is_not_stalled_twice(self) -> None:
+        self.run.side_effect = subprocess.TimeoutExpired(cmd="morphix", timeout=0.3)
+        provider: object = menu.MorphixMenuProvider()
+        selection = [FakeFileInfo("file:///tmp/a.png")]
+        provider.get_file_items(selection)
+        provider.get_file_items(selection)
+        self.assertEqual(self.run.call_count, 1)
 
 
 if __name__ == "__main__":
