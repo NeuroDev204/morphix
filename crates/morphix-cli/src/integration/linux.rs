@@ -82,6 +82,12 @@ impl SessionEnv {
         }
     }
 
+    /// Script `Scripts → Morphix` (mở Khay) chỉ còn cần cho Alt+C trên X11 hoặc khi Nautilus chưa có menu động.
+    /// WHY bỏ ở chỗ khác: nó là một mục "Scripts" thừa, bấm vào mở cả app thay vì submenu Morphix.
+    pub(super) fn needs_nautilus_script(&self) -> bool {
+        self.is_x11() || !self.has_nautilus_python()
+    }
+
     /// Nautilus có binding Python nên nạp được extension (menu động).
     pub fn has_nautilus_python(&self) -> bool {
         match &self.nautilus_python_dirs {
@@ -346,6 +352,23 @@ fn file_set(
         scan: Scan::Tree(scripts.join(SCRIPTS_MENU_DIR)),
         dir: scripts,
     }))
+}
+
+/// Kết quả khi script `Scripts → Morphix` không còn cần: báo "không áp dụng" sau khi dọn (nếu có).
+fn nautilus_script_skipped(path: &Path, cleanup: IntegrationComponentReport) -> IntegrationComponentReport {
+    if matches!(
+        cleanup.status,
+        ComponentStatus::Failed | ComponentStatus::Conflict
+    ) {
+        return cleanup;
+    }
+    report(
+        ComponentId::NautilusScript,
+        ComponentStatus::NotApplicable,
+        cleanup.changed,
+        Some(path),
+        "Nautilus đã có menu động; script Scripts → Morphix chỉ cần cho Alt+C trên X11",
+    )
 }
 
 /// Kết quả cho cây Scripts của Nautilus khi máy đã có nautilus-python: dọn cây (nếu có) rồi báo "không áp dụng".
@@ -906,6 +929,15 @@ impl IntegrationBackend for LinuxBackend {
         if id == ComponentId::ThunarAction {
             return super::thunar::install(&thunar_path(roots), &binaries.morphix);
         }
+        if id == ComponentId::NautilusScript && !self.session.needs_nautilus_script() {
+            return match location(roots, id) {
+                Some(path) => {
+                    let cleanup = uninstall_file(id, &path);
+                    nautilus_script_skipped(&path, cleanup)
+                }
+                None => outside_linux(id),
+            };
+        }
         if let Some(set) = file_set(roots, id, &binaries.morphix) {
             return match set {
                 Err(message) => failed_report(id, &message),
@@ -1044,6 +1076,22 @@ impl LinuxBackend {
         }
         if id == ComponentId::ThunarAction {
             return super::thunar::inspect(&thunar_path(roots), &binaries.morphix);
+        }
+        if id == ComponentId::NautilusScript && !self.session.needs_nautilus_script() {
+            let Some(path) = location(roots, id) else {
+                return outside_linux(id);
+            };
+            return match read_existing(&path) {
+                Ok(existing) if classify(existing.as_ref()) == FileOwnership::Owned => report(
+                    id,
+                    ComponentStatus::Stale,
+                    false,
+                    Some(&path),
+                    "script thừa vì Nautilus đã có menu động và Alt+C không chạy được trên phiên này; chạy lại install-integration",
+                ),
+                Ok(_) => nautilus_script_skipped(&path, report(id, ComponentStatus::AlreadyAbsent, false, Some(&path), "")),
+                Err(error) => io_failure(id, &path, &error),
+            };
         }
         if let Some(set) = file_set(roots, id, &binaries.morphix) {
             return match set {

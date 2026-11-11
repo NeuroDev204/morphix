@@ -3052,3 +3052,46 @@ fn install_then_uninstall_integration_through_the_real_cli_leaves_no_managed_fil
     assert!(!data.join("kio/servicemenus").exists());
     assert!(!data.join("nautilus/scripts/Morphix việc nhanh").exists());
 }
+
+// ---- Scripts → Morphix (mở Khay) chỉ còn cần cho Alt+C trên X11 ----
+
+fn nautilus_session(dir: &Path, session_type: Option<&str>, python: bool) -> SessionEnv {
+    SessionEnv {
+        session_type: session_type.map(str::to_string),
+        ..static_menu_session(dir, &["nautilus"], python)
+    }
+}
+
+#[test]
+fn script_entry_is_dropped_on_wayland_when_nautilus_has_the_dynamic_menu() {
+    let f = tempdir().unwrap();
+    let binaries = binaries_in(f.path());
+    let root = f.path().join("root");
+    // Bản cài trước đó đã ghi script (ví dụ trước khi cài nautilus-python): phải được gỡ.
+    let before = linux_with(&root, nautilus_session(f.path(), Some("wayland"), false), scripted_tools(Vec::new()));
+    assert_eq!(before.install(ComponentId::NautilusScript, &binaries).status, ComponentStatus::Installed);
+    assert!(nautilus_path(&root).is_file());
+
+    let backend = linux_with(&root, nautilus_session(f.path(), Some("wayland"), true), scripted_tools(Vec::new()));
+    assert_eq!(backend.inspect(ComponentId::NautilusScript, &binaries).status, ComponentStatus::Stale);
+    let report = backend.install(ComponentId::NautilusScript, &binaries);
+    assert_eq!(report.status, ComponentStatus::NotApplicable);
+    assert!(report.message.contains("Alt+C"), "{}", report.message);
+    assert!(!nautilus_path(&root).exists());
+    assert_eq!(backend.inspect(ComponentId::NautilusScript, &binaries).status, ComponentStatus::NotApplicable);
+}
+
+#[test]
+fn script_entry_stays_when_it_is_the_only_menu_or_alt_c_can_use_it() {
+    for (session_type, python) in [(Some("wayland"), false), (Some("x11"), true), (None, true)] {
+        let f = tempdir().unwrap();
+        let binaries = binaries_in(f.path());
+        let root = f.path().join("root");
+        let backend = linux_with(&root, nautilus_session(f.path(), session_type, python), scripted_tools(Vec::new()));
+        assert_eq!(
+            backend.install(ComponentId::NautilusScript, &binaries).status,
+            ComponentStatus::Installed,
+            "{session_type:?} python={python}"
+        );
+    }
+}
