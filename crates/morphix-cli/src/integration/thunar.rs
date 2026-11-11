@@ -8,7 +8,7 @@ use morphix_core::{action_id, static_menu_groups};
 
 use super::{
     files::{publish_file, read_existing, Transaction},
-    linux::{io_failure, posix_single_quote, report},
+    linux::{io_failure, posix_single_quote, remove_created_dirs, report},
     ComponentId, ComponentStatus, IntegrationComponentReport,
 };
 
@@ -219,6 +219,14 @@ pub(super) fn uninstall(path: &Path) -> IntegrationComponentReport {
             "không có action Morphix",
         );
     };
+    // WHY xoá khi không còn action nào: một `uca.xml` chỉ còn `<actions>` rỗng không có nội dung của người dùng, và để
+    // lại nó cùng thư mục Thunar thì thư mục cha do Morphix tạo (có marker) không bao giờ dọn được.
+    if !updated.contains("<action>") {
+        return match remove_empty_uca(path) {
+            Ok(()) => report(ID, ComponentStatus::Removed, true, Some(path), "đã gỡ action Morphix"),
+            Err(error) => io_failure(ID, path, &error),
+        };
+    }
     match write_text(path, &updated) {
         Ok(()) => report(
             ID,
@@ -229,6 +237,19 @@ pub(super) fn uninstall(path: &Path) -> IntegrationComponentReport {
         ),
         Err(error) => io_failure(ID, path, &error),
     }
+}
+
+/// Xoá `uca.xml`, rồi thư mục Thunar nếu rỗng, rồi các thư mục cha do Morphix tạo.
+fn remove_empty_uca(path: &Path) -> io::Result<()> {
+    fs::remove_file(path)?;
+    if let Some(dir) = path.parent() {
+        // WHY bỏ qua lỗi: thư mục còn file khác của người dùng thì giữ nguyên, không phải lỗi.
+        let _ = fs::remove_dir(dir);
+        if let Some(config) = dir.parent() {
+            remove_created_dirs(config)?;
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn inspect(path: &Path, morphix: &Path) -> IntegrationComponentReport {

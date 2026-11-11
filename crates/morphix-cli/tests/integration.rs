@@ -3095,3 +3095,40 @@ fn script_entry_stays_when_it_is_the_only_menu_or_alt_c_can_use_it() {
         );
     }
 }
+
+#[test]
+fn thunar_uninstall_from_a_fresh_home_removes_the_empty_uca_and_its_folder() {
+    let f = tempdir().unwrap();
+    let binaries = binaries_in(f.path());
+    let root = f.path().join("root");
+    let backend = linux_with(
+        &root,
+        static_menu_session(f.path(), &["thunar"], false),
+        scripted_tools(Vec::new()),
+    );
+    assert_eq!(backend.install(ComponentId::ThunarAction, &binaries).status, ComponentStatus::Installed);
+    assert!(root.join("config/Thunar/uca.xml").is_file());
+    assert_eq!(backend.uninstall(ComponentId::ThunarAction).status, ComponentStatus::Removed);
+    // WHY: một uca.xml chỉ còn `<actions>` rỗng và thư mục Thunar không còn nghĩa gì; để lại thì thư mục cha do
+    // Morphix tạo không bao giờ dọn được.
+    assert!(!root.join("config/Thunar").exists());
+}
+
+#[test]
+fn thunar_uninstall_keeps_the_uca_when_the_user_still_has_actions() {
+    let f = tempdir().unwrap();
+    let binaries = binaries_in(f.path());
+    let root = f.path().join("root");
+    let uca = root.join("config/Thunar/uca.xml");
+    fs::create_dir_all(uca.parent().unwrap()).unwrap();
+    let user = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<actions>\n<action>\n\t<unique-id>user-1</unique-id>\n</action>\n</actions>\n";
+    fs::write(&uca, user).unwrap();
+    let backend = linux_with(
+        &root,
+        static_menu_session(f.path(), &["thunar"], false),
+        scripted_tools(Vec::new()),
+    );
+    backend.install(ComponentId::ThunarAction, &binaries);
+    backend.uninstall(ComponentId::ThunarAction);
+    assert_eq!(fs::read_to_string(&uca).unwrap(), user);
+}
