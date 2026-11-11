@@ -1,6 +1,7 @@
 import json
 import logging
 import subprocess
+import time
 
 import gi
 
@@ -23,6 +24,8 @@ LIST_TIMEOUT_SECONDS: float = 0.3
 # Khớp giới hạn của menu Explorer: không đọc nội dung quá số file này.
 MAX_FILES: int = 100
 TOO_MANY_LABEL: str = "Chọn quá nhiều file (tối đa 100)"
+# WHY hết hạn: lần hỏi đầu có thể chậm (đĩa nguội) nên hỏng một lần; không ghim lựa chọn vào mục dự phòng mãi mãi.
+FAILED_LISTING_TTL_SECONDS: float = 2.0
 
 
 def command_for_selection(uris: list[str], all_regular_local: bool) -> list[str]:
@@ -68,9 +71,10 @@ def parse_listing(stdout: str | None) -> tuple[bool, list[dict]] | None:
 
 
 class MorphixMenuProvider(GObject.GObject, Nautilus.MenuProvider):
-    # Kết quả hỏi danh sách việc của lựa chọn gần nhất, theo tuple URI. WHY nhớ cả kết quả hỏng: Nautilus gọi lại
-    # `get_file_items` nhiều lần cho cùng một lựa chọn, nên không được chờ hết hạn lần nữa.
-    _cache: tuple[tuple[str, ...], tuple[bool, list[dict]] | None] | None = None
+    # Kết quả hỏi danh sách việc của lựa chọn gần nhất: (tuple URI, kết quả, thời điểm hỏi). WHY nhớ cả kết quả hỏng
+    # (trong FAILED_LISTING_TTL_SECONDS): Nautilus gọi lại `get_file_items` nhiều lần cho cùng một lựa chọn, nên
+    # không được chờ hết hạn lần nữa.
+    _cache: tuple[tuple[str, ...], tuple[bool, list[dict]] | None, float] | None = None
 
     def get_file_items(self, files: list[Nautilus.FileInfo]) -> list[Nautilus.MenuItem]:
         uris: list[str] = [file_info.get_uri() for file_info in files]
@@ -106,8 +110,11 @@ class MorphixMenuProvider(GObject.GObject, Nautilus.MenuProvider):
 
     def _listing(self, uris: list[str]) -> tuple[bool, list[dict]] | None:
         key: tuple[str, ...] = tuple(uris)
+        now: float = time.monotonic()
         if self._cache is not None and self._cache[0] == key:
-            return self._cache[1]
+            cached_key, cached, asked_at = self._cache
+            if cached is not None or now - asked_at < FAILED_LISTING_TTL_SECONDS:
+                return cached
         listing: tuple[bool, list[dict]] | None = None
         try:
             result = subprocess.run(
@@ -122,7 +129,7 @@ class MorphixMenuProvider(GObject.GObject, Nautilus.MenuProvider):
                 listing = parse_listing(result.stdout)
         except (subprocess.TimeoutExpired, OSError, ValueError) as error:
             LOG.warning("không lấy được danh sách việc của Morphix: %s", error)
-        self._cache = (key, listing)
+        self._cache = (key, listing, now)
         return listing
 
     def _submenu_item(self, children: list[Nautilus.MenuItem]) -> Nautilus.MenuItem:

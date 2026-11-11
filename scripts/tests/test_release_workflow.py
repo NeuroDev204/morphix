@@ -71,5 +71,52 @@ class CiWorkflowTests(unittest.TestCase):
         self.assertIn("setup-windows-deps.ps1", text)
 
 
+class SupplyChainTests(unittest.TestCase):
+    FILES = ("ci.yml", "release.yml")
+
+    def load(self, name: str) -> dict:
+        return yaml.safe_load((WORKFLOW.parent / name).read_text())
+
+    def test_every_third_party_action_is_pinned_to_a_commit_sha(self) -> None:
+        # WHY SHA: tag như `v4` là con trỏ di động; chủ repo (hoặc kẻ chiếm tài khoản) đổi được mã chạy trong CI.
+        for name in self.FILES:
+            for job_name, job in self.load(name)["jobs"].items():
+                for step in job.get("steps", []):
+                    uses = str(step.get("uses", ""))
+                    if uses and not uses.startswith("./"):
+                        self.assertRegex(uses, r"@[0-9a-f]{40}(\s|$)", f"{name}:{job_name}: {uses}")
+
+    def test_workflows_default_to_a_read_only_token(self) -> None:
+        for name in self.FILES:
+            self.assertEqual(self.load(name).get("permissions"), {"contents": "read"}, name)
+        self.assertEqual(self.load("release.yml")["jobs"]["publish"]["permissions"], {"contents": "write"})
+
+    def test_pinned_rust_toolchain_still_selects_stable(self) -> None:
+        # dtolnay/rust-toolchain chọn toolchain theo tên ref; ghim SHA thì phải truyền `toolchain` tường minh.
+        for name in self.FILES:
+            for job in self.load(name)["jobs"].values():
+                for step in job.get("steps", []):
+                    if str(step.get("uses", "")).startswith("dtolnay/rust-toolchain@"):
+                        self.assertEqual(step["with"]["toolchain"], "stable")
+
+    def test_windows_tests_can_find_the_downloaded_ffmpeg(self) -> None:
+        steps = self.load("ci.yml")["jobs"]["test-windows"]["steps"]
+        text = "\n".join(str(step.get("run", "")) for step in steps)
+        self.assertIn("GITHUB_PATH", text)
+        self.assertIn(r"installer\bundle", text)
+
+    def test_windows_release_checks_that_the_ui_is_embedded(self) -> None:
+        steps = self.load("release.yml")["jobs"]["windows"]["steps"]
+        text = "\n".join(str(step.get("run", "")) for step in steps)
+        self.assertIn("check-gui-embeds-ui.ps1", text)
+        script = (WORKFLOW.parents[2] / "scripts" / "ci" / "check-gui-embeds-ui.ps1").read_text(encoding="utf-8-sig")
+        for needle in ("assets/khay-", "khay.html", "localhost:5173"):
+            self.assertIn(needle, script)
+
+    def test_inno_setup_fallback_install_is_pinned(self) -> None:
+        script = (WORKFLOW.parents[2] / "scripts" / "ci" / "package-windows.ps1").read_text(encoding="utf-8-sig")
+        self.assertRegex(script, r"choco install innosetup --version \d+\.\d+\.\d+")
+
+
 if __name__ == "__main__":
     unittest.main()

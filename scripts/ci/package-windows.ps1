@@ -15,7 +15,7 @@ $OutDir = (Resolve-Path $OutDir).Path
 # 1. MorphixSetup.exe bằng Inno Setup; phiên bản truyền vào, không ghi cứng trong morphix.iss.
 $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
 if (-not (Test-Path $iscc)) {
-    choco install innosetup -y --no-progress
+    choco install innosetup --version 6.4.3 -y --no-progress
     if (-not (Test-Path $iscc)) { throw "không tìm thấy Inno Setup 6 sau khi cài" }
 }
 & $iscc "/DAppVersion=$Version" "/O$OutDir" (Join-Path $root "installer\morphix.iss")

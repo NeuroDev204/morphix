@@ -2644,7 +2644,7 @@ fn only_present_file_managers_get_integration() {
         ComponentStatus::Installed
     );
     assert!(root
-        .join("data/nemo/scripts/Morphix việc nhanh/Ảnh/WebP")
+        .join("data/nemo/scripts/Morphix việc nhanh/Ảnh/Đổi sang WebP")
         .is_file());
     for id in [
         ComponentId::DolphinServiceMenu,
@@ -2951,7 +2951,7 @@ fn unmarked_user_files_are_left_alone() {
     let f = tempdir().unwrap();
     let binaries = binaries_in(f.path());
     let (backend, root) = static_menu_backend(f.path(), false);
-    let user_script = root.join("data/nemo/scripts/Morphix việc nhanh/Ảnh/WebP");
+    let user_script = root.join("data/nemo/scripts/Morphix việc nhanh/Ảnh/Đổi sang WebP");
     let user_menu = root.join("data/kio/servicemenus/morphix-image.desktop");
     let user_nemo = root.join("data/nemo/actions/morphix.nemo_action");
     for (path, text) in [
@@ -3066,7 +3066,7 @@ fn install_then_uninstall_integration_through_the_real_cli_leaves_no_managed_fil
     let data = sandbox.path().join("xdg-data");
     assert!(data.join("kio/servicemenus/morphix-image.desktop").is_file());
     assert!(data
-        .join("nautilus/scripts/Morphix việc nhanh/Ảnh/WebP")
+        .join("nautilus/scripts/Morphix việc nhanh/Ảnh/Đổi sang WebP")
         .is_file());
     assert!(!files_with_marker(sandbox.path()).is_empty());
 
@@ -3163,4 +3163,39 @@ fn thunar_uninstall_keeps_the_uca_when_the_user_still_has_actions() {
     backend.install(ComponentId::ThunarAction, &binaries);
     backend.uninstall(ComponentId::ThunarAction);
     assert_eq!(fs::read_to_string(&uca).unwrap(), user);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlink_loop_inside_the_scripts_tree_does_not_break_install_or_uninstall() {
+    let f = tempdir().unwrap();
+    let binaries = binaries_in(f.path());
+    let (backend, root) = static_menu_backend(f.path(), false);
+    let tree = root.join("data/nemo/scripts/Morphix việc nhanh");
+    fs::create_dir_all(&tree).unwrap();
+    // WHY: lối tắt thư mục trỏ lên cha tạo vòng lặp; quét theo nó thì cài hỏng hoặc đọc cả cây ngoài vùng của Morphix.
+    std::os::unix::fs::symlink(&tree, tree.join("loop")).unwrap();
+    assert_eq!(backend.install(ComponentId::NemoScriptMenu, &binaries).status, ComponentStatus::Installed);
+    assert_eq!(backend.uninstall(ComponentId::NemoScriptMenu).status, ComponentStatus::Removed);
+    assert!(tree.join("loop").exists() || fs::symlink_metadata(tree.join("loop")).is_ok(), "lối tắt của người dùng phải còn");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_user_file_inside_the_managed_scripts_folder_is_a_conflict_and_is_never_touched() {
+    let f = tempdir().unwrap();
+    let binaries = binaries_in(f.path());
+    let (backend, root) = static_menu_backend(f.path(), false);
+    let mine = root.join("data/nemo/scripts/Morphix việc nhanh/Của tôi/chay.sh");
+    fs::create_dir_all(mine.parent().unwrap()).unwrap();
+    fs::write(&mine, "#!/bin/sh\necho của tôi\n").unwrap();
+    assert_eq!(backend.inspect(ComponentId::NemoScriptMenu, &binaries).status, ComponentStatus::Conflict);
+    let report = backend.install(ComponentId::NemoScriptMenu, &binaries);
+    assert_eq!(report.status, ComponentStatus::Conflict);
+    assert!(report.message.contains("không thuộc Morphix"), "{}", report.message);
+    assert_eq!(fs::read_to_string(&mine).unwrap(), "#!/bin/sh\necho của tôi\n");
+    // Không ghi gì khác vào thư mục của người dùng.
+    assert_eq!(all_paths(&root.join("data/nemo/scripts/Morphix việc nhanh")).len(), 2);
+    backend.uninstall(ComponentId::NemoScriptMenu);
+    assert!(mine.is_file());
 }

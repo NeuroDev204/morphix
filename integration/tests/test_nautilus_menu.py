@@ -381,6 +381,32 @@ class NautilusMenuTests(unittest.TestCase):
         provider.get_file_items(selection)
         self.assertEqual(self.run.call_count, 1)
 
+    def test_a_failed_listing_is_retried_after_it_expires(self) -> None:
+        # Lần hỏi đầu có thể chậm (đĩa nguội); không được ghim lựa chọn đó vào mục dự phòng mãi mãi.
+        self.run.side_effect = subprocess.TimeoutExpired(cmd="morphix", timeout=0.3)
+        provider: object = menu.MorphixMenuProvider()
+        selection = [FakeFileInfo("file:///tmp/a.png")]
+        with patch.object(menu.time, "monotonic", side_effect=[100.0, 100.5, 100.5 + menu.FAILED_LISTING_TTL_SECONDS + 1]):
+            provider.get_file_items(selection)  # hỏng, nhớ lúc 100.0
+            provider.get_file_items(selection)  # còn trong hạn: dùng lại
+            self.assertEqual(self.run.call_count, 1)
+            self.run.side_effect = None
+            self.run.return_value = completed(LISTING_PNG)
+            items = provider.get_file_items(selection)  # hết hạn: hỏi lại
+        self.assertEqual(self.run.call_count, 2)
+        self.assertIsNotNone(items[0].submenu)
+
+    def test_a_good_listing_does_not_expire(self) -> None:
+        self.run.side_effect = None
+        self.run.return_value = completed(LISTING_PNG)
+        provider: object = menu.MorphixMenuProvider()
+        selection = [FakeFileInfo("file:///tmp/a.png")]
+        with patch.object(menu.time, "monotonic", side_effect=[0.0, 0.1, 9999.0]):
+            provider.get_file_items(selection)
+            provider.get_file_items(selection)
+            provider.get_file_items(selection)
+        self.assertEqual(self.run.call_count, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

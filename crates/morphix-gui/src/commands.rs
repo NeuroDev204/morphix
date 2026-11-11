@@ -542,3 +542,30 @@ mod output_directory_tests {
         assert!(output_directory_for_history(&history, "/tmp/unlisted.png").is_err());
     }
 }
+
+#[cfg(test)]
+mod blocking_tests {
+    use super::blocking;
+
+    #[test]
+    fn blocking_runs_the_work_on_another_thread_than_the_caller() {
+        let caller = std::thread::current().id();
+        let worker = tauri::async_runtime::block_on(blocking(|| Ok(std::thread::current().id())))
+            .unwrap();
+        assert_ne!(worker, caller, "việc đọc/ghi không được chạy trên luồng gọi (luồng giao diện)");
+    }
+
+    #[test]
+    fn blocking_turns_a_panic_into_an_error_instead_of_taking_the_caller_down() {
+        let result: Result<(), String> =
+            tauri::async_runtime::block_on(blocking(|| -> Result<(), String> { panic!("giả lập") }));
+        assert!(result.unwrap_err().contains("Việc nền bị dừng bất thường"));
+    }
+
+    #[test]
+    fn blocking_passes_the_error_of_the_work_through_unchanged() {
+        let result: Result<(), String> =
+            tauri::async_runtime::block_on(blocking(|| Err("lỗi gốc".to_string())));
+        assert_eq!(result.unwrap_err(), "lỗi gốc");
+    }
+}

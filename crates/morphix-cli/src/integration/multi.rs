@@ -51,19 +51,24 @@ fn walk_files(dir: &Path, out: &mut Vec<PathBuf>) -> io::Result<()> {
         Err(error) => return Err(error),
     };
     for entry in entries {
-        let path = entry?.path();
-        if path.is_dir() {
-            walk_files(&path, out)?;
+        let entry = entry?;
+        // WHY file_type() không theo lối tắt: thư mục lối tắt của người dùng có thể trỏ ra ngoài vùng của Morphix hoặc
+        // tạo vòng lặp; lối tắt không phải thứ Morphix sinh ra nên bỏ qua.
+        let kind = entry.file_type()?;
+        if kind.is_symlink() {
+            continue;
+        }
+        if kind.is_dir() {
+            walk_files(&entry.path(), out)?;
         } else {
-            out.push(path);
+            out.push(entry.path());
         }
     }
     Ok(())
 }
 
-/// File mang marker của Morphix nằm trong vùng quét nhưng không còn nằm trong danh sách mong muốn,
-/// cộng các file kiểu cũ còn marker. Cả hai đều là thứ bản này phải dọn.
-fn leftovers(set: &FileSet) -> io::Result<Vec<PathBuf>> {
+/// File trong vùng quét mà Morphix có thể đã sinh (không tính marker thư mục và file mong muốn).
+fn scan_candidates(set: &FileSet) -> io::Result<Vec<PathBuf>> {
     let mut candidates: Vec<PathBuf> = Vec::new();
     match &set.scan {
         Scan::Flat {
@@ -83,14 +88,22 @@ fn leftovers(set: &FileSet) -> io::Result<Vec<PathBuf>> {
         }
         Scan::Tree(root) => walk_files(root, &mut candidates)?,
     }
+    Ok(candidates
+        .into_iter()
+        .filter(|path| {
+            let is_dir_marker = path
+                .file_name()
+                .is_some_and(|name| name == CREATED_DIR_MARKER);
+            !is_dir_marker && !set.files.iter().any(|file| file.path == *path)
+        })
+        .collect())
+}
+
+/// File mang marker của Morphix nằm trong vùng quét nhưng không còn nằm trong danh sách mong muốn,
+/// cộng các file kiểu cũ còn marker. Cả hai đều là thứ bản này phải dọn.
+fn leftovers(set: &FileSet) -> io::Result<Vec<PathBuf>> {
     let mut found = Vec::new();
-    for path in candidates {
-        let is_dir_marker = path
-            .file_name()
-            .is_some_and(|name| name == CREATED_DIR_MARKER);
-        if is_dir_marker || set.files.iter().any(|file| file.path == path) {
-            continue;
-        }
+    for path in scan_candidates(set)? {
         if is_owned(&path)? {
             found.push(path);
         }
@@ -101,6 +114,32 @@ fn leftovers(set: &FileSet) -> io::Result<Vec<PathBuf>> {
         }
     }
     Ok(found)
+}
+
+/// File của người dùng nằm trong thư mục mà Morphix quản lý nguyên cây (chỉ áp dụng cho `Scan::Tree`).
+/// WHY: cây Scripts `Morphix việc nhanh` là của Morphix; chen file lạ vào đó thì gỡ cài đặt không dọn được thư mục
+/// và người dùng khó phân biệt đâu là việc của ai, nên coi là xung đột thay vì ghi đè lên chỗ của họ.
+fn foreign_extras(set: &FileSet) -> io::Result<Vec<PathBuf>> {
+    if !matches!(set.scan, Scan::Tree(_)) {
+        return Ok(Vec::new());
+    }
+    let mut found = Vec::new();
+    for path in scan_candidates(set)? {
+        if !is_owned(&path)? {
+            found.push(path);
+        }
+    }
+    Ok(found)
+}
+
+fn foreign_report(set: &FileSet, extras: &[PathBuf]) -> IntegrationComponentReport {
+    report(
+        set.id,
+        ComponentStatus::Conflict,
+        false,
+        extras.first().map(PathBuf::as_path),
+        "thư mục Morphix có file không thuộc Morphix; giữ nguyên, hãy dời file đó đi rồi chạy lại",
+    )
 }
 
 pub(super) fn install(set: &FileSet) -> IntegrationComponentReport {
@@ -122,6 +161,11 @@ pub(super) fn install(set: &FileSet) -> IntegrationComponentReport {
             );
         }
         current.push(existing);
+    }
+    match foreign_extras(set) {
+        Ok(extras) if !extras.is_empty() => return foreign_report(set, &extras),
+        Ok(_) => {}
+        Err(error) => return io_failure(id, &set.dir, &error),
     }
     let stale = match leftovers(set) {
         Ok(stale) => stale,
@@ -264,6 +308,11 @@ pub(super) fn inspect(set: &FileSet) -> IntegrationComponentReport {
                 }
             }
         }
+    }
+    match foreign_extras(set) {
+        Ok(extras) if !extras.is_empty() => return foreign_report(set, &extras),
+        Ok(_) => {}
+        Err(error) => return io_failure(id, &set.dir, &error),
     }
     if owned == 0 {
         return report(id, ComponentStatus::Missing, false, Some(&set.dir), "chưa cài");

@@ -64,12 +64,13 @@ pub fn thunar_action_blocks(morphix: &Path) -> Result<String, String> {
             .collect();
         for (index, action) in group.actions.iter().enumerate() {
             let id = action_id(action.kind);
+            // WHY nhân đôi `%`: Thunar mở rộng `%f`, `%F`... trong <command>, nên `%` trong đường dẫn phải thành `%%`.
             let command = xml_escape(&format!(
                 "{} menu --action {} -- %F",
-                posix_single_quote(morphix),
+                posix_single_quote(&morphix.replace('%', "%%")),
                 posix_single_quote(&id)
             ));
-            let label = xml_escape(&action.label);
+            let label = xml_escape(&morphix_core::menu_label(action));
             blocks.push_str(&format!(
                 "<action>\n\t<icon>morphix</icon>\n\t<name>{label}</name>\n\t<submenu>Morphix</submenu>\n\t<unique-id>{THUNAR_UNIQUE_ID}-{}-{}</unique-id>\n\t<command>{command}</command>\n\t<description>Morphix: {label}</description>\n\t<range>*</range>\n\t<patterns>{}</patterns>\n{tags}</action>\n",
                 group.key,
@@ -381,6 +382,13 @@ mod tests {
             text.contains("<command>'/tmp/a&amp;b'\\''s/morphix' menu --action 'merge' -- %F</command>"),
             "{text}"
         );
+    }
+
+    #[test]
+    fn percent_in_the_install_path_is_doubled_because_thunar_expands_percent_codes() {
+        let text = thunar_action_blocks(Path::new("/opt/100%free/morphix")).unwrap();
+        assert!(text.contains("'/opt/100%%free/morphix' menu --action"), "{text}");
+        assert!(!text.contains("100%free"));
     }
 
     #[test]

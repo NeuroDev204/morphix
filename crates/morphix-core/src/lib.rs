@@ -10,8 +10,8 @@ pub mod quality;
 
 pub use cancel::CancelToken;
 pub use catalog::{
-    action_id, actions_for, menu_actions, static_menu_groups, Action, ActionKind, MenuGroup,
-    WIRED_TOOL_IDS,
+    action_id, actions_for, menu_actions, menu_label, static_menu_groups, Action, ActionKind,
+    MenuGroup, WIRED_TOOL_IDS,
 };
 pub use error::{MorphixError, Result};
 pub use job::{

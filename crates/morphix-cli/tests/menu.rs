@@ -273,7 +273,7 @@ fn list_json_for_one_png_contains_convert_webp() {
     assert_eq!(json["too_many"], false);
     let items = json["items"].as_array().unwrap();
     let webp = items.iter().find(|item| item["id"] == "convert:webp").unwrap();
-    assert_eq!(webp["label"], "WebP");
+    assert_eq!(webp["label"], "Đổi sang WebP");
     assert_eq!(webp["is_tool"], false);
     assert!(items.iter().any(|item| item["is_tool"] == true));
 }

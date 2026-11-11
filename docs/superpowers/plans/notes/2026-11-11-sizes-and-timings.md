@@ -91,7 +91,7 @@ Tôi không điều khiển được menu chuột phải hay cửa sổ thật t
 
 ### Linux (chưa kiểm)
 - [ ] Nautilus có `python3-nautilus`: submenu Morphix với 1 PNG; 3 PNG; PNG + TXT (chỉ còn nén); 101 file (mục "Chọn quá nhiều file"); đổi lựa chọn nhanh liên tục không làm Files khựng.
-- [ ] Nautilus không có `nautilus-python`: Scripts → Morphix việc nhanh → Ảnh → WebP chạy được.
+- [ ] Nautilus không có `nautilus-python`: Scripts → Morphix việc nhanh → Ảnh → Đổi sang WebP chạy được.
 - [ ] Dolphin (KDE 5 và 6): các service menu cùng `X-KDE-Submenu=Morphix` gộp thành một mục Morphix; file có bit thực thi.
 - [ ] Thunar: submenu Morphix, lọc theo loại và đuôi file (kể cả chữ hoa).
 - [ ] Nemo hoặc Caja: Scripts → Morphix việc nhanh.
@@ -122,3 +122,13 @@ Tôi không điều khiển được menu chuột phải hay cửa sổ thật t
 - **Windows qua Wine 10 trong Docker** (biên dịch chéo `x86_64-pc-windows-gnu`): `morphix.exe` cài và gỡ registry HKCU đúng thiết kế (CLSID `{2131F98F-…}` → `morphix_shell.dll`, khoá Run), `doctor`, `menu --list`, chuyển PNG → WebP với `pdfium.dll` thật. Toàn bộ 34 binary test (20 của workspace + 14 của GUI) xanh. Wine không phải Windows thật: chưa chạy GUI/WebView2, Explorer, `MorphixSetup.exe`, Store.
 - Lượt chạy này lộ ra các test chỉ lỗi trên Windows (tên dir có `"`, test Linux không gắn `cfg`, URI kiểu Unix); đã sửa để job `test-windows` không đỏ vì chúng.
 - Đã sửa: Thunar để lại `uca.xml` rỗng làm thư mục cha không dọn được khi gỡ.
+
+## Đã sửa sau review cuối và các mục còn mở
+
+Đã sửa (đều có test): danh sách lỗi của extension Nautilus hết hạn sau 2 giây; Thunar nhân đôi `%` trong đường dẫn cài; quét cây Scripts không đi theo symlink; thư mục *Morphix việc nhanh* có file của người dùng thì báo xung đột thay vì ghi chen vào; gỡ Alt+C dọn `~/.config/nautilus` rỗng; nhãn menu có động từ ("Đổi sang WebP", "Gộp thành PDF") cho Windows, Nautilus, Dolphin, Thunar, Scripts; mọi action trong workflow ghim theo SHA, token mặc định chỉ đọc; test Windows tìm được ffmpeg; job phát hành Windows kiểm UI nhúng; Inno Setup dự phòng ghim phiên bản; test của hàm chạy nền kiểm hành vi thật.
+
+Chưa sửa, và lý do:
+- **`restartreplace` của `morphix_shell.dll` cần quyền admin** trong khi installer chạy ở chế độ người dùng. Cách sửa đúng (đặt DLL theo tên có phiên bản) đổi đường dẫn đăng ký menu và chỉ kiểm được trên Windows thật.
+- **`taskkill /F` khi gỡ** có thể dừng một lượt chuyển đổi đang chạy. GUI ẩn cửa sổ khi đóng nên không thoát êm được; cần một lệnh "thoát" qua IPC.
+- **`all/allfiles`** trong service menu Dolphin: validator báo "sẽ lỗi trong tương lai" nhưng đây là kiểu MIME KDE dùng cho mọi file; đổi có thể làm Dolphin không hiện menu.
+- **Phím tắt Alt+C trên Wayland, Dolphin/Thunar/Nemo/Caja, Explorer, `MorphixSetup.exe`, Store**: chưa kiểm được bằng công cụ ở đây.

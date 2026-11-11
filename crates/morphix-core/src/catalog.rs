@@ -428,6 +428,22 @@ pub fn static_menu_groups() -> Vec<MenuGroup> {
     ]
 }
 
+/// Nhãn dùng trong menu chuột phải: có động từ, vì một mục chỉ ghi "JPG" hay "PDF" trong menu không nói được nó làm gì.
+/// Vòng tròn cũ và Khay giữ nhãn ngắn (`Action::label`) vì ngữ cảnh của chúng đã rõ.
+pub fn menu_label(action: &Action) -> String {
+    match action.kind {
+        ActionKind::MergeToPdf if action.label == "PDF gộp" => "Gộp thành PDF".to_string(),
+        ActionKind::MergeToPdf
+        | ActionKind::ConvertTo(_)
+        | ActionKind::ConvertText(_)
+        | ActionKind::ConvertMedia(_)
+        | ActionKind::PdfToText
+        | ActionKind::PdfToMarkdown => format!("Đổi sang {}", action.label),
+        // Các việc còn lại đã có động từ ("Nén ảnh", "Giải nén", "Nén thành ZIP"...).
+        _ => action.label.clone(),
+    }
+}
+
 /// Các việc hiện trên menu: `actions_for` bỏ những việc chỉ có ở CLI và công cụ chưa nối giao diện.
 pub fn menu_actions(kinds: &[FileKind]) -> Vec<Action> {
     actions_for(kinds)
@@ -486,6 +502,28 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn menu_labels_name_the_verb_so_a_bare_format_is_not_ambiguous() {
+        let png = menu_actions(&[FileKind::Image(ImgFormat::Png)]);
+        let label = |actions: &[Action], id: &str| {
+            menu_label(actions.iter().find(|a| action_id(a.kind) == id).unwrap())
+        };
+        assert_eq!(label(&png, "merge"), "Đổi sang PDF");
+        assert_eq!(label(&png, "convert:webp"), "Đổi sang WebP");
+        assert_eq!(label(&png, "compress"), "Nén ảnh");
+        assert_eq!(label(&png, "resize"), "Đổi kích thước");
+        assert_eq!(label(&png, "archive:zip"), "Nén thành ZIP");
+        let two = menu_actions(&[FileKind::Image(ImgFormat::Png), FileKind::Image(ImgFormat::Png)]);
+        assert_eq!(label(&two, "merge"), "Gộp thành PDF");
+        let pdf = menu_actions(&[FileKind::Pdf]);
+        assert_eq!(label(&pdf, "pdf-to-text"), "Đổi sang TXT");
+        assert_eq!(label(&pdf, "pdf-to-markdown"), "Đổi sang MD");
+        let video = menu_actions(&[FileKind::Media(MediaFormat::Mov)]);
+        assert_eq!(label(&video, "media:mp4"), "Đổi sang MP4");
+        let zip = menu_actions(&[FileKind::Archive(ArchiveFormat::Zip)]);
+        assert_eq!(label(&zip, "extract"), "Giải nén");
     }
 
     #[test]

@@ -65,7 +65,7 @@ pub fn dolphin_service_menus(morphix: &Path) -> Result<Vec<GeneratedFile>, Strin
                 );
                 lines.push(String::new());
                 lines.push(format!("[Desktop Action {name}]"));
-                lines.push(format!("Name={}", escape_desktop_value(&action.label)));
+                lines.push(format!("Name={}", escape_desktop_value(&morphix_core::menu_label(action))));
                 lines.push(format!("Exec={}", escape_desktop_value(&exec)));
             }
             GeneratedFile {
@@ -103,7 +103,7 @@ pub fn scripts_menu_tree(morphix: &Path) -> Result<Vec<GeneratedFile>, String> {
                     // WHY thay `/`: nhãn là tên file, `/` sẽ tạo thêm một cấp thư mục.
                     relative: Path::new(SCRIPTS_MENU_DIR)
                         .join(group.label)
-                        .join(action.label.replace('/', "-")),
+                        .join(morphix_core::menu_label(&action).replace('/', "-")),
                     body,
                     mode: EXECUTABLE_MODE,
                 }
@@ -173,7 +173,7 @@ mod tests {
             for action in &group.actions {
                 let relative = Path::new(SCRIPTS_MENU_DIR)
                     .join(group.label)
-                    .join(action.label.replace('/', "-"));
+                    .join(morphix_core::menu_label(action).replace('/', "-"));
                 let file = files
                     .iter()
                     .find(|file| file.relative == relative)
