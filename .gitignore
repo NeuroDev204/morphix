@@ -2,3 +2,10 @@
 
 # PDFium (libpdfium.so) tải từ bblanchon/pdfium-binaries để phát triển và kiểm thử, không commit.
 /third_party/
+
+# Bản Windows: file nhị phân tải về hoặc sinh ra lúc dựng (xem scripts/ci/setup-windows-deps.ps1), không commit.
+installer/bundle/*.exe
+installer/bundle/*.dll
+installer/store-package/*.exe
+installer/store-package/*.dll
+installer/output/

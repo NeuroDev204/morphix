@@ -690,6 +690,8 @@ fn file_manager_path(sandbox: &Path, present: &[&str]) -> std::path::PathBuf {
     for name in present {
         let program = fake.join(name);
         fs::write(&program, "#!/bin/sh\necho 'GNOME nautilus 46.4'\n").unwrap();
+        // WHY chỉ unix: bit thực thi chỉ có nghĩa ở đó; nơi khác `has_program` chỉ cần file tồn tại.
+        #[cfg(unix)]
         fs::set_permissions(
             &program,
             std::os::unix::fs::PermissionsExt::from_mode(0o755),
@@ -700,6 +702,7 @@ fn file_manager_path(sandbox: &Path, present: &[&str]) -> std::path::PathBuf {
         // WHY: accel Nautilus hỏi phiên bản qua trình quản lý gói; máy chạy test (CI) không có gói nautilus.
         let dpkg = fake.join("dpkg-query");
         fs::write(&dpkg, "#!/bin/sh\necho 1:46.4-0ubuntu1\n").unwrap();
+        #[cfg(unix)]
         fs::set_permissions(&dpkg, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
     }
     fake

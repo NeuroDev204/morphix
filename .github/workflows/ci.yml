@@ -25,3 +25,21 @@ jobs:
         working-directory: crates/morphix-gui/ui
       - run: python3 -m unittest discover -s scripts/tests
       - run: python3 -m unittest discover -s integration/tests
+
+  # WHY job riêng cho Windows: bản exe và gói Store phát hành từ đây, nên clippy và test phải chạy ở đúng nền tảng đó.
+  test-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: ./scripts/ci/setup-windows-deps.ps1
+        shell: pwsh
+      - run: npm ci && npm run build
+        working-directory: crates/morphix-gui/ui
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
