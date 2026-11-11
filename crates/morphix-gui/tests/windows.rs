@@ -24,9 +24,26 @@ fn bottom_right_origin_clamps_to_the_work_area_origin_when_window_is_too_big() {
 }
 
 #[test]
-fn close_hides_the_khay_and_menu_windows_instead_of_destroying_them() {
+fn close_hides_the_khay_window_instead_of_destroying_it() {
     assert!(close_hides_window("khay"));
-    assert!(close_hides_window("menu"));
+}
+
+#[test]
+fn the_wheel_window_no_longer_exists() {
+    assert!(!close_hides_window("menu"));
+}
+
+#[test]
+fn only_the_khay_window_exists_at_startup() {
+    let config: serde_json::Value =
+        serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+    let labels: Vec<&str> = config["app"]["windows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|window| window["label"].as_str().unwrap())
+        .collect();
+    assert_eq!(labels, ["khay"]);
 }
 
 #[test]

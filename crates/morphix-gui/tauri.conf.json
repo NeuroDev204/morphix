@@ -12,18 +12,6 @@
   "app": {
     "windows": [
       {
-        "label": "menu",
-        "title": "Morphix Menu",
-        "url": "index.html",
-        "width": 320,
-        "height": 460,
-        "decorations": false,
-        "transparent": true,
-        "alwaysOnTop": true,
-        "skipTaskbar": true,
-        "visible": false
-      },
-      {
         "label": "khay",
         "title": "Morphix",
         "url": "khay.html",

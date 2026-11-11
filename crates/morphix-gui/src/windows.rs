@@ -1,18 +1,13 @@
-//! Điều khiển cửa sổ Menu nhanh: lưu lô file, định vị theo con trỏ rồi báo giao diện vẽ lại.
+//! Điều khiển cửa sổ Khay và Cài đặt: định vị, hiện, ẩn và đưa lô file mới vào Khay.
 
 use std::path::PathBuf;
-use std::time::Instant;
 
-use morphix_ipc::MenuRequest;
 use tauri::{
-    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, PhysicalPosition, WebviewUrl,
-    WebviewWindow, WebviewWindowBuilder,
+    AppHandle, Emitter, Manager, PhysicalPosition, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
 };
 
 use crate::state::AppState;
 
-pub const MENU_WINDOW_LABEL: &str = "menu";
-pub const MENU_REQUEST_EVENT: &str = "menu-request";
 pub const KHAY_WINDOW_LABEL: &str = "khay";
 pub const SETTINGS_WINDOW_LABEL: &str = "settings";
 /// Khoảng cách logic từ mép vùng làm việc tới khay, để cửa sổ không dính sát viền màn hình.
@@ -69,7 +64,7 @@ pub fn bottom_right_origin(
 pub fn close_hides_window(label: &str) -> bool {
     matches!(
         label,
-        MENU_WINDOW_LABEL | KHAY_WINDOW_LABEL | SETTINGS_WINDOW_LABEL
+        KHAY_WINDOW_LABEL | SETTINGS_WINDOW_LABEL
     )
 }
 
@@ -196,110 +191,6 @@ pub fn toggle_khay(app: &AppHandle) -> Result<(), String> {
     } else {
         open_khay(app)
     }
-}
-
-/// Đưa lô file mới vào cửa sổ Menu nhanh và hiện cửa sổ nếu đang ẩn.
-///
-/// Cửa sổ đã hiện thì chỉ cập nhật lô, không định vị lại và không tạo cửa sổ thứ hai.
-/// Giao diện vẫn đọc `pending_request` khi tải nên không mất lô nếu sự kiện đến trước khi trang sẵn sàng.
-pub fn open_menu(
-    app: &AppHandle,
-    menu_request: MenuRequest,
-    collecting: bool,
-) -> Result<(), String> {
-    let window = app
-        .get_webview_window(MENU_WINDOW_LABEL)
-        .ok_or_else(|| "Không tìm thấy cửa sổ Menu nhanh.".to_string())?;
-    let was_visible = window
-        .is_visible()
-        .map_err(|error| format!("Không đọc được trạng thái cửa sổ Menu nhanh: {error}"))?;
-
-    let state = app.state::<AppState>();
-    let request = {
-        let mut pending = state.pending_guard();
-        pending.paths = menu_request.paths;
-        pending.collecting = collecting;
-        pending.revision += 1;
-        if !was_visible {
-            pending.first_request_at = Some(Instant::now());
-        }
-        pending.request_state()
-    };
-
-    if !was_visible {
-        window
-            .set_size(LogicalSize::new(320.0, 460.0))
-            .map_err(|error| format!("Không đặt được kích thước Menu nhanh: {error}"))?;
-        place_near_cursor(&window);
-    }
-
-    if !was_visible {
-        window
-            .show()
-            .map_err(|error| format!("Không hiện được cửa sổ Menu nhanh: {error}"))?;
-        // WHY take: mốc chỉ đo một lần cho mỗi lần mở; lần mở sau phải bắt đầu mốc mới.
-        let first_request: Option<Instant> = state.pending_guard().first_request_at.take();
-        if let Some(started) = first_request {
-            let elapsed_ms: u64 = started.elapsed().as_millis() as u64;
-            tracing::info!("menu shown in {elapsed_ms} ms");
-        }
-        if let Err(error) = window.set_focus() {
-            // WHY: không lấy được focus thì cửa sổ vẫn dùng được bằng chuột; chỉ mất cơ chế tự ẩn khi blur.
-            tracing::warn!(error = %error, "không đưa được cửa sổ Menu nhanh lên trước: {error}");
-        }
-    }
-
-    app.emit(MENU_REQUEST_EVENT, request)
-        .map_err(|error| format!("Không gửi được lô file tới Menu nhanh: {error}"))
-}
-
-/// Đặt tâm vòng tròn ở con trỏ, kẹp vào vùng làm việc của màn hình chứa con trỏ.
-///
-/// Không lấy được con trỏ (Wayland không cho đọc) hoặc compositor từ chối đặt vị trí thì
-/// chỉ log và để cửa sổ ở giữa màn hình; không panic vì vị trí không ảnh hưởng đến việc xử lý file.
-fn place_near_cursor(window: &WebviewWindow) {
-    match cursor_anchor(window) {
-        Ok(position) => {
-            if let Err(error) = window.set_position(position) {
-                tracing::warn!(error = %error, "compositor từ chối đặt vị trí Menu nhanh: {error}");
-            }
-        }
-        Err(reason) => {
-            tracing::warn!(reason = %reason, "không đặt được Menu nhanh theo con trỏ, chuyển về giữa màn hình: {reason}");
-            if let Err(error) = window.center() {
-                tracing::warn!(error = %error, "không căn giữa được cửa sổ Menu nhanh: {error}");
-            }
-        }
-    }
-}
-
-/// Tính vị trí logic để tâm cửa sổ trùng con trỏ, đã kẹp trong vùng làm việc của màn hình.
-fn cursor_anchor(window: &WebviewWindow) -> Result<LogicalPosition<f64>, String> {
-    let cursor = window
-        .cursor_position()
-        .map_err(|error| format!("không lấy được vị trí con trỏ: {error}"))?;
-    let monitor = window
-        .monitor_from_point(cursor.x, cursor.y)
-        .map_err(|error| format!("không tìm được màn hình: {error}"))?
-        .ok_or_else(|| "con trỏ không nằm trên màn hình nào".to_string())?;
-    let size = window
-        .outer_size()
-        .map_err(|error| format!("không đọc được kích thước cửa sổ: {error}"))?;
-
-    // WHY physical: con trỏ và vùng làm việc đều là pixel vật lý, nên kẹp trước rồi mới đổi sang logic.
-    let area = monitor.work_area();
-    let width = f64::from(size.width);
-    let height = f64::from(size.height);
-    let min_x = f64::from(area.position.x);
-    let min_y = f64::from(area.position.y);
-    // max(min) tránh panic của clamp khi cửa sổ lớn hơn vùng làm việc.
-    let max_x = (min_x + f64::from(area.size.width) - width).max(min_x);
-    let max_y = (min_y + f64::from(area.size.height) - height).max(min_y);
-    let x = (cursor.x - width / 2.0).clamp(min_x, max_x);
-    let y = (cursor.y - height / 2.0).clamp(min_y, max_y);
-
-    let scale = monitor.scale_factor();
-    Ok(LogicalPosition::new(x / scale, y / scale))
 }
 
 pub const KHAY_SELECTION_EVENT: &str = "khay-selection";

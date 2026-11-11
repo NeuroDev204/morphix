@@ -302,3 +302,20 @@ fn commands_with_io_are_async() {
         );
     }
 }
+
+// Review Focus 5: việc không hợp với file (mức tĩnh cho phép bấm nhầm) phải ra lỗi rõ ràng, không im lặng.
+#[test]
+fn inapplicable_action_is_rejected_with_a_message() {
+    let d = tempfile::tempdir().unwrap();
+    let png = d.path().join("a.png");
+    image::RgbImage::from_pixel(8, 8, image::Rgb([1, 2, 3]))
+        .save(&png)
+        .unwrap();
+    let error = morphix_gui::commands::job_for_action(
+        "convert:png",
+        vec![png],
+        &morphix_gui::settings::Settings::default(),
+    )
+    .unwrap_err();
+    assert!(error.contains("không áp dụng"), "{error}");
+}

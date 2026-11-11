@@ -254,7 +254,7 @@ fn capture(app: &tauri::AppHandle) -> Result<(), CaptureError> {
                 state.khay_wait_guard().take();
                 return Err(error);
             }
-            // WHY: lô tới thì route_for_batch đã lấy wait; thoát ngay để Alt+C kế tiếp không bị bỏ qua.
+            // WHY: lô tới thì should_defer_batch đã lấy wait; thoát ngay để Alt+C kế tiếp không bị bỏ qua.
             poll_until(
                 deadline.saturating_duration_since(Instant::now()),
                 &mut std::thread::sleep,

@@ -16,7 +16,7 @@ use crate::jobs::{describe_error, JobSnapshot, JobState};
 use crate::menu_items::{operation_for, quality_for};
 use crate::settings::{save, validate, Settings};
 use crate::state::{
-    prepare_menu, push_history, unix_now, AppState, MenuRequestState, WheelPayload,
+    prepare_menu, push_history, unix_now, AppState, WheelPayload,
 };
 use crate::windows;
 
@@ -113,31 +113,6 @@ pub fn active_job(state: State<'_, AppState>) -> Option<JobSnapshot> {
     state.jobs.active()
 }
 
-#[tauri::command]
-pub fn pending_request(state: State<'_, AppState>) -> MenuRequestState {
-    state.pending_guard().request_state()
-}
-
-/// Bỏ lô đang giữ khi người dùng chọn Bỏ qua.
-/// WHY: kiểm tra cả danh sách lẫn revision, để không xoá nhầm lô mới vừa tới sau khi giao diện đọc trạng thái.
-#[tauri::command]
-pub fn discard_pending(
-    paths: Vec<String>,
-    revision: u64,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
-    let mut pending = state.pending_guard();
-    let current = pending.request_state();
-    if current.paths != paths || current.revision != revision {
-        return Err("Lô file đã thay đổi, không bỏ qua lô mới.".to_string());
-    }
-    pending.paths.clear();
-    pending.collecting = false;
-    pending.first_request_at = None;
-    Ok(())
-}
-
-/// Các dòng lịch sử mới nhất, tối đa `limit`; phần thuần của `recent_history` để test không cần Tauri.
 pub fn recent_from(history: &History, limit: usize) -> Vec<HistoryEntry> {
     history.recent(limit).to_vec()
 }

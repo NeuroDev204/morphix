@@ -32,61 +32,21 @@ impl AppPaths {
     }
 }
 
-/// Yêu cầu menu đang được gom lại, chờ giao diện đọc.
-#[derive(Debug, Default)]
-pub struct PendingMenu {
-    pub paths: Vec<PathBuf>,
-    pub collecting: bool,
-    pub revision: u64,
-    /// Chỉ để đo thời gian mở cửa sổ, không gửi cho giao diện nên không serialize.
-    pub first_request_at: Option<Instant>,
-}
-
-impl PendingMenu {
-    /// Ảnh chụp yêu cầu đang giữ, dạng giao diện đọc được.
-    pub fn request_state(&self) -> MenuRequestState {
-        MenuRequestState {
-            paths: self
-                .paths
-                .iter()
-                .map(|path| path.to_string_lossy().into_owned())
-                .collect(),
-            collecting: self.collecting,
-            revision: self.revision,
-        }
-    }
-}
-
-/// Yêu cầu menu đang giữ, gửi cho giao diện qua `pending_request` và sự kiện `menu-request`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct MenuRequestState {
-    pub paths: Vec<String>,
-    /// `true` khi còn lô đang gom, giao diện chưa được chọn múi.
-    pub collecting: bool,
-    /// Tăng mỗi khi có lô mới, để giao diện bỏ kết quả bất đồng bộ của lô cũ.
-    pub revision: u64,
-}
-
 #[derive(Debug)]
 pub struct KhayWait {
     pub deadline: Instant,
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum BatchRoute {
-    Khay,
-    Wheel,
-}
-
-/// Lô đến khi Alt+C còn đang chờ thì vào Khay, kể cả khi trễ hơn hạn chót.
-/// WHY: luồng lấy file chưa kịp báo "không nhận được file" thì file trễ vẫn là câu trả lời cho Alt+C;
-/// mở vòng tròn kèm lỗi hết hạn trong Khay sẽ cho hai thông báo ngược nhau. Luồng lấy file luôn
-/// dọn wait khi kết thúc (kể cả panic), nên wait không bao giờ bị kẹt.
-pub fn route_for_batch(wait: &mut Option<KhayWait>) -> BatchRoute {
-    match wait.take() {
-        Some(_) => BatchRoute::Khay,
-        None => BatchRoute::Wheel,
+/// Lô đến có phải bỏ qua không. Lô còn đang gom (`collecting`) bị bỏ khi Alt+C còn chờ: Khay cần toàn bộ lô cuối.
+/// Lô cuối tiêu thụ yêu cầu chờ, kể cả khi trễ hơn hạn chót.
+/// WHY: luồng lấy file chưa kịp báo "không nhận được file" thì file trễ vẫn là câu trả lời cho Alt+C; luồng lấy
+/// file luôn dọn wait khi kết thúc (kể cả panic), nên wait không bao giờ bị kẹt.
+pub fn should_defer_batch(wait: &mut Option<KhayWait>, collecting: bool) -> bool {
+    if collecting && wait.is_some() {
+        return true;
     }
+    wait.take();
+    false
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
@@ -122,7 +82,6 @@ pub struct AppState {
     pub history: Mutex<History>,
     pub settings: Mutex<Settings>,
     pub jobs: JobRunner,
-    pub pending: Mutex<PendingMenu>,
     pub khay_wait: Mutex<Option<KhayWait>>,
     pub khay_selection: Mutex<KhaySelection>,
     pub capturing: AtomicBool,
@@ -159,7 +118,6 @@ impl AppState {
             history: Mutex::new(history),
             settings: Mutex::new(settings),
             jobs: JobRunner::new(),
-            pending: Mutex::new(PendingMenu::default()),
             khay_wait: Mutex::new(None),
             khay_selection: Mutex::new(KhaySelection::default()),
             capturing: AtomicBool::new(false),
@@ -177,13 +135,6 @@ impl AppState {
     }
     pub fn khay_selection_guard(&self) -> MutexGuard<'_, KhaySelection> {
         self.khay_selection
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
-    /// Khoá yêu cầu menu đang giữ. Khoá bị poison vẫn dùng được vì chỉ là trạng thái tạm.
-    pub fn pending_guard(&self) -> MutexGuard<'_, PendingMenu> {
-        self.pending
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
@@ -295,18 +246,26 @@ mod selection_tests {
     use std::time::Duration;
 
     #[test]
-    fn route_for_batch_sends_even_a_late_batch_to_the_waiting_khay() {
+    fn a_partial_batch_is_deferred_while_alt_c_waits_and_the_final_batch_consumes_the_wait() {
         let now = Instant::now();
         let mut wait = Some(KhayWait {
             deadline: now + Duration::from_secs(2),
         });
-        assert_eq!(route_for_batch(&mut wait), BatchRoute::Khay);
+        assert!(should_defer_batch(&mut wait, true));
+        assert!(wait.is_some(), "lô đang gom không được tiêu thụ yêu cầu chờ");
+        assert!(!should_defer_batch(&mut wait, false));
         assert!(wait.is_none());
-        assert_eq!(route_for_batch(&mut wait), BatchRoute::Wheel);
-        // WHY: lô trễ vẫn là kết quả của Alt+C; không mở vòng tròn kèm lỗi hết hạn.
+        // WHY: lô trễ hơn hạn chót vẫn là câu trả lời của Alt+C; wait chỉ bị luồng lấy file dọn.
         wait = Some(KhayWait { deadline: now });
-        assert_eq!(route_for_batch(&mut wait), BatchRoute::Khay);
+        assert!(!should_defer_batch(&mut wait, false));
         assert!(wait.is_none());
+    }
+
+    #[test]
+    fn without_a_wait_even_a_partial_batch_opens_the_khay_at_once() {
+        let mut wait = None;
+        assert!(!should_defer_batch(&mut wait, true));
+        assert!(!should_defer_batch(&mut wait, false));
     }
 
     #[test]

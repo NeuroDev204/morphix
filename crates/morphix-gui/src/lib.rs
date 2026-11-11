@@ -154,28 +154,13 @@ fn show_menu_for(app: &AppHandle, request: MenuRequest, collecting: bool) {
         }
         return;
     }
-    let paths = request.paths;
-    let route = {
-        let mut wait = state.khay_wait_guard();
-        // WHY: callback lô đang gom không được tiêu thụ yêu cầu chờ; Khay cần toàn bộ lô cuối.
-        if wait.is_some() && collecting {
-            return;
-        }
-        state::route_for_batch(&mut wait)
-    };
-    let result = match route {
-        state::BatchRoute::Khay => windows::open_khay_with_files(app, paths),
-        state::BatchRoute::Wheel => windows::open_menu(
-            app,
-            MenuRequest {
-                paths,
-                ..MenuRequest::default()
-            },
-            collecting,
-        ),
-    };
+    // WHY Khay cho mọi lô không kèm việc: vòng tròn đã bỏ, nên lô này chỉ cần chọn việc trong Khay.
+    if state::should_defer_batch(&mut state.khay_wait_guard(), collecting) {
+        return;
+    }
+    let result = windows::open_khay_with_files(app, request.paths);
     if let Err(reason) = result {
-        tracing::error!(%reason, collecting, "không mở được Menu nhanh");
+        tracing::error!(%reason, collecting, "không mở được Khay cho lô file");
     }
 }
 
@@ -353,8 +338,6 @@ pub fn run(startup: StartupRequest) -> Result<(), String> {
             commands::run_action,
             commands::cancel_job,
             commands::active_job,
-            commands::pending_request,
-            commands::discard_pending,
             commands::submit_menu_request,
             commands::recent_history,
             commands::open_output_directory,

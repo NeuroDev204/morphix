@@ -11,7 +11,6 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       input: {
-        index: fileURLToPath(new URL("./index.html", import.meta.url)),
         khay: fileURLToPath(new URL("./khay.html", import.meta.url)),
         settings: fileURLToPath(new URL("./settings.html", import.meta.url)),
       },
