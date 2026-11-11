@@ -34,6 +34,9 @@ const CLIENT_READ_DEADLINE: Duration = Duration::from_secs(2);
 /// khi client gửi một dòng khổng lồ không có xuống dòng; 1 MiB chứa hàng nghìn đường dẫn.
 const MAX_REQUEST_LINE_BYTES: usize = 1024 * 1024;
 
+/// Mã việc đặc biệt: yêu cầu app thoát êm (huỷ việc đang chạy cho gọn). Dùng khi gỡ hoặc nâng cấp cài đặt.
+pub const QUIT_ACTION: &str = "app:quit";
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MenuRequest {
     pub paths: Vec<PathBuf>,
@@ -93,6 +96,13 @@ pub fn decode(line: &str) -> Result<MenuRequest, String> {
     Ok(request)
 }
 
+impl MenuRequest {
+    /// Có phải yêu cầu thoát app (không kèm file).
+    pub fn is_quit(&self) -> bool {
+        self.action.as_deref() == Some(QUIT_ACTION)
+    }
+}
+
 fn validate_request(request: &MenuRequest) -> Result<(), String> {
     let Some(action) = &request.action else {
         return Ok(());
@@ -100,7 +110,7 @@ fn validate_request(request: &MenuRequest) -> Result<(), String> {
     if action.is_empty() {
         return Err("yêu cầu chạy việc thiếu mã việc".to_string());
     }
-    if request.paths.is_empty() {
+    if request.paths.is_empty() && !request.is_quit() {
         return Err("yêu cầu chạy việc cần ít nhất một file".to_string());
     }
     Ok(())

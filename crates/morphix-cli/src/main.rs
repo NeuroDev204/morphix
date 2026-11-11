@@ -126,6 +126,9 @@ enum Command {
         #[arg(long)]
         list: bool,
     },
+    /// Yêu cầu Morphix đang chạy thoát êm (huỷ việc đang chạy cho gọn); không làm gì nếu app không chạy.
+    /// Dùng khi gỡ hoặc nâng cấp cài đặt.
+    Quit,
     /// Mở Khay qua morphix-gui, dùng khi GNOME thiếu AppIndicator; không chờ GUI thoát và không gửi file.
     Tray {
         #[arg(long)]
@@ -309,6 +312,7 @@ fn build_jobs(cli: &Cli) -> Result<Vec<Job>, String> {
         Command::Formats { .. }
         | Command::Doctor
         | Command::Tray { .. }
+        | Command::Quit
         | Command::Menu { .. }
         | Command::InstallIntegration { .. }
         | Command::UninstallIntegration
@@ -937,6 +941,26 @@ fn notify_failure(message: &str) {
     }
 }
 
+/// `morphix quit`: gửi yêu cầu thoát tới GUI đang chạy. Không kết nối được nghĩa là app không chạy, và đó không phải lỗi.
+fn run_quit() -> ExitCode {
+    let request = MenuRequest {
+        paths: Vec::new(),
+        action: Some(morphix_ipc::QUIT_ACTION.to_string()),
+    };
+    match send_request(&socket_name(), &request) {
+        Ok(()) => {
+            // WHY chờ: GUI thoát bất đồng bộ (huỷ việc đang chạy rồi mới đóng); trình cài đặt chạy tiếp ngay sau lệnh này.
+            thread::sleep(Duration::from_millis(1500));
+            println!("Đã yêu cầu Morphix thoát.");
+        }
+        Err(error) => {
+            tracing::info!(%error, "không kết nối được GUI để yêu cầu thoát");
+            println!("Morphix không đang chạy.");
+        }
+    }
+    ExitCode::SUCCESS
+}
+
 /// `morphix tray`: nhờ GUI mở Khay rồi thoát. Không mở socket và không gửi file; GUI đang chạy sẽ tự đưa Khay lên trước.
 fn run_tray(selection: bool, unsupported_selection: bool) -> ExitCode {
     match spawn_gui(&tray_gui_args(selection, unsupported_selection)) {
@@ -956,6 +980,7 @@ fn main() -> ExitCode {
     match &cli.command {
         Command::Formats { files } => return run_formats(files, cli.json),
         Command::Doctor => return run_doctor(cli.json),
+        Command::Quit => return run_quit(),
         Command::Tray {
             selection,
             unsupported_selection,

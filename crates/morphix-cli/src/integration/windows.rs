@@ -88,8 +88,19 @@ pub fn menu_entry(morphix: &Path) -> Result<MenuEntry, String> {
     })
 }
 
+/// DLL menu cạnh `morphix`: ưu tiên file đặt tên theo phiên bản này (`morphix_shell_<version>.dll`, do trình cài đặt
+/// ghi), rồi tên thường (`morphix_shell.dll`, bản dựng thủ công). WHY tên có phiên bản: Explorer giữ DLL đang nạp nên
+/// không ghi đè được khi nâng cấp ở chế độ người dùng; bản mới nằm cạnh bản cũ dưới tên khác.
 pub fn shell_extension_dll_path(morphix: &Path) -> std::path::PathBuf {
-    morphix.with_file_name(SHELL_EXTENSION_DLL_NAME)
+    let versioned = morphix.with_file_name(format!(
+        "morphix_shell_{}.dll",
+        env!("CARGO_PKG_VERSION")
+    ));
+    if versioned.is_file() {
+        versioned
+    } else {
+        morphix.with_file_name(SHELL_EXTENSION_DLL_NAME)
+    }
 }
 
 /// Giá trị Run chỉ là đường dẫn đã quote; không có argument vì GUI không nhận đầu vào lúc khởi động.
@@ -133,8 +144,28 @@ fn absolute_utf8<'a>(path: &'a Path, label: &str) -> Result<&'a str, String> {
 mod tests {
     use std::path::Path;
 
-    use super::{absolute_utf8, autostart_command, bound_ownership, menu_command};
+    use super::{
+        absolute_utf8, autostart_command, bound_ownership, menu_command, shell_extension_dll_path,
+    };
     use crate::integration::files::FileOwnership;
+
+    #[test]
+    fn shell_dll_prefers_the_file_named_after_this_version_and_falls_back_to_the_plain_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let morphix = dir.path().join("morphix.exe");
+        let versioned = dir
+            .path()
+            .join(format!("morphix_shell_{}.dll", env!("CARGO_PKG_VERSION")));
+        let plain = dir.path().join("morphix_shell.dll");
+        // Chưa có file nào: đường dẫn dự phòng (tên thường) để lỗi "không thấy DLL" nêu đúng tên.
+        assert_eq!(shell_extension_dll_path(&morphix), plain);
+        std::fs::write(&plain, b"").unwrap();
+        assert_eq!(shell_extension_dll_path(&morphix), plain);
+        // WHY tên có phiên bản: Explorer giữ DLL đang nạp nên không ghi đè được khi nâng cấp ở chế độ người dùng;
+        // bản mới nằm cạnh bản cũ dưới tên khác, và đăng ký menu trỏ sang tên mới.
+        std::fs::write(&versioned, b"").unwrap();
+        assert_eq!(shell_extension_dll_path(&morphix), versioned);
+    }
 
     // WHY test thuần: quyết định sở hữu là logic đúng/sai thuần, kiểm tra được trên Linux không cần registry.
     #[test]
