@@ -1,3 +1,4 @@
+#[cfg(unix)]
 use std::path::PathBuf;
 
 use assert_cmd::cargo::cargo_bin_cmd;
@@ -110,6 +111,8 @@ fn menu_forwards_positional_and_newline_paths_to_the_running_server() {
 
 // ---- --uris: URI file: từ Dolphin (%U) ----
 
+// WHY unix: URI `file:///tmp/...` chỉ có nghĩa với đường dẫn kiểu Unix; `--uris` chỉ do trình quản lý file Linux dùng.
+#[cfg(unix)]
 #[test]
 fn file_uris_decode_spaces_hash_plus_and_unicode_into_pathbufs() {
     let uris = [
@@ -131,6 +134,8 @@ fn file_uris_decode_spaces_hash_plus_and_unicode_into_pathbufs() {
     );
 }
 
+// WHY unix: URI `file:///tmp/...` chỉ có nghĩa với đường dẫn kiểu Unix; `--uris` chỉ do trình quản lý file Linux dùng.
+#[cfg(unix)]
 #[test]
 fn remote_malformed_and_non_local_uris_are_rejected_with_the_offending_uri() {
     for bad in [
@@ -339,18 +344,18 @@ fn action_request_carries_the_action_id_and_the_paths() {
     let data = tempfile::tempdir().unwrap();
     let name = format!("morphix-cli-action-{}", std::process::id());
     let (server, received) = serve_requests(&name);
+    // WHY đường dẫn tuyệt đối thật: `/tmp/...` không tuyệt đối trên Windows nên bị đổi khi CLI chuẩn hoá.
+    let files = [data.path().join("Ảnh 1.png"), data.path().join("b'c.png")];
     cargo_bin_cmd!("morphix")
         .env("MORPHIX_IPC_NAME", &name)
         .env("MORPHIX_DATA_DIR", data.path())
-        .args(["menu", "--action", "convert:webp", "--", "/tmp/Ảnh 1.png", "/tmp/b'c.png"])
+        .args(["menu", "--action", "convert:webp", "--"])
+        .args(&files)
         .assert()
         .success();
     let request = wait_for_request(&received);
     assert_eq!(request.action.as_deref(), Some("convert:webp"));
-    assert_eq!(
-        request.paths,
-        [PathBuf::from("/tmp/Ảnh 1.png"), PathBuf::from("/tmp/b'c.png")]
-    );
+    assert_eq!(request.paths, files);
     server.shutdown().unwrap();
 }
 

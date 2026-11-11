@@ -19,11 +19,13 @@ use morphix_cli::integration::{
         nautilus_script_body, resolve_xdg_roots, InstallMode, LinuxBackend, SessionEnv, XdgRoots,
     },
     report::doctor_exit_code,
-    static_menu::{dolphin_service_menus, scripts_menu_tree},
+    static_menu::dolphin_service_menus,
     tools::{ToolOutcome, ToolRunner},
     BinaryPaths, ComponentId, ComponentStatus, IntegrationBackend, IntegrationComponentReport,
     IntegrationOptions, IntegrationReport, OverallStatus, UnsupportedBackend,
 };
+#[cfg(unix)]
+use morphix_cli::integration::static_menu::scripts_menu_tree;
 use serde_json::{json, Value};
 use tempfile::{tempdir, TempDir};
 
@@ -38,6 +40,10 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         let dir = tempdir().unwrap();
+        // WHY bỏ `"` trên Windows: đó là ký tự cấm trong tên file; khoảng trắng, `&` và `'` vẫn kiểm được việc ghi nguyên văn.
+        #[cfg(windows)]
+        let apps = dir.path().join("Apps v1 & it's/Morphix");
+        #[cfg(not(windows))]
         let apps = dir.path().join("Apps \"v1\" & it's/Morphix");
         fs::create_dir_all(&apps).unwrap();
         let binaries = binaries_in(&apps);
@@ -315,6 +321,7 @@ fn uninstall_removes_owned_entries_and_second_run_is_already_absent() {
     assert_eq!(integration::exit_code_for(second.overall), 0);
 }
 
+#[cfg(unix)]
 #[test]
 fn user_integration_lifecycle_excludes_only_the_desktop_menu() {
     // WHY: bản cài trong home tự ghi extension Nautilus và launcher; chỉ menu DING là riêng của gói .deb.
@@ -933,6 +940,7 @@ fn autostart_path(root: &Path) -> PathBuf {
     root.join("config/autostart/morphix.desktop")
 }
 
+#[cfg(unix)]
 #[test]
 fn xdg_roots_default_under_home_when_variables_are_unset() {
     let roots = resolve_xdg_roots(None, None, Some(OsStr::new("/home/u"))).unwrap();
@@ -945,6 +953,7 @@ fn xdg_roots_default_under_home_when_variables_are_unset() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn xdg_variables_override_the_defaults_when_absolute() {
     let roots = resolve_xdg_roots(
@@ -962,6 +971,7 @@ fn xdg_variables_override_the_defaults_when_absolute() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn relative_or_empty_xdg_values_are_ignored_in_favour_of_home() {
     let roots = resolve_xdg_roots(
@@ -1148,6 +1158,7 @@ fn linux_file_modes_are_0755_for_scripts_and_menus_and_0644_for_autostart() {
     assert_eq!(mode_of(&autostart_path(&root)), 0o644);
 }
 
+#[cfg(unix)]
 #[test]
 fn installing_and_uninstalling_linux_components_twice_is_idempotent_and_leaves_no_directories() {
     let f = tempdir().unwrap();
@@ -1174,6 +1185,7 @@ fn installing_and_uninstalling_linux_components_twice_is_idempotent_and_leaves_n
     assert!(!root.exists());
 }
 
+#[cfg(unix)]
 #[test]
 fn moved_binary_is_stale_until_reinstalled_on_linux() {
     let f = tempdir().unwrap();
@@ -2545,6 +2557,7 @@ mod windows_registry {
     }
 }
 
+#[cfg(unix)]
 #[test]
 fn user_mode_installs_nautilus_extension_and_launcher() {
     let f = tempdir().unwrap();
@@ -2617,6 +2630,7 @@ fn install_mode_detects_package_paths() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn only_present_file_managers_get_integration() {
     let f = tempdir().unwrap();
@@ -2760,6 +2774,7 @@ fn failed_publish_removes_directories_it_created() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn nautilus_accelerator_reads_the_version_from_rpm_or_pacman_too() {
     let f = tempdir().unwrap();
@@ -2791,6 +2806,7 @@ fn nautilus_accelerator_reads_the_version_from_rpm_or_pacman_too() {
 
 // ---- menu tĩnh nhiều file: Dolphin, Thunar và thư mục Scripts ----
 
+#[cfg(unix)]
 /// Phiên có sẵn các trình quản lý file `programs` trên PATH, và (hoặc không) `nautilus-python`.
 /// WHY tiêm thư mục: máy chạy test có thể đã cài nautilus-python thật.
 fn static_menu_session(dir: &Path, programs: &[&str], python: bool) -> SessionEnv {
@@ -2811,6 +2827,7 @@ fn static_menu_session(dir: &Path, programs: &[&str], python: bool) -> SessionEn
     }
 }
 
+#[cfg(unix)]
 /// Mọi thư mục và file dưới `dir`, đã sắp, để kiểm "không còn gì sót".
 fn all_paths(dir: &Path) -> Vec<PathBuf> {
     let mut found = Vec::new();
@@ -2827,6 +2844,7 @@ fn all_paths(dir: &Path) -> Vec<PathBuf> {
     found
 }
 
+#[cfg(unix)]
 const STATIC_MENU_IDS: [ComponentId; 4] = [
     ComponentId::DolphinServiceMenu,
     ComponentId::NautilusScriptMenu,
@@ -2834,12 +2852,14 @@ const STATIC_MENU_IDS: [ComponentId; 4] = [
     ComponentId::CajaScriptMenu,
 ];
 
+#[cfg(unix)]
 fn static_menu_backend(f: &Path, python: bool) -> (LinuxBackend, PathBuf) {
     let root = f.join("root");
     let session = static_menu_session(f, &["dolphin", "nemo", "caja", "nautilus"], python);
     (linux_with(&root, session, scripted_tools(Vec::new())), root)
 }
 
+#[cfg(unix)]
 #[test]
 fn install_writes_every_generated_file_and_uninstall_leaves_nothing() {
     let f = tempdir().unwrap();
@@ -2873,6 +2893,7 @@ fn install_writes_every_generated_file_and_uninstall_leaves_nothing() {
     assert_eq!(all_paths(&root), Vec::<PathBuf>::new());
 }
 
+#[cfg(unix)]
 #[test]
 fn static_menu_install_is_idempotent_and_inspect_matches() {
     let f = tempdir().unwrap();
@@ -2886,6 +2907,7 @@ fn static_menu_install_is_idempotent_and_inspect_matches() {
     }
 }
 
+#[cfg(unix)]
 #[test]
 fn upgrade_from_single_entry_layout_removes_legacy_files() {
     let f = tempdir().unwrap();
@@ -2910,6 +2932,7 @@ fn upgrade_from_single_entry_layout_removes_legacy_files() {
     assert!(root.join("data/kio/servicemenus/morphix-image.desktop").is_file());
 }
 
+#[cfg(unix)]
 #[test]
 fn legacy_files_are_removed_on_uninstall_too() {
     let f = tempdir().unwrap();
@@ -2922,6 +2945,7 @@ fn legacy_files_are_removed_on_uninstall_too() {
     assert!(!legacy_nemo.exists());
 }
 
+#[cfg(unix)]
 #[test]
 fn unmarked_user_files_are_left_alone() {
     let f = tempdir().unwrap();
@@ -2956,6 +2980,7 @@ fn unmarked_user_files_are_left_alone() {
     assert!(user_script.is_file() && user_menu.is_file() && user_nemo.is_file());
 }
 
+#[cfg(unix)]
 #[test]
 fn nautilus_script_menu_is_skipped_when_nautilus_python_is_present() {
     let f = tempdir().unwrap();
@@ -2967,6 +2992,7 @@ fn nautilus_script_menu_is_skipped_when_nautilus_python_is_present() {
     assert!(!root.join("data/nautilus/scripts").exists());
 }
 
+#[cfg(unix)]
 #[test]
 fn nautilus_script_menu_installed_earlier_is_removed_once_nautilus_python_appears() {
     let f = tempdir().unwrap();
@@ -2994,6 +3020,7 @@ fn nautilus_script_menu_installed_earlier_is_removed_once_nautilus_python_appear
     assert_eq!(all_paths(&root), Vec::<PathBuf>::new());
 }
 
+#[cfg(unix)]
 #[test]
 fn doctor_reports_menu_tier_per_file_manager() {
     let f = tempdir().unwrap();
@@ -3055,6 +3082,7 @@ fn install_then_uninstall_integration_through_the_real_cli_leaves_no_managed_fil
 
 // ---- Scripts → Morphix (mở Khay) chỉ còn cần cho Alt+C trên X11 ----
 
+#[cfg(unix)]
 fn nautilus_session(dir: &Path, session_type: Option<&str>, python: bool) -> SessionEnv {
     SessionEnv {
         session_type: session_type.map(str::to_string),
@@ -3062,6 +3090,7 @@ fn nautilus_session(dir: &Path, session_type: Option<&str>, python: bool) -> Ses
     }
 }
 
+#[cfg(unix)]
 #[test]
 fn script_entry_is_dropped_on_wayland_when_nautilus_has_the_dynamic_menu() {
     let f = tempdir().unwrap();
@@ -3081,6 +3110,7 @@ fn script_entry_is_dropped_on_wayland_when_nautilus_has_the_dynamic_menu() {
     assert_eq!(backend.inspect(ComponentId::NautilusScript, &binaries).status, ComponentStatus::NotApplicable);
 }
 
+#[cfg(unix)]
 #[test]
 fn script_entry_stays_when_it_is_the_only_menu_or_alt_c_can_use_it() {
     for (session_type, python) in [(Some("wayland"), false), (Some("x11"), true), (None, true)] {
@@ -3096,6 +3126,7 @@ fn script_entry_stays_when_it_is_the_only_menu_or_alt_c_can_use_it() {
     }
 }
 
+#[cfg(unix)]
 #[test]
 fn thunar_uninstall_from_a_fresh_home_removes_the_empty_uca_and_its_folder() {
     let f = tempdir().unwrap();
@@ -3114,6 +3145,7 @@ fn thunar_uninstall_from_a_fresh_home_removes_the_empty_uca_and_its_folder() {
     assert!(!root.join("config/Thunar").exists());
 }
 
+#[cfg(unix)]
 #[test]
 fn thunar_uninstall_keeps_the_uca_when_the_user_still_has_actions() {
     let f = tempdir().unwrap();
