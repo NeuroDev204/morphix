@@ -66,6 +66,6 @@ cp COPYING.GPLv3 "$PKG/LICENSE.txt"
 } > "$PKG/BUILD-INFO.txt"
 mkdir -p "$OUT"
 tar -C "$WORK" -cJf "$OUT/$NAME.tar.xz" "$NAME"
-sha256sum "$OUT/$NAME.tar.xz" | tee "$OUT/$NAME.tar.xz.sha256"
+( cd "$OUT" && sha256sum "$NAME.tar.xz" | tee "$NAME.tar.xz.sha256" )
 ls -l "$PKG/bin/ffmpeg"
 file "$PKG/bin/ffmpeg" 2>/dev/null || true

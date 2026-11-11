@@ -104,5 +104,5 @@ grep '^#define FFMPEG_CONFIGURATION' config.h | sed 's/^#define FFMPEG_CONFIGURA
   for entry in "${SOURCES[@]}"; do IFS='|' read -r file url sha <<<"$entry"; echo "  $file  $url  $sha"; done
 } > "$PKG/BUILD-INFO.txt"
 ( cd "$WORK" && zip -qr "$OUT/$NAME.zip" "$NAME" )
-sha256sum "$OUT/$NAME.zip" | tee "$OUT/$NAME.zip.sha256"
+( cd "$OUT" && sha256sum "$NAME.zip" | tee "$NAME.zip.sha256" )
 ls -l "$PKG/bin/ffmpeg.exe"
