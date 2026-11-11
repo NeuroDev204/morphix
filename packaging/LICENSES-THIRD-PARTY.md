@@ -14,7 +14,7 @@ Mã của Morphix phát hành theo **GPL-3.0-or-later** (`LICENSE`), tương th�
 
 | Thành phần | Phiên bản | Giấy phép | Đường dẫn | Ghi chú |
 |---|---|---|---|---|
-| ffmpeg gọn của Morphix | FFmpeg 8.1.3 (`morphix.1`) | GPL-3.0-or-later (`--enable-gpl` vì có libx264) | `/usr/lib/morphix/ffmpeg` | Dựng từ nguồn bằng `scripts/build-ffmpeg-slim.sh`, liên kết tĩnh hoàn toàn, chạy như tiến trình riêng. Giấy phép: `/usr/share/doc/morphix/ffmpeg/LICENSE.txt`; cấu hình: `ffmpeg/configuration.txt`; nguồn từng thành phần: `ffmpeg/BUILD-INFO.txt` |
+| ffmpeg gọn của Morphix | FFmpeg 8.1.3 (`morphix.2`) | GPL-3.0-or-later (`--enable-gpl` vì có libx264) | `/usr/lib/morphix/ffmpeg` | Dựng từ nguồn bằng `scripts/build-ffmpeg-slim.sh`, liên kết tĩnh hoàn toàn, chạy như tiến trình riêng. Giấy phép: `/usr/share/doc/morphix/ffmpeg/LICENSE.txt`; cấu hình: `ffmpeg/configuration.txt`; nguồn từng thành phần: `ffmpeg/BUILD-INFO.txt` |
 | x264 (trong ffmpeg) | gói Ubuntu 22.04 `libx264-dev` | GPL-2.0-or-later | trong `ffmpeg` | Văn bản: `/usr/share/doc/morphix/ffmpeg/third-party/x264/` |
 | libvpx, opus, libogg, libvorbis (trong ffmpeg) | gói Ubuntu 22.04 | BSD-3-Clause (libvpx kèm PATENTS) | trong `ffmpeg` | `ffmpeg/third-party/<thư viện>/` |
 | lame (trong ffmpeg) | gói Ubuntu 22.04 `libmp3lame-dev` | LGPL-2.0-or-later | trong `ffmpeg` | `ffmpeg/third-party/lame/` |
@@ -38,7 +38,7 @@ ffmpeg liên kết tĩnh nên không thêm yêu cầu nào về glibc hay libstd
 
 - ffmpeg và các thư viện trong nó: lời đề nghị và đường dẫn nguồn ở `/usr/share/doc/morphix/ffmpeg-source-offer.txt`
   (bản gốc: `packaging/ffmpeg-static.txt`); nguồn và SHA256 của từng thành phần ở `ffmpeg/BUILD-INFO.txt`; script dựng
-  ở tag `ffmpeg-8.1.3-morphix.1` của kho Morphix.
+  ở tag `ffmpeg-8.1.3-morphix.2` của kho Morphix.
 - PDFium: tag `chromium/7881` của bblanchon/pdfium-binaries, tệp `pdfium-linux-x64.tgz`,
   sha256 `1470e21b8b4a3b4ad7f85684e2da11d94f3b69a86d81dee11b9b6709d927ac1d`;
   `libpdfium.so` sha256 `f728930966f503652b92acc89b9374a2eeca00ce42e26dccd3e4b5c5161b2d64`.

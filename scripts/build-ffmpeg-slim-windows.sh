@@ -7,7 +7,7 @@
 set -euo pipefail
 
 readonly FFMPEG_VERSION=8.1.3
-readonly REVISION="${FFMPEG_REVISION:-1}"
+readonly REVISION="${FFMPEG_REVISION:-2}"
 readonly HOST=x86_64-w64-mingw32
 readonly PREFIX=/deps
 NAME="ffmpeg-${FFMPEG_VERSION}-morphix.${REVISION}-win64-gpl"
@@ -77,8 +77,8 @@ CROSS
 ( cd src/dav1d-1.5.1 && meson setup build --cross-file ../../cross.txt --default-library=static --prefix="$PREFIX" --libdir=lib \
     -Denable_tools=false -Denable_tests=false -Dbuildtype=release >/dev/null && ninja -C build install >/dev/null )
 
-ENCODERS=libx264,libvpx_vp9,aac,libmp3lame,libopus,libvorbis,flac,pcm_s16le,pcm_s16be,gif
-MUXERS=mp4,mov,ipod,matroska,webm,avi,mp3,wav,flac,ogg,opus,aiff,gif
+ENCODERS=libx264,libvpx_vp9,aac,libmp3lame,libopus,libvorbis,flac,pcm_s16le,pcm_s16be,gif,png
+MUXERS=mp4,mov,ipod,matroska,webm,avi,mp3,wav,flac,ogg,opus,aiff,gif,image2
 cd "src/ffmpeg-${FFMPEG_VERSION}"
 ./configure \
   --arch=x86_64 --target-os=mingw32 --cross-prefix="$HOST-" --enable-cross-compile --pkg-config=pkg-config \

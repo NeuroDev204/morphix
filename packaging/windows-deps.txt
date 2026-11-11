@@ -1,9 +1,9 @@
 # Phụ thuộc nhị phân của bản Windows, tải lúc dựng bởi scripts/ci/setup-windows-deps.ps1 (không commit file tải về).
 # ffmpeg: bản gọn của Morphix (FFmpeg 8.1.3, GPL-3.0-or-later), dựng từ nguồn bằng scripts/build-ffmpeg-slim-windows.sh và
-# đăng ở release ffmpeg-8.1.3-morphix.1 của kho này. Chỉ bật bộ mã hoá và muxer Morphix gọi, giữ mọi bộ giải mã (có AV1 qua
+# đăng ở release ffmpeg-8.1.3-morphix.2 của kho này. Chỉ bật bộ mã hoá và muxer Morphix gọi, giữ mọi bộ giải mã (có AV1 qua
 # dav1d); ffmpeg.exe khoảng 35 MB thay vì 105 MB của bản "essentials" dựng sẵn. Đổi bản thì cập nhật cả hai FFMPEG-NOTICE.txt.
-FFMPEG_URL=https://github.com/NeuroDev204/morphix/releases/download/ffmpeg-8.1.3-morphix.1/ffmpeg-8.1.3-morphix.1-win64-gpl.zip
-FFMPEG_SHA256=fd59a905498b6612a6674b8099ce0c5114b3f124aea7d91015ea93315cdc700d
+FFMPEG_URL=https://github.com/NeuroDev204/morphix/releases/download/ffmpeg-8.1.3-morphix.2/ffmpeg-8.1.3-morphix.2-win64-gpl.zip
+FFMPEG_SHA256=509db36f9e2f9bc6f8ea5065f468b96556351a09ea37028c46020c11fa97047f
 # PDFium: cùng bản chromium/7881 với bản Linux (scripts/ci/setup-build-deps.sh).
 PDFIUM_URL=https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F7881/pdfium-win-x64.tgz
 PDFIUM_SHA256=73cc0de638ac2095e7445bf56a38200a5b7c7ca0e9f4ba144598f2457377ac08

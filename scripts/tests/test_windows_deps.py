@@ -117,6 +117,29 @@ class LinuxPackagesTests(unittest.TestCase):
         self.assertNotIn("rely-packages", check)
 
 
+class SlimFfmpegCoversMorphixTests(unittest.TestCase):
+    """Bản ffmpeg gọn chỉ bật bộ mã hoá/muxer liệt kê sẵn; mọi codec mà mã Rust gọi phải có trong danh sách đó."""
+
+    def configured(self, script: str, name: str) -> set[str]:
+        text = (ROOT / "scripts" / script).read_text(encoding="utf-8")
+        return set(re.search(rf"^{name}=(\S+)$", text, re.M).group(1).split(","))
+
+    def test_every_encoder_morphix_requests_is_enabled(self) -> None:
+        sources = "".join(
+            (ROOT / "crates" / "morphix-core" / "src" / "ops" / name).read_text(encoding="utf-8")
+            for name in ("media.rs", "image_io.rs")
+        )
+        requested = set(re.findall(r'"-c:[va]",\s*"([a-z0-9_]+)"', sources)) - {"copy"}
+        self.assertIn("png", requested)
+        for script in ("build-ffmpeg-slim.sh", "build-ffmpeg-slim-windows.sh"):
+            self.assertLessEqual(requested, self.configured(script, "ENCODERS"), script)
+
+    def test_single_image_output_has_its_muxer(self) -> None:
+        # WHY: giải mã AVIF ghi ra decoded.png, cần muxer image2 (không có thì ffmpeg báo "Invalid argument").
+        for script in ("build-ffmpeg-slim.sh", "build-ffmpeg-slim-windows.sh"):
+            self.assertIn("image2", self.configured(script, "MUXERS"), script)
+
+
 class TarballFloorTests(unittest.TestCase):
     def test_glibc_floor_check_tolerates_static_binaries(self) -> None:
         # WHY: ffmpeg gọn liên kết tĩnh hoàn toàn nên `objdump -T` báo lỗi trên nó; trước đây điều đó làm cả script dựng tarball dừng.

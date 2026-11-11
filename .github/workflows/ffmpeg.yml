@@ -7,7 +7,7 @@ on:
     inputs:
       revision:
         description: Số bản dựng (hậu tố morphix.<rev> của tên gói)
-        default: "1"
+        default: "2"
       publish:
         description: Đính kết quả vào release ffmpeg-<ver>-morphix.<rev>
         type: boolean

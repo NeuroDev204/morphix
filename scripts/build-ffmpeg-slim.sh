@@ -3,14 +3,14 @@
 # Chỉ bật các bộ mã hoá và muxer mà Morphix gọi (xem crates/morphix-core/src/ops/media.rs); giữ mọi bộ giải mã và demuxer
 # vì người dùng có thể đưa vào file bất kỳ. Chạy trong container ubuntu:22.04 với quyền root:
 #   docker run --rm -v "$PWD:/repo" -v "$OUT:/out" ubuntu:22.04 bash /repo/scripts/build-ffmpeg-slim.sh
-# Biến: FFMPEG_REVISION (mặc định 1) đặt hậu tố tên gói; kết quả: /out/ffmpeg-<ver>-morphix.<rev>-linux64-gpl.tar.xz
+# Biến: FFMPEG_REVISION (mặc định 2) đặt hậu tố tên gói; kết quả: /out/ffmpeg-<ver>-morphix.<rev>-linux64-gpl.tar.xz
 set -euo pipefail
 
 readonly FFMPEG_VERSION=8.1.3
 readonly FFMPEG_SHA256='7138d28c96d9d3e3af4ee3d8cad72741f8ffb40da90c1112235dea3ecd3178a3'
 readonly DAV1D_VERSION=1.5.1
 readonly DAV1D_SHA256='401813f1f89fa8fd4295805aa5284d9aed9bc7fc1fdbe554af4292f64cbabe21'
-readonly REVISION="${FFMPEG_REVISION:-1}"
+readonly REVISION="${FFMPEG_REVISION:-2}"
 NAME="ffmpeg-${FFMPEG_VERSION}-morphix.${REVISION}-linux64-gpl"
 OUT="${OUT_DIR:-/out}"
 
@@ -36,9 +36,9 @@ tar -xJf ffmpeg.tar.xz
 cd "ffmpeg-${FFMPEG_VERSION}"
 
 # WHY giữ indev lavfi: bộ test của repo tạo file mẫu bằng `-f lavfi testsrc/sine`; nó nhỏ và không ảnh hưởng người dùng.
-# Bộ mã hoá/muxer khớp ops/media.rs: H.264 (MP4, MOV, MKV, AVI), VP9 (WebM), AAC, MP3, Opus, Vorbis, FLAC, PCM, GIF.
-ENCODERS=libx264,libvpx_vp9,aac,libmp3lame,libopus,libvorbis,flac,pcm_s16le,pcm_s16be,gif
-MUXERS=mp4,mov,ipod,matroska,webm,avi,mp3,wav,flac,ogg,opus,aiff,gif
+# Bộ mã hoá/muxer khớp ops/media.rs: H.264 (MP4, MOV, MKV, AVI), VP9 (WebM), AAC, MP3, Opus, Vorbis, FLAC, PCM, GIF; PNG + image2 cho ops/image_io.rs (giải mã AVIF ra ảnh PNG).
+ENCODERS=libx264,libvpx_vp9,aac,libmp3lame,libopus,libvorbis,flac,pcm_s16le,pcm_s16be,gif,png
+MUXERS=mp4,mov,ipod,matroska,webm,avi,mp3,wav,flac,ogg,opus,aiff,gif,image2
 
 ./configure \
   --prefix=/usr/local --enable-gpl --disable-autodetect \
