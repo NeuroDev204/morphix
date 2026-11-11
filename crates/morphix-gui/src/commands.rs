@@ -2,7 +2,6 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-#[cfg(target_os = "linux")]
 use std::{ffi::OsString, process::Command};
 
 use morphix_core::job::require_ffmpeg;
@@ -163,9 +162,22 @@ pub fn output_directory_for_history(history: &History, path: &str) -> Result<Pat
     Ok(parent.to_path_buf())
 }
 
-#[cfg(target_os = "linux")]
-fn gio_open_args(directory: &Path) -> [OsString; 2] {
-    [OsString::from("open"), directory.as_os_str().to_os_string()]
+/// Lệnh mở một thư mục trong trình quản lý file của hệ điều hành: Explorer trên Windows, `gio open` còn lại.
+fn open_directory_command(directory: &Path) -> (OsString, Vec<OsString>) {
+    #[cfg(windows)]
+    {
+        (
+            OsString::from("explorer"),
+            vec![directory.as_os_str().to_os_string()],
+        )
+    }
+    #[cfg(not(windows))]
+    {
+        (
+            OsString::from("gio"),
+            vec![OsString::from("open"), directory.as_os_str().to_os_string()],
+        )
+    }
 }
 
 #[tauri::command]
@@ -176,22 +188,19 @@ pub async fn open_output_directory(path: String, app: AppHandle) -> Result<(), S
 fn open_output_directory_blocking(app: &AppHandle, path: &str) -> Result<(), String> {
     let state = app.state::<AppState>();
     let directory = output_directory_for_history(&state.history_guard(), path)?;
-    #[cfg(target_os = "linux")]
-    {
-        let status = Command::new("gio")
-            .args(gio_open_args(&directory))
-            .status()
-            .map_err(|error| format!("Không mở được trình quản lý file: {error}"))?;
-        if status.success() {
-            Ok(())
-        } else {
-            Err(format!("gio open kết thúc với mã {}.", status))
-        }
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = directory;
-        Err("Mở thư mục đầu ra hiện chỉ hỗ trợ Ubuntu/Linux.".to_string())
+    let (program, args) = open_directory_command(&directory);
+    let status = Command::new(&program)
+        .args(&args)
+        .status()
+        .map_err(|error| format!("Không mở được trình quản lý file: {error}"))?;
+    // WHY bỏ qua mã thoát trên Windows: explorer.exe trả 1 ngay cả khi đã mở thư mục thành công.
+    if cfg!(windows) || status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "{} kết thúc với mã {status}.",
+            program.to_string_lossy()
+        ))
     }
 }
 
@@ -478,10 +487,26 @@ mod output_directory_tests {
             output_directory_for_history(&history, &path).unwrap(),
             directory.path()
         );
-        #[cfg(target_os = "linux")]
+        // WHY nối đường dẫn nguyên văn vào argv (không qua shell): tên file có `;` hay `$(…)` vẫn là một đối số.
+        #[cfg(not(windows))]
         assert_eq!(
-            super::gio_open_args(Path::new(&path)),
-            [std::ffi::OsString::from("open"), path.into()]
+            super::open_directory_command(Path::new(&path)),
+            (
+                std::ffi::OsString::from("gio"),
+                vec![std::ffi::OsString::from("open"), path.into()]
+            )
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn opens_the_folder_with_explorer() {
+        assert_eq!(
+            super::open_directory_command(Path::new(r"C:\a b")),
+            (
+                std::ffi::OsString::from("explorer"),
+                vec![std::ffi::OsString::from(r"C:\a b")]
+            )
         );
     }
 
