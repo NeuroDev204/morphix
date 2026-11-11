@@ -44,10 +44,13 @@ class InstallerScript(unittest.TestCase):
         self.assertIn(WEBVIEW2_CLIENT, self.text)
         self.assertIn("Check: not WebView2Installed", self.text)
 
-    def test_shell_dll_survives_being_locked_by_explorer(self) -> None:
-        line = next(l for l in self.text.splitlines() if "morphix_shell.dll" in l)
+    def test_shell_dll_flags_and_restart_manager_filter_are_present(self) -> None:
+        # WHY chỉ kiểm cờ có mặt: hành vi khi Explorer giữ DLL (restartreplace cần quyền admin) chỉ kiểm được trên
+        # Windows thật; xem danh sách kiểm tay.
+        line = next(l for l in self.text.splitlines() if l.startswith("Source:") and "morphix_shell.dll" in l)
         self.assertIn("restartreplace", line)
         self.assertIn("uninsrestartdelete", line)
+        self.assertIn("CloseApplicationsFilter=*.exe", self.text)
 
 
 if __name__ == "__main__":

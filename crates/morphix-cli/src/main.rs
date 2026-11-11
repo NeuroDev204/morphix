@@ -917,9 +917,23 @@ fn run_menu(
         Ok(()) => ExitCode::SUCCESS,
         Err(reason) => {
             tracing::error!(%reason, "không khởi động được Morphix");
-            eprintln!("lỗi: không khởi động được Morphix ({reason})");
+            let message = format!("không khởi động được Morphix ({reason})");
+            eprintln!("lỗi: {message}");
+            if action.is_some() {
+                notify_failure(&message);
+            }
             ExitCode::from(1)
         }
+    }
+}
+
+/// Báo lỗi bằng thông báo desktop (nếu có `notify-send`). WHY: việc bấm từ menu chuột phải không có terminal
+/// nào để đọc stderr, nên không báo thì người dùng bấm mà không thấy gì. Lỗi của chính thông báo thì bỏ qua.
+fn notify_failure(message: &str) {
+    if cfg!(unix) {
+        let _ = std::process::Command::new("notify-send")
+            .args(["Morphix", message])
+            .status();
     }
 }
 

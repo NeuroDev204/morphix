@@ -337,6 +337,20 @@ class NautilusMenuTests(unittest.TestCase):
         self.assertEqual(self.run.call_args.kwargs["timeout"], menu.LIST_TIMEOUT_SECONDS)
         self.assertEqual(menu.LIST_TIMEOUT_SECONDS, 0.3)
 
+    def test_undecodable_cli_output_still_falls_back_to_tray_item(self) -> None:
+        # Locale không phải UTF-8 hoặc byte rác trên stdout làm `text=True` ném UnicodeDecodeError.
+        self.run.side_effect = UnicodeDecodeError("ascii", b"\xe1", 0, 1, "ordinal not in range")
+        provider: object = menu.MorphixMenuProvider()
+        items: list[FakeMenuItem] = provider.get_file_items([FakeFileInfo("file:///tmp/a.png")])
+        self.assertEqual([item.label for item in items], ["Morphix"])
+        self.assertIsNone(items[0].submenu)
+
+    def test_listing_is_decoded_as_utf8_regardless_of_locale(self) -> None:
+        self.run.side_effect = None
+        self.run.return_value = completed(LISTING_PNG)
+        menu.MorphixMenuProvider().get_file_items([FakeFileInfo("file:///tmp/a.png")])
+        self.assertEqual(self.run.call_args.kwargs.get("encoding"), "utf-8")
+
     def test_failed_or_garbled_cli_falls_back_to_tray_item(self) -> None:
         provider: object = menu.MorphixMenuProvider()
         for result in [completed(LISTING_PNG, returncode=1), completed("không phải JSON")]:

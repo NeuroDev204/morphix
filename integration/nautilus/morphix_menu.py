@@ -113,13 +113,14 @@ class MorphixMenuProvider(GObject.GObject, Nautilus.MenuProvider):
             result = subprocess.run(
                 list_command(uris),
                 capture_output=True,
-                text=True,
+                # WHY ép UTF-8: nhãn tiếng Việt; locale không phải UTF-8 sẽ làm `text=True` ném UnicodeDecodeError.
+                encoding="utf-8",
                 timeout=LIST_TIMEOUT_SECONDS,
                 check=False,
             )
             if result.returncode == 0:
                 listing = parse_listing(result.stdout)
-        except (subprocess.TimeoutExpired, OSError) as error:
+        except (subprocess.TimeoutExpired, OSError, ValueError) as error:
             LOG.warning("không lấy được danh sách việc của Morphix: %s", error)
         self._cache = (key, listing)
         return listing

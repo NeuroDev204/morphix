@@ -92,8 +92,8 @@ pub fn scripts_menu_tree(morphix: &Path) -> Result<Vec<GeneratedFile>, String> {
                     "#!/bin/sh".to_string(),
                     format!("# {MANAGED_MARKER}"),
                     "if [ \"$#\" -eq 0 ]; then".to_string(),
-                    "    printf '%s\\n' 'Morphix: không có file cục bộ nào được chọn (thư mục từ xa không truyền đường dẫn).' >&2".to_string(),
-                    "    exit 1".to_string(),
+                    // WHY mở Khay có lỗi: thư mục từ xa không truyền đường dẫn; thoát im lặng thì người bấm không thấy gì.
+                    format!("    exec {morphix} tray --unsupported-selection"),
                     "fi".to_string(),
                     format!("exec {morphix} menu --action {} -- \"$@\"", posix_single_quote(&id)),
                 ]
@@ -235,6 +235,7 @@ mod tests {
             std::fs::read_to_string(&record).unwrap(),
             "menu\n--action\nconvert:webp\n--\nảnh của tôi.png\na'b.png\n"
         );
+        std::fs::remove_file(&record).unwrap();
         let no_args = (0..40)
             .find_map(|_| match std::process::Command::new(&path).output() {
                 Ok(output) => Some(output),
@@ -245,7 +246,11 @@ mod tests {
                 Err(error) => panic!("{error}"),
             })
             .expect("script vẫn báo Text file busy");
-        assert!(!no_args.status.success());
-        assert!(String::from_utf8_lossy(&no_args.stderr).contains("không có file cục bộ"));
+        // WHY mở Khay có lỗi: thư mục từ xa không truyền đường dẫn; thoát im lặng thì người dùng bấm mà không thấy gì.
+        assert!(no_args.status.success());
+        assert_eq!(
+            std::fs::read_to_string(&record).unwrap(),
+            "tray\n--unsupported-selection\n"
+        );
     }
 }

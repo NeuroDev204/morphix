@@ -384,3 +384,36 @@ fn action_request_starts_the_gui_when_nothing_is_listening() {
     assert_eq!(wait_for_request(&received).action.as_deref(), Some("compress"));
     server.shutdown().unwrap();
 }
+
+#[cfg(unix)]
+#[test]
+fn action_that_cannot_reach_the_gui_is_reported_with_a_desktop_notification() {
+    use std::os::unix::fs::PermissionsExt;
+    let d = tempfile::tempdir().unwrap();
+    let bin = d.path().join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let record = d.path().join("notify.txt");
+    let notify = bin.join("notify-send");
+    std::fs::write(
+        &notify,
+        format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\n", record.display()),
+    )
+    .unwrap();
+    std::fs::set_permissions(&notify, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let path = std::env::join_paths(
+        std::iter::once(bin).chain(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())),
+    )
+    .unwrap();
+    cargo_bin_cmd!("morphix")
+        .env("PATH", path)
+        .env("MORPHIX_GUI_BIN", "/không/tồn/tại/morphix-gui")
+        .env("MORPHIX_IPC_NAME", format!("morphix-cli-test-{}-notify", std::process::id()))
+        .env("MORPHIX_DATA_DIR", d.path().join("data"))
+        .args(["menu", "--action", "compress", "--", "/tmp/a.png"])
+        .assert()
+        .code(1)
+        .stderr(contains("không khởi động được"));
+    // WHY thông báo: bấm từ menu chuột phải không có terminal nào để đọc stderr.
+    let text = std::fs::read_to_string(&record).expect("phải gọi notify-send");
+    assert!(text.contains("Morphix") && text.contains("không khởi động được"), "{text}");
+}

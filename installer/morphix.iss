@@ -21,6 +21,8 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayIcon={app}\morphix-gui.exe
 CloseApplications=yes
+; WHY chỉ *.exe: không để Restart Manager gom cả Explorer (đang nạp morphix_shell.dll) vào danh sách ứng dụng cần đóng.
+CloseApplicationsFilter=*.exe
 RestartApplications=no
 
 [Files]

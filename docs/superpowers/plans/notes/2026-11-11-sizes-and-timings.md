@@ -111,3 +111,7 @@ Tôi không điều khiển được menu chuột phải hay cửa sổ thật t
 ### Cả hai nền tảng (chưa kiểm)
 - [ ] Bản release (custom-protocol): mở Khay và Cài đặt, giao diện vẽ đúng và hoạt động (CSP đã đặt, chỉ kiểm tĩnh trên `dist`).
 - [ ] Đo lại thời gian Khay hiện (bấm khay, thả 50 file ở thư mục chậm) và dung lượng bản build cuối.
+
+### Bổ sung sau review cuối (Windows, chưa kiểm)
+- [ ] Nâng cấp hoặc gỡ `MorphixSetup.exe` trong lúc Explorer đang giữ `morphix_shell.dll`: không hiện hộp thoại "file đang dùng", không bị đòi đóng Explorer, DLL được thay hoặc xoá (cờ `restartreplace` cần quyền admin nên có thể không có tác dụng ở chế độ người dùng).
+- [ ] Nâng cấp từ bản cài cũ chế độ admin (0.1.0): chứng chỉ tự ký trong kho Root và gói sparse còn sót cần gỡ tay.
