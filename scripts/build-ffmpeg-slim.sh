@@ -18,19 +18,19 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 # WHY thư viện của distro: bản dev của Ubuntu 22.04 có sẵn .a; phiên bản và nguồn của chúng được ghi vào BUILD-INFO.txt.
 apt-get install -y -qq --no-install-recommends build-essential nasm yasm pkg-config curl xz-utils ca-certificates \
-  libx264-dev libvpx-dev libopus-dev libmp3lame-dev libvorbis-dev libogg-dev meson ninja-build >/dev/null
+  libx264-dev libvpx-dev libopus-dev libmp3lame-dev libvorbis-dev libogg-dev zlib1g-dev meson ninja-build >/dev/null
 
 WORK="$(mktemp -d)"
 cd "$WORK"
 # WHY dav1d dựng từ nguồn: ffmpeg không có bộ giải mã AV1 phần mềm gốc, và gói dav1d của Ubuntu 22.04 (0.9) quá cũ cho ffmpeg 8.
-curl -fsSL -o dav1d.tar.xz "https://downloads.videolan.org/pub/videolan/dav1d/${DAV1D_VERSION}/dav1d-${DAV1D_VERSION}.tar.xz"
+curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors -o dav1d.tar.xz "https://downloads.videolan.org/pub/videolan/dav1d/${DAV1D_VERSION}/dav1d-${DAV1D_VERSION}.tar.xz"
 echo "${DAV1D_SHA256}  dav1d.tar.xz" | sha256sum -c --status - || { echo "dav1d nguồn sai SHA256" >&2; exit 1; }
 tar -xJf dav1d.tar.xz
 ( cd "dav1d-${DAV1D_VERSION}" && meson setup build --default-library=static --prefix=/opt/dav1d --libdir=lib \
     -Denable_tools=false -Denable_tests=false -Dbuildtype=release >/dev/null && ninja -C build install >/dev/null )
 export PKG_CONFIG_PATH=/opt/dav1d/lib/pkgconfig
 
-curl -fsSL -o ffmpeg.tar.xz "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz"
+curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors -o ffmpeg.tar.xz "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz"
 echo "${FFMPEG_SHA256}  ffmpeg.tar.xz" | sha256sum -c --status - || { echo "ffmpeg nguồn sai SHA256" >&2; exit 1; }
 tar -xJf ffmpeg.tar.xz
 cd "ffmpeg-${FFMPEG_VERSION}"
@@ -43,7 +43,7 @@ MUXERS=mp4,mov,ipod,matroska,webm,avi,mp3,wav,flac,ogg,opus,aiff,gif
 ./configure \
   --prefix=/usr/local --enable-gpl --disable-autodetect \
   --disable-doc --disable-ffplay --disable-ffprobe --disable-network --disable-debug --disable-shared --enable-static \
-  --enable-libx264 --enable-libvpx --enable-libopus --enable-libmp3lame --enable-libvorbis --enable-libdav1d \
+  --enable-libx264 --enable-libvpx --enable-libopus --enable-libmp3lame --enable-libvorbis --enable-libdav1d --enable-zlib \
   --disable-encoders "--enable-encoder=${ENCODERS}" \
   --disable-muxers "--enable-muxer=${MUXERS}" \
   --disable-protocols --enable-protocol=file,pipe \
@@ -62,7 +62,7 @@ cp COPYING.GPLv3 "$PKG/LICENSE.txt"
   echo "ffmpeg ${FFMPEG_VERSION} (nguồn: https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz, sha256 ${FFMPEG_SHA256})"
   echo "dav1d ${DAV1D_VERSION} (nguồn: https://downloads.videolan.org/pub/videolan/dav1d/${DAV1D_VERSION}/dav1d-${DAV1D_VERSION}.tar.xz, sha256 ${DAV1D_SHA256})"
   echo "Dựng trong ubuntu:22.04 với các gói tĩnh sau (mã nguồn: https://packages.ubuntu.com/source/jammy/<tên gói nguồn>):"
-  dpkg-query -W -f='  ${Package} ${Version}  (nguồn: ${Source})\n' libx264-dev libvpx-dev libopus-dev libmp3lame-dev libvorbis-dev libogg-dev
+  dpkg-query -W -f='  ${Package} ${Version}  (nguồn: ${Source})\n' libx264-dev libvpx-dev libopus-dev libmp3lame-dev libvorbis-dev libogg-dev zlib1g-dev
 } > "$PKG/BUILD-INFO.txt"
 mkdir -p "$OUT"
 tar -C "$WORK" -cJf "$OUT/$NAME.tar.xz" "$NAME"

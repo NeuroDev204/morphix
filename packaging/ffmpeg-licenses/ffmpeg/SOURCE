@@ -1,0 +1,5 @@
+Thành phần: ffmpeg
+Giấy phép: GPL-3.0-or-later (bật --enable-gpl vì có libx264)
+Trang chủ: https://ffmpeg.org
+Nguồn đã dùng: ffmpeg-8.1.3.tar.xz
+File giấy phép: COPYING.GPLv2, COPYING.GPLv3, COPYING.LGPLv2.1, COPYING.LGPLv3, LICENSE.md

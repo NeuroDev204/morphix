@@ -19,6 +19,7 @@ SOURCES=(
   "libvpx-1.14.1.tar.gz|https://github.com/webmproject/libvpx/archive/refs/tags/v1.14.1.tar.gz|901747254d80a7937c933d03bd7c5d41e8e6c883e0665fadcb172542167c7977"
   "opus-1.5.2.tar.gz|https://downloads.xiph.org/releases/opus/opus-1.5.2.tar.gz|65c1d2f78b9f2fb20082c38cbe47c951ad5839345876e46941612ee87f9a7ce1"
   "lame-3.100.tar.gz|https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz|ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e"
+  "zlib-1.3.1.tar.xz|https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.xz|38ef96b8dfe510d42707d9c781877914792541133e1870841463bfa73f883e32"
   "libogg-1.3.5.tar.xz|https://downloads.xiph.org/releases/ogg/libogg-1.3.5.tar.xz|c4d91be36fc8e54deae7575241e03f4211eb102afb3fc0775fbbc1b740016705"
   "libvorbis-1.3.7.tar.xz|https://downloads.xiph.org/releases/vorbis/libvorbis-1.3.7.tar.xz|b33cc4934322bcbf6efcbacf49e3ca01aadbea4114ec9589d1b1e9d20f72954b"
   "x264-0480cb05fa188d37ae87e8f4fd8f1aea3711f7ee.tar.bz2|https://code.videolan.org/videolan/x264/-/archive/0480cb05fa188d37ae87e8f4fd8f1aea3711f7ee/x264-0480cb05fa188d37ae87e8f4fd8f1aea3711f7ee.tar.bz2|f05c59f2e83d494c36307025dca2d3afc6b4d185f3a3453d06cc4fecd7094057"
@@ -37,7 +38,7 @@ WORK="$(mktemp -d)"
 cd "$WORK"
 for entry in "${SOURCES[@]}"; do
   IFS='|' read -r file url sha <<<"$entry"
-  curl -fsSL -o "$file" "$url"
+  curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors -o "$file" "$url"
   echo "$sha  $file" | sha256sum -c --status - || { echo "$file sai SHA256" >&2; exit 1; }
   mkdir -p "src/${file%.tar.*}"
   tar -xf "$file" -C "src/${file%.tar.*}" --strip-components=1
@@ -51,6 +52,8 @@ autotools() {  # autotools <thư mục nguồn> <tuỳ chọn configure...>
       && make -j"$JOBS" >/dev/null && make install >/dev/null )
 }
 
+# WHY zlib: bộ giải mã png/apng và phần nén `cmov` của file MOV (kể cả ảnh bìa PNG nhúng trong MP3/M4A) cần zlib.
+( cd src/zlib-1.3.1 && CROSS_PREFIX="$HOST-" ./configure --static --prefix="$PREFIX" >/dev/null && make -j"$JOBS" >/dev/null && make install >/dev/null )
 autotools libogg-1.3.5
 autotools libvorbis-1.3.7 --with-ogg="$PREFIX" --disable-examples --disable-docs --disable-oggtest
 autotools lame-3.100 --disable-frontend --disable-gtktest
@@ -81,7 +84,7 @@ cd "src/ffmpeg-${FFMPEG_VERSION}"
   --arch=x86_64 --target-os=mingw32 --cross-prefix="$HOST-" --enable-cross-compile --pkg-config=pkg-config \
   --enable-gpl --disable-autodetect --disable-doc --disable-ffplay --disable-ffprobe --disable-network --disable-debug \
   --disable-shared --enable-static \
-  --enable-libx264 --enable-libvpx --enable-libopus --enable-libmp3lame --enable-libvorbis --enable-libdav1d \
+  --enable-libx264 --enable-libvpx --enable-libopus --enable-libmp3lame --enable-libvorbis --enable-libdav1d --enable-zlib \
   --disable-encoders "--enable-encoder=${ENCODERS}" \
   --disable-muxers "--enable-muxer=${MUXERS}" \
   --disable-protocols --enable-protocol=file,pipe \
