@@ -71,6 +71,21 @@ class CiWorkflowTests(unittest.TestCase):
         self.assertIn("setup-windows-deps.ps1", text)
 
 
+class ScriptModeTests(unittest.TestCase):
+    def test_every_script_the_workflows_run_directly_is_executable_in_git(self) -> None:
+        # WHY: `run: scripts/x.sh` cần bit thực thi; thiếu thì job báo "Permission denied" (exit 126) chỉ khi đã gắn tag.
+        import re
+        import subprocess
+        root = WORKFLOW.parents[2]
+        modes = dict(
+            line.split()[::3][:2][::-1]
+            for line in subprocess.run(["git", "ls-files", "-s"], cwd=root, capture_output=True, text=True, check=True).stdout.splitlines()
+        )
+        for name in ("ci.yml", "release.yml"):
+            for command in re.findall(r"run:\s+(scripts/[\w./-]+\.(?:sh|py))", (WORKFLOW.parent / name).read_text()):
+                self.assertEqual(modes.get(command), "100755", f"{name}: {command} không có bit thực thi trong git")
+
+
 class SupplyChainTests(unittest.TestCase):
     FILES = ("ci.yml", "release.yml")
 
