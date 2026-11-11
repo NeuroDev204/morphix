@@ -15,11 +15,11 @@ use morphix_cli::integration::{
     fake::FakeBackend,
     files::{publish_file, remove_dir_if_empty, Transaction, MANAGED_MARKER},
     linux::{
-        autostart_entry_body, desktop_exec_argument, dolphin_service_menu_body,
-        escape_desktop_value, install_mode, nautilus_script_body, nemo_action_body,
-        resolve_xdg_roots, InstallMode, LinuxBackend, SessionEnv, XdgRoots,
+        autostart_entry_body, desktop_exec_argument, escape_desktop_value, install_mode,
+        nautilus_script_body, resolve_xdg_roots, InstallMode, LinuxBackend, SessionEnv, XdgRoots,
     },
     report::doctor_exit_code,
+    static_menu::{dolphin_service_menus, scripts_menu_tree},
     tools::{ToolOutcome, ToolRunner},
     BinaryPaths, ComponentId, ComponentStatus, IntegrationBackend, IntegrationComponentReport,
     IntegrationOptions, IntegrationReport, OverallStatus, UnsupportedBackend,
@@ -68,7 +68,7 @@ fn binaries_in(dir: &Path) -> BinaryPaths {
     BinaryPaths { morphix, gui }
 }
 
-const INSTALLABLE: [ComponentId; 11] = [
+const INSTALLABLE: [ComponentId; 13] = [
     ComponentId::WindowsContextMenu,
     ComponentId::NautilusScript,
     ComponentId::NautilusAccel,
@@ -77,9 +77,11 @@ const INSTALLABLE: [ComponentId; 11] = [
     ComponentId::Autostart,
     ComponentId::NautilusExtension,
     ComponentId::ApplicationLauncher,
-    ComponentId::NemoAction,
     ComponentId::CajaScript,
     ComponentId::ThunarAction,
+    ComponentId::NautilusScriptMenu,
+    ComponentId::NemoScriptMenu,
+    ComponentId::CajaScriptMenu,
 ];
 
 fn status_of(report: &IntegrationReport, id: ComponentId) -> ComponentStatus {
@@ -180,9 +182,11 @@ fn every_component_and_status_name_matches_the_contract() {
         ComponentId::NautilusExtension,
         ComponentId::DesktopContextMenu,
         ComponentId::ApplicationLauncher,
-        ComponentId::NemoAction,
         ComponentId::CajaScript,
         ComponentId::ThunarAction,
+        ComponentId::NautilusScriptMenu,
+        ComponentId::NemoScriptMenu,
+        ComponentId::CajaScriptMenu,
     ]
     .iter()
     .map(|id| serde_json::to_value(id).unwrap())
@@ -201,9 +205,11 @@ fn every_component_and_status_name_matches_the_contract() {
             "nautilus_extension",
             "desktop_context_menu",
             "application_launcher",
-            "nemo_action",
             "caja_script",
-            "thunar_action"
+            "thunar_action",
+            "nautilus_script_menu",
+            "nemo_script_menu",
+            "caja_script_menu"
         ]
     );
     let statuses: Vec<Value> = [
@@ -360,9 +366,11 @@ fn no_autostart_leaves_out_only_the_autostart_component() {
             ComponentId::DolphinServiceMenu,
             ComponentId::NautilusExtension,
             ComponentId::ApplicationLauncher,
-            ComponentId::NemoAction,
             ComponentId::CajaScript,
             ComponentId::ThunarAction,
+            ComponentId::NautilusScriptMenu,
+            ComponentId::NemoScriptMenu,
+            ComponentId::CajaScriptMenu,
         ]
     );
     assert!(!backend.entry_path(ComponentId::Autostart).exists());
@@ -716,6 +724,8 @@ fn sandboxed_morphix(sandbox: &Path) -> assert_cmd::Command {
         .env("XDG_DATA_HOME", sandbox.join("xdg-data"))
         .env("XDG_CONFIG_HOME", sandbox.join("xdg-config"))
         .env("MORPHIX_GUI_BIN", gui)
+        // WHY: có nautilus-python hay không không được phụ thuộc máy chạy test.
+        .env("MORPHIX_NAUTILUS_PYTHON_DIRS", sandbox.join("no-nautilus-python"))
         .env_remove("XDG_CURRENT_DESKTOP")
         // WHY: Alt+C chỉ áp dụng cho X11; phiên Wayland của máy chạy test không được đổi kết quả cài đặt.
         .env_remove("XDG_SESSION_TYPE")
@@ -770,6 +780,8 @@ fn install_integration_json_installs_linux_components_into_sandboxed_roots() {
             "installed",
             "not_applicable",
             "not_applicable",
+            "installed",
+            "not_applicable",
             "not_applicable"
         ]
     );
@@ -795,7 +807,7 @@ fn no_autostart_flag_drops_autostart_in_the_cli_output() {
         .map(|c| c["id"].clone())
         .collect();
     assert!(!ids.contains(&json!("autostart")), "{ids:?}");
-    assert_eq!(ids.len(), 10);
+    assert_eq!(ids.len(), 12);
 }
 
 #[cfg(target_os = "linux")]
@@ -849,7 +861,7 @@ fn doctor_json_keeps_ffmpeg_and_data_dir_and_adds_integration_status() {
     assert!(json["log"].as_str().unwrap().ends_with("morphix.log"));
     assert_eq!(json["integration"]["overall"], "success");
     let components = json["integration"]["components"].as_array().unwrap();
-    assert_eq!(components.len(), 14);
+    assert_eq!(components.len(), 16);
     assert!(!data.join("morphix.log").exists());
 }
 
@@ -910,7 +922,7 @@ fn nautilus_path(root: &Path) -> PathBuf {
 
 #[cfg(unix)]
 fn dolphin_path(root: &Path) -> PathBuf {
-    root.join("data/kio/servicemenus/morphix.desktop")
+    root.join("data/kio/servicemenus/morphix-image.desktop")
 }
 
 #[cfg(unix)]
@@ -1056,32 +1068,28 @@ fn installed_nautilus_script_forwards_selected_paths_as_untouched_argv() {
 }
 
 #[test]
-fn dolphin_service_menu_declares_konq_popup_service_type_exactly_once() {
-    let body = dolphin_service_menu_body(Path::new("/opt/morphix/morphix")).unwrap();
-    let service_types: Vec<&str> = body
-        .lines()
-        .filter_map(|line| line.strip_prefix("ServiceTypes="))
-        .collect();
-    assert_eq!(service_types, vec!["KonqPopupMenu/Plugin"]);
+fn dolphin_service_menus_declare_konq_popup_service_type_exactly_once() {
+    for file in dolphin_service_menus(Path::new("/opt/morphix/morphix")).unwrap() {
+        let service_types: Vec<&str> = file
+            .body
+            .lines()
+            .filter_map(|line| line.strip_prefix("ServiceTypes="))
+            .collect();
+        assert_eq!(service_types, vec!["KonqPopupMenu/Plugin"], "{:?}", file.relative);
+    }
 }
 
 #[test]
-fn dolphin_service_menu_passes_uri_placeholder_with_desktop_entry_escaping() {
+fn dolphin_service_menu_passes_file_placeholder_with_desktop_entry_escaping() {
     let morphix = PathBuf::from(format!("{AWKWARD_DIR}morphix"));
-    let expected = concat!(
-        "# Managed by Morphix\n",
-        "[Desktop Entry]\n",
-        "Type=Service\n",
-        "Name=Morphix\n",
-        "MimeType=all/allfiles;\n",
-        "Actions=Morphix;\n",
-        "ServiceTypes=KonqPopupMenu/Plugin\n",
-        "\n",
-        "[Desktop Action Morphix]\n",
-        "Name=Morphix\n",
-        "Exec=\"/Apps \\\\\"v1\\\\\" & it's/Morphix/morphix\" menu -- %F\n",
+    let files = dolphin_service_menus(&morphix).unwrap();
+    assert!(
+        files[0].body.contains(
+            "Exec=\"/Apps \\\\\"v1\\\\\" & it's/Morphix/morphix\" menu --action merge -- %F\n"
+        ),
+        "{}",
+        files[0].body
     );
-    assert_eq!(dolphin_service_menu_body(&morphix).unwrap(), expected);
 }
 
 #[test]
@@ -1949,7 +1957,7 @@ fn doctor_json_lists_every_integration_status_and_never_changes_files() {
         .assert();
     let json = stdout_json(&assert);
     let components = json["integration"]["components"].as_array().unwrap();
-    assert_eq!(components.len(), 14, "{json}");
+    assert_eq!(components.len(), 16, "{json}");
     for id in [
         "nautilus_extension",
         "desktop_context_menu",
@@ -2610,25 +2618,23 @@ fn install_mode_detects_package_paths() {
 fn only_present_file_managers_get_integration() {
     let f = tempdir().unwrap();
     let binaries = binaries_in(f.path());
-    let bin = f.path().join("path-bin");
-    fs::create_dir_all(&bin).unwrap();
-    fs::write(bin.join("nemo"), b"").unwrap();
+    let session = static_menu_session(f.path(), &["nemo"], false);
     let root = f.path().join("root");
-    let session = SessionEnv {
-        path: Some(bin.into_os_string()),
-        ..gnome_session()
-    };
     let backend = linux_with(&root, session, scripted_tools(Vec::new()));
     let report = integration::install(&backend, &binaries, &IntegrationOptions::default());
     assert_eq!(
-        status_of(&report, ComponentId::NemoAction),
+        status_of(&report, ComponentId::NemoScriptMenu),
         ComponentStatus::Installed
     );
-    assert!(root.join("data/nemo/actions/morphix.nemo_action").is_file());
+    assert!(root
+        .join("data/nemo/scripts/Morphix việc nhanh/Ảnh/WebP")
+        .is_file());
     for id in [
         ComponentId::DolphinServiceMenu,
         ComponentId::CajaScript,
+        ComponentId::CajaScriptMenu,
         ComponentId::NautilusScript,
+        ComponentId::NautilusScriptMenu,
     ] {
         assert_eq!(
             status_of(&report, id),
@@ -2636,22 +2642,9 @@ fn only_present_file_managers_get_integration() {
             "{id:?}"
         );
     }
-    assert!(!root.join("data/kio/servicemenus/morphix.desktop").exists());
-    assert!(!root.join("config/caja/scripts/Morphix").exists());
-    assert!(!root.join("data/nautilus/scripts/Morphix").exists());
-}
-
-#[test]
-fn nemo_and_thunar_bodies_quote_paths_with_spaces() {
-    let path = Path::new("/tmp/a b/Tài liệu/morphix");
-    let body = nemo_action_body(path).unwrap();
-    let exec = format!(
-        "Exec={} menu --uris %U",
-        escape_desktop_value(&desktop_exec_argument(path.to_str().unwrap()))
-    );
-    assert!(body.lines().any(|line| line == exec), "{body}");
-    assert!(exec.contains("\"/tmp/a b/Tài liệu/morphix\""), "{exec}");
-    assert!(body.starts_with(&format!("# {MANAGED_MARKER}\n[Nemo Action]\n")));
+    assert!(!root.join("data/kio/servicemenus").exists());
+    assert!(!root.join("config/caja/scripts").exists());
+    assert!(!root.join("data/nautilus/scripts").exists());
 }
 
 #[test]
@@ -2791,4 +2784,226 @@ fn nautilus_accelerator_reads_the_version_from_rpm_or_pacman_too() {
         accel_status(&f.path().join("arch"), "pacman", "nautilus 47.1-1\n"),
         ComponentStatus::NotApplicable
     );
+}
+
+// ---- menu tĩnh nhiều file: Dolphin, Thunar và thư mục Scripts ----
+
+/// Phiên có sẵn các trình quản lý file `programs` trên PATH, và (hoặc không) `nautilus-python`.
+/// WHY tiêm thư mục: máy chạy test có thể đã cài nautilus-python thật.
+fn static_menu_session(dir: &Path, programs: &[&str], python: bool) -> SessionEnv {
+    let bin = dir.join("path-bin");
+    fs::create_dir_all(&bin).unwrap();
+    for name in programs {
+        fs::write(bin.join(name), b"").unwrap();
+    }
+    let python_dir = dir.join("python-ext");
+    fs::create_dir_all(&python_dir).unwrap();
+    if python {
+        fs::write(python_dir.join("libnautilus-python.so"), b"").unwrap();
+    }
+    SessionEnv {
+        path: Some(bin.into_os_string()),
+        nautilus_python_dirs: Some(vec![python_dir]),
+        ..gnome_session()
+    }
+}
+
+/// Mọi thư mục và file dưới `dir`, đã sắp, để kiểm "không còn gì sót".
+fn all_paths(dir: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries {
+            let path = entry.unwrap().path();
+            found.push(path.clone());
+            if path.is_dir() {
+                found.extend(all_paths(&path));
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
+const STATIC_MENU_IDS: [ComponentId; 4] = [
+    ComponentId::DolphinServiceMenu,
+    ComponentId::NautilusScriptMenu,
+    ComponentId::NemoScriptMenu,
+    ComponentId::CajaScriptMenu,
+];
+
+fn static_menu_backend(f: &Path, python: bool) -> (LinuxBackend, PathBuf) {
+    let root = f.join("root");
+    let session = static_menu_session(f, &["dolphin", "nemo", "caja", "nautilus"], python);
+    (linux_with(&root, session, scripted_tools(Vec::new())), root)
+}
+
+#[test]
+fn install_writes_every_generated_file_and_uninstall_leaves_nothing() {
+    let f = tempdir().unwrap();
+    let binaries = binaries_in(f.path());
+    let (backend, root) = static_menu_backend(f.path(), false);
+    for id in STATIC_MENU_IDS {
+        assert_eq!(
+            backend.install(id, &binaries).status,
+            ComponentStatus::Installed,
+            "{id:?}"
+        );
+    }
+    for file in dolphin_service_menus(&binaries.morphix).unwrap() {
+        let path = root.join("data/kio/servicemenus").join(&file.relative);
+        assert_eq!(fs::read_to_string(&path).unwrap(), file.body);
+        #[cfg(unix)]
+        assert_eq!(mode_of(&path), 0o755);
+    }
+    for base in ["data/nautilus/scripts", "data/nemo/scripts", "config/caja/scripts"] {
+        for file in scripts_menu_tree(&binaries.morphix).unwrap() {
+            let path = root.join(base).join(&file.relative);
+            assert_eq!(fs::read_to_string(&path).unwrap(), file.body, "{}", path.display());
+            #[cfg(unix)]
+            assert_eq!(mode_of(&path), 0o755);
+        }
+    }
+    for id in STATIC_MENU_IDS {
+        assert_eq!(backend.uninstall(id).status, ComponentStatus::Removed, "{id:?}");
+        assert_eq!(backend.uninstall(id).status, ComponentStatus::AlreadyAbsent, "{id:?}");
+    }
+    assert_eq!(all_paths(&root), Vec::<PathBuf>::new());
+}
+
+#[test]
+fn static_menu_install_is_idempotent_and_inspect_matches() {
+    let f = tempdir().unwrap();
+    let binaries = binaries_in(f.path());
+    let (backend, _root) = static_menu_backend(f.path(), false);
+    for id in STATIC_MENU_IDS {
+        assert_eq!(backend.inspect(id, &binaries).status, ComponentStatus::Missing, "{id:?}");
+        assert_eq!(backend.install(id, &binaries).status, ComponentStatus::Installed);
+        assert_eq!(backend.install(id, &binaries).status, ComponentStatus::AlreadyInstalled, "{id:?}");
+        assert_eq!(backend.inspect(id, &binaries).status, ComponentStatus::Installed, "{id:?}");
+    }
+}
+
+#[test]
+fn upgrade_from_single_entry_layout_removes_legacy_files() {
+    let f = tempdir().unwrap();
+    let binaries = binaries_in(f.path());
+    let (backend, root) = static_menu_backend(f.path(), false);
+    let legacy_dolphin = root.join("data/kio/servicemenus/morphix.desktop");
+    let legacy_nemo = root.join("data/nemo/actions/morphix.nemo_action");
+    for path in [&legacy_dolphin, &legacy_nemo] {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, format!("# {MANAGED_MARKER}\n[Desktop Entry]\nName=Morphix\n")).unwrap();
+    }
+    // Trước khi cài lại, doctor phải thấy bố cục cũ là chưa đủ.
+    assert_eq!(
+        backend.inspect(ComponentId::DolphinServiceMenu, &binaries).status,
+        ComponentStatus::Missing
+    );
+    let report = integration::install(&backend, &binaries, &IntegrationOptions::default());
+    assert_eq!(status_of(&report, ComponentId::DolphinServiceMenu), ComponentStatus::Installed);
+    assert_eq!(status_of(&report, ComponentId::NemoScriptMenu), ComponentStatus::Installed);
+    assert!(!legacy_dolphin.exists(), "service menu một mục kiểu cũ phải bị gỡ");
+    assert!(!legacy_nemo.exists(), "Nemo Action kiểu cũ phải bị gỡ");
+    assert!(root.join("data/kio/servicemenus/morphix-image.desktop").is_file());
+}
+
+#[test]
+fn legacy_files_are_removed_on_uninstall_too() {
+    let f = tempdir().unwrap();
+    let binaries = binaries_in(f.path());
+    let (backend, root) = static_menu_backend(f.path(), false);
+    let legacy_nemo = root.join("data/nemo/actions/morphix.nemo_action");
+    fs::create_dir_all(legacy_nemo.parent().unwrap()).unwrap();
+    fs::write(&legacy_nemo, format!("# {MANAGED_MARKER}\n[Nemo Action]\n")).unwrap();
+    integration::uninstall(&backend, &binaries, &IntegrationOptions::default());
+    assert!(!legacy_nemo.exists());
+}
+
+#[test]
+fn unmarked_user_files_are_left_alone() {
+    let f = tempdir().unwrap();
+    let binaries = binaries_in(f.path());
+    let (backend, root) = static_menu_backend(f.path(), false);
+    let user_script = root.join("data/nemo/scripts/Morphix việc nhanh/Ảnh/WebP");
+    let user_menu = root.join("data/kio/servicemenus/morphix-image.desktop");
+    let user_nemo = root.join("data/nemo/actions/morphix.nemo_action");
+    for (path, text) in [
+        (&user_script, "#!/bin/sh\necho của tôi\n"),
+        (&user_menu, "[Desktop Entry]\nName=Của tôi\n"),
+        (&user_nemo, "[Nemo Action]\nName=Của tôi\n"),
+    ] {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, text).unwrap();
+    }
+    assert_eq!(
+        backend.install(ComponentId::NemoScriptMenu, &binaries).status,
+        ComponentStatus::Conflict
+    );
+    assert_eq!(
+        backend.install(ComponentId::DolphinServiceMenu, &binaries).status,
+        ComponentStatus::Conflict
+    );
+    assert_eq!(fs::read_to_string(&user_script).unwrap(), "#!/bin/sh\necho của tôi\n");
+    assert_eq!(fs::read_to_string(&user_menu).unwrap(), "[Desktop Entry]\nName=Của tôi\n");
+    // Xung đột thì không ghi file nào của thành phần đó.
+    assert_eq!(all_paths(&root.join("data/nemo/scripts")).len(), 3);
+    assert_eq!(all_paths(&root.join("data/kio/servicemenus")).len(), 1);
+    backend.uninstall(ComponentId::NemoScriptMenu);
+    backend.uninstall(ComponentId::DolphinServiceMenu);
+    assert!(user_script.is_file() && user_menu.is_file() && user_nemo.is_file());
+}
+
+#[test]
+fn nautilus_script_menu_is_skipped_when_nautilus_python_is_present() {
+    let f = tempdir().unwrap();
+    let binaries = binaries_in(f.path());
+    let (backend, root) = static_menu_backend(f.path(), true);
+    let report = backend.install(ComponentId::NautilusScriptMenu, &binaries);
+    assert_eq!(report.status, ComponentStatus::NotApplicable);
+    assert!(report.message.contains("menu động"), "{}", report.message);
+    assert!(!root.join("data/nautilus/scripts").exists());
+}
+
+#[test]
+fn nautilus_script_menu_installed_earlier_is_removed_once_nautilus_python_appears() {
+    let f = tempdir().unwrap();
+    let binaries = binaries_in(f.path());
+    let (without, root) = static_menu_backend(f.path(), false);
+    assert_eq!(
+        without.install(ComponentId::NautilusScriptMenu, &binaries).status,
+        ComponentStatus::Installed
+    );
+    let python_dir = f.path().join("python-ext");
+    fs::write(python_dir.join("libnautilus-python.so"), b"").unwrap();
+    let with = linux_with(
+        &root,
+        static_menu_session(f.path(), &["nautilus"], true),
+        scripted_tools(Vec::new()),
+    );
+    assert_eq!(
+        with.inspect(ComponentId::NautilusScriptMenu, &binaries).status,
+        ComponentStatus::Stale
+    );
+    assert_eq!(
+        with.install(ComponentId::NautilusScriptMenu, &binaries).status,
+        ComponentStatus::NotApplicable
+    );
+    assert_eq!(all_paths(&root), Vec::<PathBuf>::new());
+}
+
+#[test]
+fn doctor_reports_menu_tier_per_file_manager() {
+    let f = tempdir().unwrap();
+    let binaries = binaries_in(f.path());
+    let (backend, _root) = static_menu_backend(f.path(), true);
+    for id in [ComponentId::DolphinServiceMenu, ComponentId::NemoScriptMenu] {
+        backend.install(id, &binaries);
+    }
+    let report = integration::inspect(&backend, &binaries);
+    let message = |id: ComponentId| {
+        report.components.iter().find(|c| c.id == id).unwrap().message.clone()
+    };
+    assert!(message(ComponentId::DolphinServiceMenu).contains("menu tĩnh"));
+    assert!(message(ComponentId::NemoScriptMenu).contains("menu tĩnh"));
+    assert!(message(ComponentId::NautilusScriptMenu).contains("menu động"));
 }

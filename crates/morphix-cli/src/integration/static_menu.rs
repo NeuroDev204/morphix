@@ -213,16 +213,38 @@ mod tests {
         let path = dir.path().join("script.sh");
         std::fs::write(&path, &script.body).unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let status = std::process::Command::new(&path)
-            .args(["ảnh của tôi.png", "a'b.png"])
-            .status()
-            .unwrap();
+        // WHY thử lại: test khác chạy song song có thể đang `fork`, giữ tạm fd ghi của file vừa tạo,
+        // nên exec lúc đó báo "Text file busy" (ETXTBSY) dù file đã đóng.
+        let mut attempts = 0;
+        let status = loop {
+            attempts += 1;
+            match std::process::Command::new(&path)
+                .args(["ảnh của tôi.png", "a'b.png"])
+                .status()
+            {
+                Ok(status) if status.code() != Some(126) => break status,
+                Err(error) if error.kind() != std::io::ErrorKind::ExecutableFileBusy => {
+                    panic!("{error}")
+                }
+                _ if attempts >= 40 => panic!("script vẫn báo Text file busy sau {attempts} lần thử"),
+                _ => std::thread::sleep(std::time::Duration::from_millis(25)),
+            }
+        };
         assert!(status.success());
         assert_eq!(
             std::fs::read_to_string(&record).unwrap(),
             "menu\n--action\nconvert:webp\n--\nảnh của tôi.png\na'b.png\n"
         );
-        let no_args = std::process::Command::new(&path).output().unwrap();
+        let no_args = (0..40)
+            .find_map(|_| match std::process::Command::new(&path).output() {
+                Ok(output) => Some(output),
+                Err(error) if error.kind() == std::io::ErrorKind::ExecutableFileBusy => {
+                    std::thread::sleep(std::time::Duration::from_millis(25));
+                    None
+                }
+                Err(error) => panic!("{error}"),
+            })
+            .expect("script vẫn báo Text file busy");
         assert!(!no_args.status.success());
         assert!(String::from_utf8_lossy(&no_args.stderr).contains("không có file cục bộ"));
     }

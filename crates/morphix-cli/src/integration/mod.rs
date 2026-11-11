@@ -5,6 +5,7 @@ pub mod desktop;
 pub mod fake;
 pub mod files;
 pub mod linux;
+mod multi;
 pub mod report;
 #[cfg(target_os = "linux")]
 mod selection;
@@ -95,7 +96,7 @@ pub fn default_backend() -> Box<dyn IntegrationBackend> {
 /// Không làm gì và báo `unsupported` cho mọi thành phần; để CLI chạy đúng trên nền tảng chưa hỗ trợ.
 pub struct UnsupportedBackend;
 
-const ALL_COMPONENTS: [ComponentId; 14] = [
+const ALL_COMPONENTS: [ComponentId; 16] = [
     ComponentId::WindowsContextMenu,
     ComponentId::NautilusScript,
     ComponentId::NautilusAccel,
@@ -107,12 +108,14 @@ const ALL_COMPONENTS: [ComponentId; 14] = [
     ComponentId::NautilusExtension,
     ComponentId::DesktopContextMenu,
     ComponentId::ApplicationLauncher,
-    ComponentId::NemoAction,
     ComponentId::CajaScript,
     ComponentId::ThunarAction,
+    ComponentId::NautilusScriptMenu,
+    ComponentId::NemoScriptMenu,
+    ComponentId::CajaScriptMenu,
 ];
 
-const INSTALLABLE_COMPONENTS: [ComponentId; 11] = [
+const INSTALLABLE_COMPONENTS: [ComponentId; 13] = [
     ComponentId::WindowsContextMenu,
     ComponentId::NautilusScript,
     ComponentId::NautilusAccel,
@@ -121,9 +124,11 @@ const INSTALLABLE_COMPONENTS: [ComponentId; 11] = [
     ComponentId::Autostart,
     ComponentId::NautilusExtension,
     ComponentId::ApplicationLauncher,
-    ComponentId::NemoAction,
     ComponentId::CajaScript,
     ComponentId::ThunarAction,
+    ComponentId::NautilusScriptMenu,
+    ComponentId::NemoScriptMenu,
+    ComponentId::CajaScriptMenu,
 ];
 
 impl IntegrationBackend for UnsupportedBackend {
