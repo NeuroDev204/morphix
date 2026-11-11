@@ -132,3 +132,16 @@ Chưa sửa, và lý do:
 - **`taskkill /F` khi gỡ** có thể dừng một lượt chuyển đổi đang chạy. GUI ẩn cửa sổ khi đóng nên không thoát êm được; cần một lệnh "thoát" qua IPC.
 - **`all/allfiles`** trong service menu Dolphin: validator báo "sẽ lỗi trong tương lai" nhưng đây là kiểu MIME KDE dùng cho mọi file; đổi có thể làm Dolphin không hiện menu.
 - **Phím tắt Alt+C trên Wayland, Dolphin/Thunar/Nemo/Caja, Explorer, `MorphixSetup.exe`, Store**: chưa kiểm được bằng công cụ ở đây.
+
+## ffmpeg gọn tự dựng (2026-11-11, sau v0.1.3)
+
+Bản dựng từ nguồn (`scripts/build-ffmpeg-slim.sh`, `scripts/build-ffmpeg-slim-windows.sh`): FFmpeg 8.1.3 liên kết tĩnh hoàn toàn, chỉ bật bộ mã hoá và muxer Morphix gọi, giữ mọi bộ giải mã (thêm AV1 qua dav1d, PNG/`cmov` qua zlib). Kiểm bằng bộ test media của repo (Linux và Windows qua Wine), giải mã AV1 và ảnh bìa PNG.
+
+| Thành phần | Trước | Sau |
+|---|---|---|
+| ffmpeg Linux | 172254856 (BtbN) | 30413928 |
+| ffmpeg.exe Windows | 105423872 (Gyan essentials) | 35330048 |
+| Tarball Linux | 84577223 | 29433168 (-65%) |
+| Gói `.deb` | 81297684 | 22906088 (-72%), `/usr/lib/morphix` 37 MB |
+
+Gói `.deb` đã cài thật bằng `apt` trong Ubuntu 24.04 sạch: `check-deb.sh` qua, chuyển đổi MKV/MP4/MP3/PNG/WebP/PDF chạy được.

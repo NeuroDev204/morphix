@@ -115,8 +115,10 @@ echo "== desktop files, DING manifest/hash, maintainer scripts và Depends hợp
 } | sort -u > "$WORK/depends-closure.txt"
 
 # WHY: ffmpeg gọn phải là binary tĩnh hoàn toàn và gói không còn thư viện .so riêng cho nó.
-env -i PATH=/usr/bin:/bin ldd "$WORK/usr/lib/morphix/ffmpeg" 2>&1 | grep -q 'not a dynamic executable' \
-  || { echo "ffmpeg đóng gói không phải binary tĩnh" >&2; exit 1; }
+# WHY lấy đầu ra trước: `ldd` thoát mã 1 với binary tĩnh, và `pipefail` sẽ làm cả pipeline `ldd | grep` thất bại.
+ffmpeg_ldd="$(env -i PATH=/usr/bin:/bin ldd "$WORK/usr/lib/morphix/ffmpeg" 2>&1 || true)"
+grep -q 'not a dynamic executable' <<<"$ffmpeg_ldd" \
+  || { echo "ffmpeg đóng gói không phải binary tĩnh: $ffmpeg_ldd" >&2; exit 1; }
 if [ -e "$WORK/usr/lib/morphix/lib" ]; then
   echo "gói còn thư mục usr/lib/morphix/lib của ffmpeg cũ" >&2
   exit 1
