@@ -25,6 +25,12 @@ jobs:
       # WHY không chạy cargo fmt --check toàn workspace: còn drift đã biết (CLAUDE.md), sửa riêng.
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+      # WHY: chạy lại test core với đúng ffmpeg gọn mà tarball và .deb mang theo; thiếu nó thì test media bị bỏ qua
+      # và một bộ mã hoá/muxer bị cắt nhầm chỉ lộ ra trên máy người dùng.
+      - run: bash scripts/install-ffmpeg-slim.sh "$RUNNER_TEMP/ffmpeg/bin/ffmpeg" "$RUNNER_TEMP/ffmpeg/doc" "$RUNNER_TEMP/ffmpeg/work"
+      - env:
+          MORPHIX_FFMPEG: ${{ runner.temp }}/ffmpeg/bin/ffmpeg
+        run: cargo test -p morphix-core
       - run: npm ci && npm run check && npm test
         working-directory: crates/morphix-gui/ui
       - run: python3 -m unittest discover -s scripts/tests

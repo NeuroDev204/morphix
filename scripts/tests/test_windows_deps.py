@@ -134,6 +134,11 @@ class SlimFfmpegCoversMorphixTests(unittest.TestCase):
         for script in ("build-ffmpeg-slim.sh", "build-ffmpeg-slim-windows.sh"):
             self.assertLessEqual(requested, self.configured(script, "ENCODERS"), script)
 
+    def test_linux_ci_runs_the_core_tests_against_the_shipped_ffmpeg(self) -> None:
+        ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        self.assertIn("scripts/install-ffmpeg-slim.sh", ci)
+        self.assertRegex(ci, r"MORPHIX_FFMPEG: .*\n\s+run: cargo test -p morphix-core")
+
     def test_single_image_output_has_its_muxer(self) -> None:
         # WHY: giải mã AVIF ghi ra decoded.png, cần muxer image2 (không có thì ffmpeg báo "Invalid argument").
         for script in ("build-ffmpeg-slim.sh", "build-ffmpeg-slim-windows.sh"):
