@@ -10,6 +10,7 @@ use morphix_core::{Job, JobReport, MorphixError, Operation};
 use morphix_ipc::{send_request, socket_name, MenuRequest};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_notification::NotificationExt;
 
 use crate::history::{format_size_vn, EntryStatus, History, HistoryEntry};
 use crate::jobs::{describe_error, JobSnapshot, JobState};
@@ -85,7 +86,16 @@ pub fn job_for_action(
 }
 
 /// Chạy một việc: dùng chung cho lệnh `run_action` của webview và cho yêu cầu IPC từ menu Explorer.
-pub fn start_action(app: &AppHandle, id: &str, inputs: Vec<PathBuf>) -> Result<u64, String> {
+/// Bắt đầu một việc. `notify` bật thông báo hệ thống khi việc xong: dành cho việc chạy từ menu chuột phải, vì lúc đó
+/// không có cửa sổ nào hiện kết quả. Việc chạy từ Khay đã hiện kết quả ngay trong Khay nên không bật.
+/// WHY không hỏi Khay có đang hiện không: đọc trạng thái cửa sổ từ luồng việc có thể treo khi thoát, lúc luồng
+/// chính đang chờ luồng việc kết thúc.
+pub fn start_action(
+    app: &AppHandle,
+    id: &str,
+    inputs: Vec<PathBuf>,
+    notify: bool,
+) -> Result<u64, String> {
     let state = app.state::<AppState>();
     let settings = state.settings_guard().clone();
     let (job, label) = job_for_action(id, inputs, &settings)?;
@@ -94,13 +104,13 @@ pub fn start_action(app: &AppHandle, id: &str, inputs: Vec<PathBuf>) -> Result<u
     let history_job = job.clone();
     let handle = app.clone();
     let on_update =
-        Arc::new(move |snapshot: JobSnapshot| publish_update(&handle, snapshot, &history_job));
+        Arc::new(move |snapshot: JobSnapshot| publish_update(&handle, snapshot, &history_job, notify));
     state.jobs.start(job, label, on_update)
 }
 
 #[tauri::command]
 pub async fn run_action(id: String, paths: Vec<String>, app: AppHandle) -> Result<u64, String> {
-    blocking(move || start_action(&app, &id, parse_paths(paths)?)).await
+    blocking(move || start_action(&app, &id, parse_paths(paths)?, false)).await
 }
 
 #[tauri::command]
@@ -253,16 +263,37 @@ pub async fn submit_menu_request(paths: Vec<String>) -> Result<(), String> {
 
 /// Đẩy tiến trình ra giao diện. Khi việc kết thúc thì ghi lịch sử đúng một lần rồi mới báo `job-finished`.
 /// WHY: ghi ở đây thay vì trong cửa sổ, để việc vẫn được ghi dù người dùng đã đóng vòng tròn.
-fn publish_update(app: &AppHandle, snapshot: JobSnapshot, job: &Job) {
+fn publish_update(app: &AppHandle, snapshot: JobSnapshot, job: &Job, notify: bool) {
     if snapshot.state == JobState::Running {
         emit_or_log(app, JOB_UPDATE_EVENT, snapshot);
         return;
     }
-    record_finished(app, &snapshot, job);
+    let entry = record_finished(app, &snapshot, job);
+    if notify {
+        notify_finished(app, &entry);
+    }
     emit_or_log(app, JOB_FINISHED_EVENT, snapshot);
 }
 
-fn record_finished(app: &AppHandle, snapshot: &JobSnapshot, job: &Job) {
+/// Nội dung thông báo: tiêu đề kết quả rồi chi tiết (trạng thái, số file, lý do lỗi đầu tiên) của dòng lịch sử.
+pub fn notification_body(entry: &HistoryEntry) -> String {
+    format!("{}\n{}", entry.title, entry.detail)
+}
+
+fn notify_finished(app: &AppHandle, entry: &HistoryEntry) {
+    // WHY chỉ log: thông báo là phần thêm; máy không có dịch vụ thông báo thì việc vẫn xong và có trong lịch sử.
+    if let Err(error) = app
+        .notification()
+        .builder()
+        .title("Morphix")
+        .body(notification_body(entry))
+        .show()
+    {
+        tracing::warn!(%error, "không gửi được thông báo hệ thống: {error}");
+    }
+}
+
+fn record_finished(app: &AppHandle, snapshot: &JobSnapshot, job: &Job) -> HistoryEntry {
     let state: State<'_, AppState> = app.state();
     let entry = match state.jobs.take_report(snapshot.id) {
         Some(report) => history_entry_for_report(job, &report),
@@ -281,7 +312,8 @@ fn record_finished(app: &AppHandle, snapshot: &JobSnapshot, job: &Job) {
             )
         }
     };
-    push_history(&state, entry);
+    push_history(&state, entry.clone());
+    entry
 }
 
 /// Dựng dòng lịch sử cho một việc đã kết thúc. Không phụ thuộc Tauri nên kiểm thử được trực tiếp.

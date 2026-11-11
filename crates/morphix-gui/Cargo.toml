@@ -24,6 +24,7 @@ morphix-core = { path = "../morphix-core" }
 tauri = { version = "2.12.4", features = ["tray-icon", "image-png"] }
 tauri-plugin-single-instance = "2.5.4"
 tauri-plugin-dialog = "2"
+tauri-plugin-notification = "2"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 tracing = "0.1.44"

@@ -319,3 +319,27 @@ fn inapplicable_action_is_rejected_with_a_message() {
     .unwrap_err();
     assert!(error.contains("không áp dụng"), "{error}");
 }
+
+#[test]
+fn notification_body_shows_the_result_title_then_the_detail() {
+    use morphix_gui::history::HistoryEntry;
+    let done = HistoryEntry::new(
+        "/tmp/anh.webp",
+        "1 file → anh.webp",
+        "Xong · Đổi sang WEBP · 1 thành công, 0 lỗi",
+        EntryStatus::Done,
+        1,
+    );
+    assert_eq!(
+        morphix_gui::commands::notification_body(&done),
+        "1 file → anh.webp\nXong · Đổi sang WEBP · 1 thành công, 0 lỗi"
+    );
+    let failed = HistoryEntry::new(
+        "/tmp/a.png",
+        "1 file → a.png",
+        "Lỗi · Nén ảnh · 0 thành công, 1 lỗi · a.png: file hỏng",
+        EntryStatus::Failed,
+        1,
+    );
+    assert!(morphix_gui::commands::notification_body(&failed).contains("a.png: file hỏng"));
+}

@@ -143,7 +143,7 @@ fn show_menu_for(app: &AppHandle, request: MenuRequest, collecting: bool) {
         return;
     }
     if let Some(id) = request.action.as_deref() {
-        if let Err(message) = commands::start_action(app, id, request.paths.clone()) {
+        if let Err(message) = commands::start_action(app, id, request.paths.clone(), true) {
             tracing::error!(%message, action = id, "không chạy được việc nhận qua IPC");
             // WHY hộp thoại: lúc này không có webview nào mở để hiện banner lỗi, nên không thể chỉ ghi log.
             app.dialog()
@@ -264,6 +264,8 @@ pub fn run(startup: StartupRequest) -> Result<(), String> {
         }))
         // WHY: hộp chọn file của Khay và Settings gọi plugin-dialog qua IPC; thiếu đăng ký thì lệnh báo "plugin dialog not found".
         .plugin(tauri_plugin_dialog::init())
+        // WHY: việc chạy từ menu chuột phải không mở cửa sổ nào, nên thông báo hệ thống là phản hồi duy nhất khi xong.
+        .plugin(tauri_plugin_notification::init())
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 if windows::close_hides_window(window.label()) {
