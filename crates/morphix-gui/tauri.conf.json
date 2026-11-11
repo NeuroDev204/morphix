@@ -33,18 +33,10 @@
         "alwaysOnTop": false,
         "skipTaskbar": false,
         "visible": false
-      },
-      {
-        "label": "settings",
-        "title": "Morphix Cài đặt",
-        "url": "settings.html",
-        "width": 420,
-        "height": 520,
-        "visible": false
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: asset: http://asset.localhost; font-src 'self' data:; connect-src ipc: http://ipc.localhost"
     }
   },
   "bundle": {

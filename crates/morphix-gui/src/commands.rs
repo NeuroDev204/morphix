@@ -246,7 +246,7 @@ pub async fn save_settings(settings: Settings, app: AppHandle) -> Result<(), Str
 
 /// Mở cửa sổ Cài đặt từ nút bánh răng trong Khay.
 #[tauri::command]
-pub fn open_settings(app: AppHandle) -> Result<(), String> {
+pub async fn open_settings(app: AppHandle) -> Result<(), String> {
     windows::open_settings(&app)
 }
 

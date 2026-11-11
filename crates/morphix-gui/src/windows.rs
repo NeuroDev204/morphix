@@ -5,7 +5,8 @@ use std::time::Instant;
 
 use morphix_ipc::MenuRequest;
 use tauri::{
-    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, PhysicalPosition, WebviewWindow,
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, PhysicalPosition, WebviewUrl,
+    WebviewWindow, WebviewWindowBuilder,
 };
 
 use crate::state::AppState;
@@ -127,6 +128,22 @@ pub fn open_khay(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+fn settings_window(app: &AppHandle) -> Result<WebviewWindow, String> {
+    if let Some(window) = app.get_webview_window(SETTINGS_WINDOW_LABEL) {
+        return Ok(window);
+    }
+    WebviewWindowBuilder::new(
+        app,
+        SETTINGS_WINDOW_LABEL,
+        WebviewUrl::App("settings.html".into()),
+    )
+    .title("Morphix Cài đặt")
+    .inner_size(420.0, 520.0)
+    .visible(false)
+    .build()
+    .map_err(|error| format!("Không tạo được cửa sổ Cài đặt: {error}"))
+}
+
 fn center_khay(window: &WebviewWindow) {
     if let Err(error) = window.center() {
         tracing::warn!(error = %error, "không căn giữa được cửa sổ Khay: {error}");
@@ -141,10 +158,11 @@ pub fn hide_khay(app: &AppHandle) -> Result<(), String> {
 }
 
 /// Hiện cửa sổ Cài đặt và đưa lên trước. Cửa sổ bị ẩn khi đóng nên mở lại chỉ cần hiện, không tạo mới.
+///
+/// Cửa sổ được tạo ở lần mở đầu tiên chứ không lúc khởi động, để khởi động chỉ dựng ít webview hơn.
+/// WHY không gọi trực tiếp từ lệnh đồng bộ hay event handler: trên Windows việc tạo cửa sổ ở đó bị treo.
 pub fn open_settings(app: &AppHandle) -> Result<(), String> {
-    let window = app
-        .get_webview_window(SETTINGS_WINDOW_LABEL)
-        .ok_or_else(|| "Không tìm thấy cửa sổ Cài đặt.".to_string())?;
+    let window = settings_window(app)?;
     if let Err(error) = window.center() {
         // WHY: không căn giữa được thì cửa sổ vẫn hiện ở vị trí cũ và dùng được.
         tracing::warn!(error = %error, "không căn giữa được cửa sổ Cài đặt: {error}");

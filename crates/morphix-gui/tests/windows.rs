@@ -62,3 +62,25 @@ fn khay_fallback_size_matches_tauri_conf() {
     );
     assert_eq!(khay_size((0, 0), 1.0), configured);
 }
+
+#[test]
+fn settings_window_is_not_created_at_startup_and_csp_is_set() {
+    let config: serde_json::Value =
+        serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+    let labels: Vec<&str> = config["app"]["windows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|window| window["label"].as_str().unwrap())
+        .collect();
+    assert!(!labels.contains(&"settings"));
+    assert!(config["app"]["security"]["csp"].is_string());
+}
+
+// WHY đọc nguồn: Tauri treo trên Windows khi tạo cửa sổ từ lệnh đồng bộ hoặc event handler của khay
+// (tài liệu `WebviewWindowBuilder::new`), nên lệnh phải async và khay phải mở Cài đặt trên luồng riêng.
+#[test]
+fn settings_is_opened_from_an_async_command_and_a_separate_thread() {
+    assert!(include_str!("../src/commands.rs").contains("pub async fn open_settings("));
+    assert!(include_str!("../src/tray.rs").contains("spawn_blocking"));
+}
