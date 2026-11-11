@@ -8,6 +8,7 @@ pub mod linux;
 pub mod report;
 #[cfg(target_os = "linux")]
 mod selection;
+pub mod static_menu;
 pub mod thunar;
 pub mod tools;
 pub mod windows;

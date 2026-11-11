@@ -4,12 +4,15 @@
 
 use std::{fs, io, path::Path};
 
+use morphix_core::{action_id, static_menu_groups};
+
 use super::{
     files::{publish_file, read_existing, Transaction},
     linux::{io_failure, posix_single_quote, report},
     ComponentId, ComponentStatus, IntegrationComponentReport,
 };
 
+/// Tiền tố `unique-id` của mọi khối Morphix. Khối đơn của bản cũ dùng đúng chuỗi này (không có hậu tố).
 pub const THUNAR_UNIQUE_ID: &str = "morphix-menu";
 const ID: ComponentId = ComponentId::ThunarAction;
 const UCA_MODE: u32 = 0o644;
@@ -21,50 +24,132 @@ fn xml_escape(text: &str) -> String {
         .replace('>', "&gt;")
 }
 
-/// Khối `<action>` của Morphix, kết thúc bằng xuống dòng.
-pub fn thunar_action_block(morphix: &Path) -> Result<String, String> {
+fn is_morphix_id(id: &str) -> bool {
+    id == THUNAR_UNIQUE_ID || id.starts_with("morphix-menu-")
+}
+
+/// Thẻ loại file của Thunar cho một nhóm. Nhóm văn bản có cả `other-files` vì DOCX không phải `text/*`.
+fn type_tags(key: &str) -> &'static [&'static str] {
+    match key {
+        "image" => &["image-files"],
+        "audio" => &["audio-files"],
+        "video" => &["video-files"],
+        "text" => &["text-files", "other-files"],
+        "pdf" | "archive" => &["other-files"],
+        _ => &["audio-files", "image-files", "other-files", "text-files", "video-files"],
+    }
+}
+
+/// Các khối `<action>` của Morphix, mỗi việc một khối nằm trong submenu "Morphix", kết thúc bằng xuống dòng.
+/// WHY thêm cả đuôi viết hoa vào pattern: không chắc Thunar so khớp pattern không phân biệt hoa thường.
+pub fn thunar_action_blocks(morphix: &Path) -> Result<String, String> {
     let morphix = morphix
         .to_str()
         .ok_or_else(|| format!("đường dẫn không phải UTF-8: {}", morphix.display()))?;
-    let command = xml_escape(&format!("{} menu -- %F", posix_single_quote(morphix)));
-    Ok(format!(
-        "<action>\n\t<icon>morphix</icon>\n\t<name>Morphix</name>\n\t<submenu></submenu>\n\t<unique-id>{THUNAR_UNIQUE_ID}</unique-id>\n\t<command>{command}</command>\n\t<description>Mở Morphix cho các file đã chọn</description>\n\t<range>*</range>\n\t<patterns>*</patterns>\n\t<audio-files/>\n\t<image-files/>\n\t<other-files/>\n\t<text-files/>\n\t<video-files/>\n</action>\n"
-    ))
+    let mut blocks = String::new();
+    for group in static_menu_groups() {
+        let patterns = if group.extensions.is_empty() {
+            "*".to_string()
+        } else {
+            group
+                .extensions
+                .iter()
+                .flat_map(|ext| [format!("*.{ext}"), format!("*.{}", ext.to_uppercase())])
+                .collect::<Vec<_>>()
+                .join(";")
+        };
+        let tags: String = type_tags(group.key)
+            .iter()
+            .map(|tag| format!("\t<{tag}/>\n"))
+            .collect();
+        for (index, action) in group.actions.iter().enumerate() {
+            let id = action_id(action.kind);
+            let command = xml_escape(&format!(
+                "{} menu --action {} -- %F",
+                posix_single_quote(morphix),
+                posix_single_quote(&id)
+            ));
+            let label = xml_escape(&action.label);
+            blocks.push_str(&format!(
+                "<action>\n\t<icon>morphix</icon>\n\t<name>{label}</name>\n\t<submenu>Morphix</submenu>\n\t<unique-id>{THUNAR_UNIQUE_ID}-{}-{}</unique-id>\n\t<command>{command}</command>\n\t<description>Morphix: {label}</description>\n\t<range>*</range>\n\t<patterns>{}</patterns>\n{tags}</action>\n",
+                group.key,
+                index + 1,
+                xml_escape(&patterns)
+            ));
+        }
+    }
+    Ok(blocks)
 }
 
-/// Vị trí `[đầu, cuối)` của khối Morphix, gồm cả xuống dòng ngay sau `</action>`.
-fn morphix_block_range(text: &str) -> Option<(usize, usize)> {
-    let id = text.find(&format!("<unique-id>{THUNAR_UNIQUE_ID}</unique-id>"))?;
-    let start = text[..id].rfind("<action>")?;
-    let close = id + text[id..].find("</action>")? + "</action>".len();
-    let end = if text[close..].starts_with('\n') {
-        close + 1
-    } else {
-        close
-    };
-    Some((start, end))
+/// Vị trí `[đầu, cuối)` của từng khối Morphix, gồm cả xuống dòng ngay sau `</action>`.
+fn morphix_block_ranges(text: &str) -> Vec<(usize, usize)> {
+    let mut ranges = Vec::new();
+    let mut at = 0;
+    while let Some(found) = text[at..].find("<action>") {
+        let start = at + found;
+        let Some(len) = text[start..].find("</action>") else {
+            break;
+        };
+        let close = start + len + "</action>".len();
+        let block = &text[start..close];
+        let is_ours = block
+            .split("<unique-id>")
+            .nth(1)
+            .and_then(|rest| rest.split("</unique-id>").next())
+            .is_some_and(is_morphix_id);
+        if is_ours {
+            let end = if text[close..].starts_with('\n') {
+                close + 1
+            } else {
+                close
+            };
+            ranges.push((start, end));
+        }
+        at = close;
+    }
+    ranges
 }
 
-/// Thay khối cũ hoặc chèn trước `</actions>` cuối; phần còn lại giữ nguyên từng byte.
-pub fn upsert_action(existing: Option<&str>, block: &str) -> Result<String, String> {
+/// Thay mọi khối Morphix cũ (kể cả khối đơn của bản trước) bằng `blocks` tại chỗ khối đầu tiên, hoặc chèn
+/// trước `</actions>` cuối; phần còn lại giữ nguyên từng byte.
+pub fn upsert_action(existing: Option<&str>, blocks: &str) -> Result<String, String> {
     let Some(text) = existing else {
         return Ok(format!(
-            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<actions>\n{block}{ACTIONS_END}\n"
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<actions>\n{blocks}{ACTIONS_END}\n"
         ));
     };
-    if let Some((start, end)) = morphix_block_range(text) {
-        return Ok(format!("{}{block}{}", &text[..start], &text[end..]));
+    let ranges = morphix_block_ranges(text);
+    if ranges.is_empty() {
+        let at = text
+            .rfind(ACTIONS_END)
+            .ok_or_else(|| "uca.xml không đúng định dạng; không sửa".to_string())?;
+        return Ok(format!("{}{blocks}{}", &text[..at], &text[at..]));
     }
-    let at = text
-        .rfind(ACTIONS_END)
-        .ok_or_else(|| "uca.xml không đúng định dạng; không sửa".to_string())?;
-    Ok(format!("{}{block}{}", &text[..at], &text[at..]))
+    Ok(replace_ranges(text, &ranges, blocks))
 }
 
-/// Bỏ khối Morphix; `None` khi không có khối nào.
+/// Bỏ mọi khối Morphix; `None` khi không có khối nào.
 pub fn remove_action(existing: &str) -> Option<String> {
-    let (start, end) = morphix_block_range(existing)?;
-    Some(format!("{}{}", &existing[..start], &existing[end..]))
+    let ranges = morphix_block_ranges(existing);
+    if ranges.is_empty() {
+        return None;
+    }
+    Some(replace_ranges(existing, &ranges, ""))
+}
+
+/// Bỏ các đoạn `ranges` (đã sắp tăng dần) khỏi `text` và đặt `insert` vào chỗ đoạn đầu tiên.
+fn replace_ranges(text: &str, ranges: &[(usize, usize)], insert: &str) -> String {
+    let mut out = String::with_capacity(text.len() + insert.len());
+    let mut last = 0;
+    for (index, (start, end)) in ranges.iter().enumerate() {
+        out.push_str(&text[last..*start]);
+        if index == 0 {
+            out.push_str(insert);
+        }
+        last = *end;
+    }
+    out.push_str(&text[last..]);
+    out
 }
 
 fn read_text(path: &Path) -> io::Result<Option<String>> {
@@ -84,7 +169,7 @@ fn write_text(path: &Path, text: &str) -> io::Result<()> {
 }
 
 pub(super) fn install(path: &Path, morphix: &Path) -> IntegrationComponentReport {
-    let block = match thunar_action_block(morphix) {
+    let block = match thunar_action_blocks(morphix) {
         Ok(block) => block,
         Err(message) => return report(ID, ComponentStatus::Failed, false, Some(path), &message),
     };
@@ -151,12 +236,14 @@ pub(super) fn inspect(path: &Path, morphix: &Path) -> IntegrationComponentReport
         Ok(current) => current,
         Err(error) => return io_failure(ID, path, &error),
     };
-    let Some(range) = current.as_deref().and_then(morphix_block_range) else {
-        return report(ID, ComponentStatus::Missing, false, Some(path), "chưa cài");
-    };
     let text = current.unwrap_or_default();
-    match thunar_action_block(morphix) {
-        Ok(block) if text[range.0..range.1] == block => report(
+    let ranges = morphix_block_ranges(&text);
+    if ranges.is_empty() {
+        return report(ID, ComponentStatus::Missing, false, Some(path), "chưa cài");
+    }
+    let installed: String = ranges.iter().map(|(start, end)| &text[*start..*end]).collect();
+    match thunar_action_blocks(morphix) {
+        Ok(block) if installed == block => report(
             ID,
             ComponentStatus::Installed,
             false,
@@ -177,56 +264,106 @@ pub(super) fn inspect(path: &Path, morphix: &Path) -> IntegrationComponentReport
 #[cfg(test)]
 mod tests {
     use super::*;
+    use morphix_core::{action_id, static_menu_groups};
+    use std::collections::BTreeSet;
     use std::path::Path;
 
     const USER_FILE: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<actions>\n<action>\n\t<icon>utilities-terminal</icon>\n\t<name>Mở terminal</name>\n\t<unique-id>1700000000000-1</unique-id>\n\t<command>exo-open --launch TerminalEmulator</command>\n</action>\n</actions>\n";
+    /// Khối đơn do bản Morphix trước ghi ra (một mục "Morphix" mở vòng tròn).
+    const LEGACY_BLOCK: &str = "<action>\n\t<icon>morphix</icon>\n\t<name>Morphix</name>\n\t<submenu></submenu>\n\t<unique-id>morphix-menu</unique-id>\n\t<command>'/old/morphix' menu -- %F</command>\n\t<description>Mở Morphix cho các file đã chọn</description>\n\t<range>*</range>\n\t<patterns>*</patterns>\n\t<audio-files/>\n\t<image-files/>\n\t<other-files/>\n\t<text-files/>\n\t<video-files/>\n</action>\n";
+
+    fn blocks() -> String {
+        thunar_action_blocks(Path::new("/opt/morphix")).unwrap()
+    }
+
+    fn action_ids(text: &str) -> BTreeSet<String> {
+        text.split("--action '")
+            .skip(1)
+            .map(|rest| rest.split('\'').next().unwrap().to_string())
+            .collect()
+    }
 
     #[test]
     fn thunar_install_and_uninstall_preserve_other_actions() {
-        let block = thunar_action_block(Path::new("/opt/morphix")).unwrap();
-        let installed = upsert_action(Some(USER_FILE), &block).unwrap();
-        assert_eq!(installed.matches("<action>").count(), 2);
+        let installed = upsert_action(Some(USER_FILE), &blocks()).unwrap();
         assert!(installed.contains("<unique-id>1700000000000-1</unique-id>"));
+        assert!(installed.contains("<unique-id>morphix-menu-image-1</unique-id>"));
         assert_eq!(remove_action(&installed).as_deref(), Some(USER_FILE));
         assert_eq!(remove_action(USER_FILE), None);
     }
 
     #[test]
-    fn upsert_replaces_existing_morphix_block() {
+    fn thunar_blocks_match_the_catalog_and_replace_the_legacy_block() {
+        let legacy = USER_FILE.replace("</actions>", &format!("{LEGACY_BLOCK}</actions>"));
+        let updated = upsert_action(Some(&legacy), &blocks()).unwrap();
+        assert!(!updated.contains("<unique-id>morphix-menu</unique-id>"));
+        assert!(!updated.contains("/old/morphix"));
+        assert!(updated.contains("<unique-id>1700000000000-1</unique-id>"));
+        let wanted: BTreeSet<String> = static_menu_groups()
+            .iter()
+            .flat_map(|group| group.actions.iter().map(|a| action_id(a.kind)))
+            .collect();
+        assert_eq!(action_ids(&updated), wanted);
+        assert_eq!(remove_action(&updated).as_deref(), Some(USER_FILE));
+        // Chạy lại không đổi gì: cài lại phải idempotent.
+        assert_eq!(upsert_action(Some(&updated), &blocks()).unwrap(), updated);
+    }
+
+    #[test]
+    fn thunar_blocks_filter_by_file_type_and_extension() {
+        let text = blocks();
+        let image = text
+            .split("</action>")
+            .find(|block| block.contains("<unique-id>morphix-menu-image-1</unique-id>"))
+            .unwrap();
+        assert!(image.contains("<image-files/>") && !image.contains("<video-files/>"));
+        assert!(image.contains("<patterns>*.jpg;*.JPG;"), "{image}");
+        assert!(image.contains("<submenu>Morphix</submenu>"));
+        let any = text
+            .split("</action>")
+            .find(|block| block.contains("<unique-id>morphix-menu-any-1</unique-id>"))
+            .unwrap();
+        assert!(any.contains("<patterns>*</patterns>"));
+        for tag in ["audio-files", "image-files", "other-files", "text-files", "video-files"] {
+            assert!(any.contains(&format!("<{tag}/>")), "{tag}");
+        }
+        assert!(!any.contains("<directories/>"));
+    }
+
+    #[test]
+    fn upsert_replaces_existing_morphix_blocks() {
         let first = upsert_action(
             Some(USER_FILE),
-            &thunar_action_block(Path::new("/old/morphix")).unwrap(),
+            &thunar_action_blocks(Path::new("/old/morphix")).unwrap(),
         )
         .unwrap();
         let second = upsert_action(
             Some(&first),
-            &thunar_action_block(Path::new("/new/morphix")).unwrap(),
+            &thunar_action_blocks(Path::new("/new/morphix")).unwrap(),
         )
         .unwrap();
-        assert_eq!(second.matches(THUNAR_UNIQUE_ID).count(), 1);
+        assert_eq!(first.matches("<action>").count(), second.matches("<action>").count());
         assert!(second.contains("/new/morphix") && !second.contains("/old/morphix"));
     }
 
     #[test]
     fn new_file_is_a_complete_actions_document() {
-        let block = thunar_action_block(Path::new("/opt/morphix")).unwrap();
-        let created = upsert_action(None, &block).unwrap();
+        let created = upsert_action(None, &blocks()).unwrap();
         assert!(created.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<actions>\n"));
         assert!(created.ends_with("</actions>\n"));
     }
 
     #[test]
     fn command_escapes_xml_and_shell() {
-        let block = thunar_action_block(Path::new("/tmp/a&b's/morphix")).unwrap();
+        let text = thunar_action_blocks(Path::new("/tmp/a&b's/morphix")).unwrap();
         assert!(
-            block.contains("<command>'/tmp/a&amp;b'\\''s/morphix' menu -- %F</command>"),
-            "{block}"
+            text.contains("<command>'/tmp/a&amp;b'\\''s/morphix' menu --action 'merge' -- %F</command>"),
+            "{text}"
         );
     }
 
     #[test]
     fn malformed_uca_is_not_touched() {
-        let block = thunar_action_block(Path::new("/opt/morphix")).unwrap();
-        assert!(upsert_action(Some("<actions>"), &block).is_err());
+        assert!(upsert_action(Some("<actions>"), &blocks()).is_err());
     }
 }

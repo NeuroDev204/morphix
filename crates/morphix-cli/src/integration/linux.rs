@@ -321,7 +321,7 @@ fn desired_file(
     }))
 }
 
-fn utf8(path: &Path) -> Result<&str, String> {
+pub(super) fn utf8(path: &Path) -> Result<&str, String> {
     path.to_str()
         .ok_or_else(|| format!("đường dẫn không phải UTF-8: {}", path.display()))
 }

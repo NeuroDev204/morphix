@@ -306,7 +306,8 @@ pub struct MenuGroup {
 }
 
 /// Hợp các việc trên menu của từng loại file, bỏ các việc nén thành file nén (đã có ở nhóm `any`).
-fn union_actions(kinds: &[FileKind]) -> Vec<Action> {
+/// `order` là thứ tự chuẩn của các việc chuyển đổi trong nhóm (cùng mảng đích mà `actions_for` dùng).
+fn union_actions(kinds: &[FileKind], order: &[ActionKind]) -> Vec<Action> {
     let mut actions: Vec<Action> = Vec::new();
     for kind in kinds {
         for action in menu_actions(std::slice::from_ref(kind)) {
@@ -317,14 +318,27 @@ fn union_actions(kinds: &[FileKind]) -> Vec<Action> {
             actions.push(action);
         }
     }
-    // WHY sắp ổn định: nhóm Công cụ luôn đứng sau nhóm Chuyển đổi, như vòng tròn và menu Explorer.
-    actions.sort_by_key(|action| action.is_tool);
+    // WHY sắp theo `order`: hợp theo thứ tự "thấy đầu tiên" đẩy đích phổ biến như MP4 xuống cuối, vì MP4 chỉ
+    // hiện khi xét đầu vào khác MP4. Nhóm Công cụ luôn đứng sau nhóm Chuyển đổi, như vòng tròn và menu Explorer.
+    actions.sort_by_key(|action| {
+        let rank = order
+            .iter()
+            .position(|kind| *kind == action.kind)
+            .unwrap_or(usize::MAX);
+        (action.is_tool, rank)
+    });
     actions
 }
 
 /// Các nhóm loại file cho menu tĩnh, sinh từ catalog để không có bảng việc thứ hai.
 pub fn static_menu_groups() -> Vec<MenuGroup> {
     let images: Vec<FileKind> = ImgFormat::ALL_ORDERED.into_iter().map(FileKind::Image).collect();
+    let image_order: Vec<ActionKind> = std::iter::once(ActionKind::MergeToPdf)
+        .chain(ImgFormat::ALL_ORDERED.into_iter().map(ActionKind::ConvertTo))
+        .collect();
+    let convert_media =
+        |targets: &[MediaFormat]| -> Vec<ActionKind> { targets.iter().copied().map(ActionKind::ConvertMedia).collect() };
+    let text_order: Vec<ActionKind> = TextFormat::ALL.into_iter().map(ActionKind::ConvertText).collect();
     // WHY bỏ GIF: `detect` luôn nhận GIF là ảnh, nên `Media(Gif)` chỉ là đích, không bao giờ là đầu vào.
     let media = |audio: bool| -> Vec<FileKind> {
         MediaFormat::ALL
@@ -352,7 +366,7 @@ pub fn static_menu_groups() -> Vec<MenuGroup> {
                 "image/bmp",
             ],
             extensions: vec!["jpg", "jpeg", "png", "webp", "avif", "gif", "tiff", "tif", "bmp"],
-            actions: union_actions(&images),
+            actions: union_actions(&images, &image_order),
         },
         MenuGroup {
             key: "audio",
@@ -362,7 +376,7 @@ pub fn static_menu_groups() -> Vec<MenuGroup> {
                 "audio/x-opus+ogg", "audio/x-aiff", "audio/x-ms-wma",
             ],
             extensions: vec!["mp3", "m4a", "wav", "flac", "ogg", "opus", "aiff", "wma"],
-            actions: union_actions(&media(true)),
+            actions: union_actions(&media(true), &convert_media(AUDIO_TARGETS)),
         },
         MenuGroup {
             key: "video",
@@ -372,7 +386,7 @@ pub fn static_menu_groups() -> Vec<MenuGroup> {
                 "video/x-msvideo", "video/x-ms-wmv",
             ],
             extensions: vec!["mp4", "mov", "mkv", "webm", "avi", "wmv"],
-            actions: union_actions(&media(false)),
+            actions: union_actions(&media(false), &convert_media(VIDEO_TARGETS)),
         },
         MenuGroup {
             key: "text",
@@ -385,14 +399,14 @@ pub fn static_menu_groups() -> Vec<MenuGroup> {
             extensions: vec![
                 "txt", "md", "markdown", "srt", "vtt", "csv", "tsv", "html", "htm", "docx",
             ],
-            actions: union_actions(&texts),
+            actions: union_actions(&texts, &text_order),
         },
         MenuGroup {
             key: "pdf",
             label: "PDF",
             mime_types: vec!["application/pdf"],
             extensions: vec!["pdf"],
-            actions: union_actions(&[FileKind::Pdf]),
+            actions: union_actions(&[FileKind::Pdf], &[]),
         },
         MenuGroup {
             key: "archive",
@@ -402,7 +416,7 @@ pub fn static_menu_groups() -> Vec<MenuGroup> {
                 "application/x-7z-compressed",
             ],
             extensions: vec!["zip", "tar.gz", "tgz", "7z"],
-            actions: union_actions(&archives),
+            actions: union_actions(&archives, &[]),
         },
         MenuGroup {
             key: "any",
@@ -472,6 +486,37 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn static_groups_follow_the_catalog_target_order() {
+        let groups = static_menu_groups();
+        let ids = |key: &str| -> Vec<String> {
+            groups
+                .iter()
+                .find(|g| g.key == key)
+                .unwrap()
+                .actions
+                .iter()
+                .filter(|a| !a.is_tool)
+                .map(|a| action_id(a.kind))
+                .collect()
+        };
+        assert_eq!(
+            ids("video"),
+            ["media:mp4", "media:mkv", "media:webm", "media:mov", "media:avi", "media:gif", "media:mp3"]
+        );
+        assert_eq!(
+            ids("audio"),
+            ["media:mp3", "media:m4a", "media:wav", "media:flac", "media:ogg", "media:opus"]
+        );
+        assert_eq!(
+            ids("image"),
+            [
+                "merge", "convert:jpg", "convert:png", "convert:webp", "convert:avif",
+                "convert:gif", "convert:tiff", "convert:bmp"
+            ]
+        );
     }
 
     #[test]
