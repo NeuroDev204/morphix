@@ -115,3 +115,10 @@ Tôi không điều khiển được menu chuột phải hay cửa sổ thật t
 ### Bổ sung sau review cuối (Windows, chưa kiểm)
 - [ ] Nâng cấp hoặc gỡ `MorphixSetup.exe` trong lúc Explorer đang giữ `morphix_shell.dll`: không hiện hộp thoại "file đang dùng", không bị đòi đóng Explorer, DLL được thay hoặc xoá (cờ `restartreplace` cần quyền admin nên có thể không có tác dụng ở chế độ người dùng).
 - [ ] Nâng cấp từ bản cài cũ chế độ admin (0.1.0): chứng chỉ tự ký trong kho Root và gói sparse còn sót cần gỡ tay.
+
+## Kiểm bằng Docker (2026-11-11)
+
+- **Linux:** Fedora 45, Debian 13, Arch, openSUSE Tumbleweed: `install.sh` → `install-integration` → `doctor` → `desktop-file-validate` → chuyển đổi thật → gỡ. Đều qua. Debian và Fedora có `nautilus-python`: extension `installed`, cây Scripts `not_applicable` (menu động). Container không có giao diện nên chưa thấy menu hiện ra.
+- **Windows qua Wine 10 trong Docker** (biên dịch chéo `x86_64-pc-windows-gnu`): `morphix.exe` cài và gỡ registry HKCU đúng thiết kế (CLSID `{2131F98F-…}` → `morphix_shell.dll`, khoá Run), `doctor`, `menu --list`, chuyển PNG → WebP với `pdfium.dll` thật. Toàn bộ 34 binary test (20 của workspace + 14 của GUI) xanh. Wine không phải Windows thật: chưa chạy GUI/WebView2, Explorer, `MorphixSetup.exe`, Store.
+- Lượt chạy này lộ ra các test chỉ lỗi trên Windows (tên dir có `"`, test Linux không gắn `cfg`, URI kiểu Unix); đã sửa để job `test-windows` không đỏ vì chúng.
+- Đã sửa: Thunar để lại `uca.xml` rỗng làm thư mục cha không dọn được khi gỡ.
