@@ -15,7 +15,7 @@ Máy đo: Ubuntu 26.04, rustc 1.99.1, build trên máy dev (không phải Ubuntu
 
 Nhận xét: ffmpeg chiếm khoảng 80% dung lượng cài đặt. Phần code của Morphix (CLI + GUI) chỉ khoảng 40 MB chưa strip.
 
-Chưa đo tarball đầy đủ: `build-tarball.sh` từ chối glibc > 2.35 trên máy dev; CI dựng trong Ubuntu 22.04.
+Tarball `morphix-x86_64-linux.tar.gz` (dựng bằng `build-tarball.sh` với `MORPHIX_ALLOW_GLIBC_FLOOR=99` vì máy dev là glibc 2.39; ngưỡng thật 2.35 do CI Ubuntu 22.04 kiểm): **87190753** byte (mặc định cargo: không LTO, strip debuginfo, codegen-units 16).
 
 ## Thời gian giao diện (spec Phần 2)
 
@@ -23,7 +23,8 @@ Chưa đo được tự động (cần cửa sổ thật). Cách đo tay cho ng�
 
 | Phép đo | Trước | Sau cột mốc A |
 |---|---|---|
-| Khởi động nguội tới lúc Khay hiện (`morphix tray`, app chưa chạy) | | |
+| Khởi động nguội tới lúc cửa sổ **menu (vòng tròn)** hiện (`morphix-gui menu a.png`, app chưa chạy; đo bằng script, 3 lần, cửa sổ gọi `show()` nhưng nội dung chưa chắc đã vẽ xong) | 283, 243, 263 ms | (vòng tròn bị xoá ở Task 6; đo lại bằng Khay) |
+| Khởi động nguội tới lúc Khay hiện (`morphix tray`, app chưa chạy) | chưa đo (không có log mốc này) | |
 | Bấm khay tới lúc Khay hiện (app đã chạy) | | |
 | Thả 50 file ở thư mục chậm vào Khay: cửa sổ còn kéo/cuộn được | | |
 
@@ -33,6 +34,7 @@ Chưa đo được tự động (cần cửa sổ thật). Cách đo tay cho ng�
 |---|---|---|---|
 | `morphix` (CLI) | 18159624 | 10376952 | 43% |
 | `morphix-gui` | 32939824 | 17721280 | 46% |
+| tarball `.tar.gz` | 87190753 | 83890749 | 3.8% |
 
 Build release đầy đủ: 1 phút 47 giây (trước) → 2 phút 58 giây (sau) trên máy dev. Dưới ngưỡng 20 phút của plan nên giữ `lto = "fat"`.
 
