@@ -717,6 +717,8 @@ fn sandboxed_morphix(sandbox: &Path) -> assert_cmd::Command {
         .env("XDG_CONFIG_HOME", sandbox.join("xdg-config"))
         .env("MORPHIX_GUI_BIN", gui)
         .env_remove("XDG_CURRENT_DESKTOP")
+        // WHY: Alt+C chỉ áp dụng cho X11; phiên Wayland của máy chạy test không được đổi kết quả cài đặt.
+        .env_remove("XDG_SESSION_TYPE")
         .env_remove("DBUS_SESSION_BUS_ADDRESS");
     command
 }
