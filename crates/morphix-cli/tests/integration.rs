@@ -3010,3 +3010,45 @@ fn doctor_reports_menu_tier_per_file_manager() {
     assert!(message(ComponentId::NemoScriptMenu).contains("menu tĩnh"));
     assert!(message(ComponentId::NautilusScriptMenu).contains("menu động"));
 }
+
+#[cfg(target_os = "linux")]
+fn files_with_marker(dir: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    for path in all_paths(dir) {
+        if path.is_file()
+            && fs::read_to_string(&path).is_ok_and(|text| text.contains(MANAGED_MARKER))
+        {
+            found.push(path);
+        }
+    }
+    found
+}
+
+// Kiểm đầu-cuối bằng binary thật (CLI sinh file, không phải bản giả): cài rồi gỡ không để sót file Morphix nào.
+#[cfg(target_os = "linux")]
+#[test]
+fn install_then_uninstall_integration_through_the_real_cli_leaves_no_managed_file() {
+    let sandbox = tempdir().unwrap();
+    let run = |subcommand: &str| {
+        sandboxed_morphix(sandbox.path())
+            .env("MORPHIX_DATA_DIR", sandbox.path().join("data"))
+            .args([subcommand, "--json"])
+            .assert()
+    };
+    run("install-integration").code(0);
+    let data = sandbox.path().join("xdg-data");
+    assert!(data.join("kio/servicemenus/morphix-image.desktop").is_file());
+    assert!(data
+        .join("nautilus/scripts/Morphix việc nhanh/Ảnh/WebP")
+        .is_file());
+    assert!(!files_with_marker(sandbox.path()).is_empty());
+
+    run("uninstall-integration").code(0);
+    let leftovers = files_with_marker(&data)
+        .into_iter()
+        .chain(files_with_marker(&sandbox.path().join("xdg-config")))
+        .collect::<Vec<_>>();
+    assert!(leftovers.is_empty(), "còn file của Morphix: {leftovers:?}");
+    assert!(!data.join("kio/servicemenus").exists());
+    assert!(!data.join("nautilus/scripts/Morphix việc nhanh").exists());
+}

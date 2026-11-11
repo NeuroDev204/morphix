@@ -64,3 +64,50 @@ Hướng giảm: dựng ffmpeg riêng chỉ bật các codec mà `MediaFormat` c
 ## Ghi chú kiểm Windows
 
 Từ Task 3, `cargo check --workspace --all-targets --target x86_64-pc-windows-gnu` (cần `gcc-mingw-w64-x86-64`) dùng làm cổng biên dịch cho nhánh Windows trên máy Linux. Nó chỉ chứng minh code biên dịch được; chạy thật trên Windows chỉ kiểm được bằng job CI ở Task 13 và kiểm tay.
+
+## Kết quả cuối của kế hoạch (2026-11-11)
+
+| Hạng mục | Trước | Sau |
+|---|---|---|
+| `morphix` (CLI), byte | 18159624 | 10461656 (-42%) |
+| `morphix-gui`, byte | 32939824 | 19132832 (-42%; đã gồm plugin thông báo, +1.4 MB so với Task 1) |
+| tarball Linux, byte | 87190753 | 84555473 (-3.0%) |
+| ffmpeg tĩnh Linux, byte | 172254856 | 172254856 (chưa đổi; xem đề xuất ở trên) |
+| ffmpeg.exe Windows, byte | Gyan "full" 9.0.2 | Gyan "essentials" 9.0.2: 105423872 (zip 114768076 thay vì 257736868) |
+| `menu --list` với 20 PNG | n/a | trung vị 1,7 ms |
+| khởi động nguội tới cửa sổ menu (vòng tròn) | 263 ms | cửa sổ đã xoá; menu chạy thẳng, không mở cửa sổ |
+
+Số "Sau" đo lại ở cuối kế hoạch, sau khi thêm `tauri-plugin-notification`. Tarball chỉ giảm 3.0% vì ffmpeg tĩnh (172 MB) chiếm gần hết; muốn nhẹ thật phải dựng ffmpeg riêng (đề xuất ở trên), việc này chưa làm.
+
+## Danh sách kiểm tay cho người dùng
+
+Tôi không điều khiển được menu chuột phải hay cửa sổ thật trên các máy này; các mục dưới đây chưa ai kiểm. Đánh dấu khi đã kiểm.
+
+### Đã kiểm (bởi tôi, bằng công cụ)
+- [x] Gửi thông báo hệ thống khi việc từ menu xong: một lệnh `org.freedesktop.Notifications.Notify` (GNOME Wayland, Ubuntu 26.04), lịch sử có đúng 1 mục.
+- [x] `morphix menu --action convert:webp a.png` tự khởi động GUI và tạo `a.webp`; `morphix menu a.png` mở Khay.
+- [x] Extension Nautilus nạp được với thư viện `gi` và typelib Nautilus thật, dựng `Nautilus.Menu`/`MenuItem` đúng.
+- [x] `cargo check --workspace --all-targets --target x86_64-pc-windows-gnu` sạch (biên dịch được cho Windows, chưa chạy).
+
+### Linux (chưa kiểm)
+- [ ] Nautilus có `python3-nautilus`: submenu Morphix với 1 PNG; 3 PNG; PNG + TXT (chỉ còn nén); 101 file (mục "Chọn quá nhiều file"); đổi lựa chọn nhanh liên tục không làm Files khựng.
+- [ ] Nautilus không có `nautilus-python`: Scripts → Morphix việc nhanh → Ảnh → WebP chạy được.
+- [ ] Dolphin (KDE 5 và 6): các service menu cùng `X-KDE-Submenu=Morphix` gộp thành một mục Morphix; file có bit thực thi.
+- [ ] Thunar: submenu Morphix, lọc theo loại và đuôi file (kể cả chữ hoa).
+- [ ] Nemo hoặc Caja: Scripts → Morphix việc nhanh.
+- [ ] Thông báo hiện khi xong trên KDE, XFCE (ngoài GNOME).
+- [ ] `install.sh` rồi `morphix doctor` sạch trên Fedora, openSUSE, Debian, Arch, Ubuntu và biến thể; cập nhật bảng "Đã kiểm trên" trong README chỉ với dòng đã kiểm.
+- [ ] Cập nhật từ bản cũ: các mục menu một mục cũ biến mất (Dolphin `morphix.desktop`, Nemo Action).
+
+### Windows (chưa kiểm)
+- [ ] Đẩy nhánh lên GitHub và xem job `test-windows` (clippy và cargo test) xanh; mọi lỗi test chỉ xuất hiện khi chạy thật trên Windows.
+- [ ] Job `windows` của workflow phát hành chạy được: các script `.ps1`, `ISCC` biên dịch `morphix.iss`, `makeappx` đóng gói msix, kiểm chữ ký WebView2.
+- [ ] `MorphixSetup.exe` trên Windows 10 và 11 sạch: không cần quyền quản trị, tự cài WebView2, SmartScreen hiện đúng như README mô tả.
+- [ ] Chuột phải file: mục Morphix và submenu chạy đúng việc; thông báo "xong" hiện (cần AppUserModelID `vn.morphix.app` trên lối tắt Start Menu), cả bản exe và bản Store.
+- [ ] Nút "mở thư mục kết quả" trong Khay mở Explorer.
+- [ ] Gỡ cài đặt xoá mục menu; `morphix_shell.dll` bị Explorer giữ thì được xoá sau khi khởi động lại.
+- [ ] Gói msix được Partner Center chấp nhận; nộp lại với mô tả mới trong `installer/store-package/listing/description.md`.
+
+### Cả hai nền tảng (chưa kiểm)
+- [ ] Bản release (custom-protocol): mở Khay và Cài đặt, giao diện vẽ đúng và hoạt động (CSP đã đặt, chỉ kiểm tĩnh trên `dist`).
+- [ ] Đo lại thời gian Khay hiện (bấm khay, thả 50 file ở thư mục chậm) và dung lượng bản build cuối.
