@@ -1,0 +1,87 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #0f766e;
+  --color-primary-hover: #115e59;
+  --color-primary-active: #134e4a;
+  --color-primary-foreground: #ffffff;
+  --color-surface: #ffffff;
+}
+
+:root {
+  --primary: #0f766e;
+  --primary-hover: #115e59;
+  --primary-active: #134e4a;
+  --primary-foreground: #ffffff;
+
+  --background: #fafaf9;
+  --surface: #ffffff;
+  --foreground: #09090b;
+  --muted: #64748b;
+  --border: #f1f2f4;
+  --border-strong: #e2e8f0;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  overflow-x: hidden;
+}
+
+/* Subtle Grid Background Pattern */
+.bg-grid-pattern {
+  background-size: 36px 36px;
+  background-image: 
+    linear-gradient(to right, rgba(15, 118, 110, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(15, 118, 110, 0.04) 1px, transparent 1px);
+}
+
+/* Ambient Glow Backgrounds */
+.bg-radial-hero {
+  background: radial-gradient(900px circle at 50% 0%, rgba(15, 118, 110, 0.14), transparent 75%),
+              radial-gradient(650px circle at 85% 15%, rgba(20, 184, 166, 0.09), transparent 60%);
+}
+
+/* Card Hover Lift & Glow */
+.card-glow {
+  transition: all 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.card-glow:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 20px 30px -10px rgba(15, 118, 110, 0.14), 0 0 0 1px rgba(15, 118, 110, 0.22);
+}
+
+/* Button Shimmer Animation */
+.btn-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+.btn-shimmer::after {
+  content: "";
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: linear-gradient(60deg, transparent, rgba(255,255,255,0.3), transparent);
+  transform: rotate(25deg) translateY(-100%);
+  animation: shimmer 4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+@keyframes shimmer {
+  0% { transform: rotate(25deg) translateY(-100%); }
+  22%, 100% { transform: rotate(25deg) translateY(100%); }
+}
+
+/* Infinite Marquee Animation */
+@keyframes marquee {
+  0% { transform: translateX(0%); }
+  100% { transform: translateX(-50%); }
+}
+.animate-marquee {
+  display: flex;
+  width: max-content;
+  animation: marquee 35s linear infinite;
+}
+.animate-marquee:hover {
+  animation-play-state: paused;
+}
