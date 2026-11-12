@@ -74,6 +74,30 @@ class DebChecksumTests(unittest.TestCase):
         self.assertIn('(cd "$OUT" && sha256sum "$(basename "$DEB")" > "$(basename "$DEB").sha256")', script)
 
 
+class WindowsSmokeTests(unittest.TestCase):
+    def test_release_publishes_only_after_the_installer_passes_on_real_windows(self) -> None:
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        smoke = jobs["smoke-windows"]
+        self.assertEqual(smoke["needs"], "windows")
+        self.assertEqual(smoke["runs-on"], "windows-latest")
+        runs = " ".join(str(step.get("run", "")) for step in smoke["steps"])
+        self.assertIn("scripts/ci/smoke-windows-installer.ps1 -Setup dist/MorphixSetup.exe", runs)
+        self.assertIn("smoke-windows", jobs["publish"]["needs"])
+
+    def test_smoke_evidence_is_kept_even_when_it_fails(self) -> None:
+        for path in (WORKFLOW, ROOT / ".github/workflows/smoke-windows.yml"):
+            jobs = yaml.safe_load(path.read_text())["jobs"]
+            uploads = [step for step in jobs["smoke-windows"]["steps"] if "upload-artifact" in str(step.get("uses", ""))]
+            self.assertTrue(uploads, path.name)
+            self.assertEqual(uploads[0].get("if"), "always()", path.name)
+
+    def test_manual_smoke_can_check_any_published_release(self) -> None:
+        workflow = yaml.safe_load((ROOT / ".github/workflows/smoke-windows.yml").read_text())
+        triggers = workflow[True]
+        self.assertIn("tag", triggers["workflow_dispatch"]["inputs"])
+        self.assertIn("scripts/ci/smoke-windows-installer.ps1", triggers["pull_request"]["paths"])
+
+
 class CiWorkflowTests(unittest.TestCase):
     def test_ci_runs_clippy_and_tests_on_windows(self) -> None:
         jobs = yaml.safe_load((WORKFLOW.parent / "ci.yml").read_text())["jobs"]

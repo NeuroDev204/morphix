@@ -108,8 +108,26 @@ jobs:
           path: dist/Morphix-*.msix
           if-no-files-found: error
 
+  # WHY chặn phát hành: exe phải cài, chạy, mở GUI, nhận việc từ menu và gỡ sạch trên Windows thật trước khi người dùng tải.
+  smoke-windows:
+    needs: windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: windows-setup
+          path: dist
+      - shell: pwsh
+        run: ./scripts/ci/smoke-windows-installer.ps1 -Setup dist/MorphixSetup.exe -Out smoke
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: smoke-windows
+          path: smoke/
+
   publish:
-    needs: [tarball, deb, windows]
+    needs: [tarball, deb, windows, smoke-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write

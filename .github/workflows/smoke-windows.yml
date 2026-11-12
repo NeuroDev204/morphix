@@ -1,0 +1,43 @@
+name: smoke-windows
+
+# Kiểm MorphixSetup.exe đã phát hành trên Windows thật (cài, CLI, GUI, menu qua IPC, thoát, gỡ) và giữ video làm bằng chứng.
+# Bản phát hành mới được kiểm trong release.yml trước khi đăng; workflow này để kiểm lại một tag bất kỳ.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag cần kiểm (bỏ trống = bản mới nhất)
+        required: false
+        default: ""
+  pull_request:
+    paths:
+      - scripts/ci/smoke-windows-installer.ps1
+      - .github/workflows/smoke-windows.yml
+
+permissions:
+  contents: read
+
+jobs:
+  smoke-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          $tag = if ($env:TAG) { $env:TAG } else { gh release view --json tagName -q .tagName }
+          gh release download $tag -p "MorphixSetup.exe*" -D dist
+          Push-Location dist
+          $expected = (Get-Content MorphixSetup.exe.sha256).Split(" ")[0]
+          if ((Get-FileHash -Algorithm SHA256 MorphixSetup.exe).Hash -ne $expected) { throw "MorphixSetup.exe sai SHA256" }
+          Pop-Location
+          Write-Host "Kiểm MorphixSetup.exe của $tag"
+      - shell: pwsh
+        run: ./scripts/ci/smoke-windows-installer.ps1 -Setup dist/MorphixSetup.exe -Out smoke
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: smoke-windows
+          path: smoke/
