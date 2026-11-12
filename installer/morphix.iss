@@ -24,6 +24,8 @@ CloseApplications=yes
 ; WHY chỉ *.exe: không để Restart Manager gom cả Explorer (đang nạp morphix_shell.dll) vào danh sách ứng dụng cần đóng.
 CloseApplicationsFilter=*.exe
 RestartApplications=no
+; WHY: bộ cài WebView2 để lại thao tác đổi tên chờ khởi động lại; Morphix không cần khởi động lại nên không hỏi người dùng.
+RestartIfNeededByRun=no
 
 [Files]
 Source: "..\target\release\morphix-gui.exe"; DestDir: "{app}"; Flags: ignoreversion

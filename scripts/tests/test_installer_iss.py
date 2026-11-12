@@ -20,6 +20,11 @@ class InstallerScript(unittest.TestCase):
         for obsolete in ("register-package.ps1", "sign-package.ps1"):
             self.assertFalse((ROOT / "installer" / obsolete).exists(), obsolete)
 
+    def test_webview2_bootstrapper_never_makes_setup_ask_for_a_restart(self) -> None:
+        # WHY: bộ cài WebView2 ghi PendingFileRenameOperations; mặc định Inno thấy vậy là hỏi khởi động lại máy,
+        # trong khi Morphix không cần (đo trong Wine: "Need to restart Windows? Yes" chỉ khi bootstrapper chạy).
+        self.assertIn("RestartIfNeededByRun=no", self.text)
+
     def test_installs_per_user_without_admin(self) -> None:
         self.assertIn("PrivilegesRequired=lowest", self.text)
 
