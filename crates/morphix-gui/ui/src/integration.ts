@@ -59,6 +59,8 @@ export function integrationViewFromDoctor(report: unknown): IntegrationView {
       : S.integrationComponentMissing;
     return { id, label, status, statusLabel: S.integrationStatusLabels[status], message };
   });
+  // WHY: trên Windows menu chuột phải do shell extension lo, cả ba hàng đều "không áp dụng"; panel không có gì để báo.
+  if (rows.every((row) => row.status === "not_applicable")) return { rows: [], guidance: null };
   const needsRepair: boolean = rows.some((row) =>
     ["missing", "stale", "conflict", "unknown", "failed"].includes(row.status),
   );

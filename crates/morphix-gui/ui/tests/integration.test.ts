@@ -22,6 +22,19 @@ describe("integrationViewFromDoctor", () => {
     expect(view.guidance).not.toBeNull();
     expect(() => integrationViewFromDoctor({ integration: null })).toThrow("không có danh sách");
   });
+  it("has nothing to show on Windows, where every desktop row is not applicable", () => {
+    const view = integrationViewFromDoctor({
+      integration: {
+        components: ["nautilus_extension", "desktop_context_menu", "application_launcher"].map((id) => ({
+          id,
+          status: "not_applicable",
+          message: "tích hợp này không áp dụng trên Windows",
+        })),
+      },
+    });
+    expect(view.rows).toEqual([]);
+    expect(view.guidance).toBeNull();
+  });
   it("repair guidance works for curl installs, not only apt", () => {
     const view = integrationViewFromDoctor({ integration: { components: [] } });
     expect(view.guidance).toContain("morphix install-integration");

@@ -103,6 +103,10 @@ function rowNode(row: RecentRow, nowUnix: number): HTMLLIElement {
 
 function integrationNode(): HTMLElement {
   const panel: HTMLElement = el("section", "integration-panel");
+  if (integrationState.kind === "ready" && integrationState.view.rows.length === 0) {
+    panel.hidden = true;
+    return panel;
+  }
   panel.append(el("p", "integration-title", S.integrationTitle));
   if (integrationState.kind === "loading") {
     panel.append(el("p", "integration-note", S.integrationLoading));
