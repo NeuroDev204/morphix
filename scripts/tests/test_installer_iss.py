@@ -1,5 +1,6 @@
 """Kiểm kịch bản Inno Setup của bản exe tải về: không chạm kho chứng chỉ, cài theo người dùng, đăng ký menu qua CLI."""
 import json
+import re
 import unittest
 from pathlib import Path
 
@@ -19,6 +20,20 @@ class InstallerScript(unittest.TestCase):
             self.assertNotIn(banned, lowered)
         for obsolete in ("register-package.ps1", "sign-package.ps1"):
             self.assertFalse((ROOT / "installer" / obsolete).exists(), obsolete)
+
+    def test_webview2_bootstrapper_never_makes_setup_ask_for_a_restart(self) -> None:
+        # WHY: bộ cài WebView2 ghi PendingFileRenameOperations; mặc định Inno thấy vậy là hỏi khởi động lại máy,
+        # trong khi Morphix không cần (đo trong Wine: "Need to restart Windows? Yes" chỉ khi bootstrapper chạy).
+        self.assertIn("RestartIfNeededByRun=no", self.text)
+
+    def test_opening_morphix_from_the_start_menu_shows_the_khay(self) -> None:
+        # WHY: GUI chạy ẩn dưới khay (autostart); thiếu --show-khay thì bấm Morphix trong Start không hiện gì, kể cả khi
+        # app đã chạy. Linux làm tương tự qua `morphix tray` trong file .desktop.
+        icon = next(line for line in self.text.splitlines() if line.startswith('Name: "{group}\\Morphix"'))
+        self.assertIn('Parameters: "--show-khay"', icon)
+        manifest = (ROOT / "installer" / "store-package" / "AppxManifest.xml").read_text(encoding="utf-8")
+        application = re.search(r"<Application [^>]*>", manifest).group(0)
+        self.assertIn('uap10:Parameters="--show-khay"', application)
 
     def test_installs_per_user_without_admin(self) -> None:
         self.assertIn("PrivilegesRequired=lowest", self.text)

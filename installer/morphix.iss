@@ -24,6 +24,8 @@ CloseApplications=yes
 ; WHY chỉ *.exe: không để Restart Manager gom cả Explorer (đang nạp morphix_shell.dll) vào danh sách ứng dụng cần đóng.
 CloseApplicationsFilter=*.exe
 RestartApplications=no
+; WHY: bộ cài WebView2 để lại thao tác đổi tên chờ khởi động lại; Morphix không cần khởi động lại nên không hỏi người dùng.
+RestartIfNeededByRun=no
 
 [Files]
 Source: "..\target\release\morphix-gui.exe"; DestDir: "{app}"; Flags: ignoreversion
@@ -48,7 +50,7 @@ Type: files; Name: "{app}\morphix_shell*.dll"
 
 [Icons]
 ; WHY AppUserModelID trùng `identifier` của Tauri: Windows chỉ hiện thông báo của app có lối tắt mang đúng ID này.
-Name: "{group}\Morphix"; Filename: "{app}\morphix-gui.exe"; AppUserModelID: "vn.morphix.app"
+Name: "{group}\Morphix"; Filename: "{app}\morphix-gui.exe"; Parameters: "--show-khay"; AppUserModelID: "vn.morphix.app"
 
 [Run]
 ; Morphix cần WebView2 Runtime để mở cửa sổ; Windows 11 có sẵn, Windows 10 có thể thiếu.

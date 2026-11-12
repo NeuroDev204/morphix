@@ -6,7 +6,8 @@ from pathlib import Path
 import yaml
 
 
-WORKFLOW: Path = Path(__file__).resolve().parents[2] / ".github/workflows/release.yml"
+ROOT: Path = Path(__file__).resolve().parents[2]
+WORKFLOW: Path = ROOT / ".github/workflows/release.yml"
 
 
 class ReleaseWorkflowTests(unittest.TestCase):
@@ -58,6 +59,53 @@ class ReleaseWorkflowTests(unittest.TestCase):
         text = self.steps_text(publish)
         self.assertNotIn("msix", text.lower())
         self.assertIn("MorphixSetup.exe", text)
+
+
+class DebChecksumTests(unittest.TestCase):
+    def test_release_publishes_the_deb_checksum(self) -> None:
+        release = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+        self.assertIn("${{ runner.temp }}/dist/*.deb.sha256", release)
+        self.assertIn("test -f dist/morphix_*_amd64.deb.sha256", release)
+
+    def test_deb_checksum_names_the_file_relatively(self) -> None:
+        # WHY: `sha256sum -c` trên máy người dùng chỉ chạy được khi file ghi tên tương đối, không có đường dẫn máy build.
+        script = (ROOT / "scripts" / "build-deb.sh").read_text(encoding="utf-8")
+        self.assertNotIn('sha256sum "$DEB" > "$DEB.sha256"', script)
+        self.assertIn('(cd "$OUT" && sha256sum "$(basename "$DEB")" > "$(basename "$DEB").sha256")', script)
+
+
+class WindowsSmokeTests(unittest.TestCase):
+    def test_release_publishes_only_after_the_installer_passes_on_real_windows(self) -> None:
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        smoke = jobs["smoke-windows"]
+        self.assertEqual(smoke["needs"], "windows")
+        self.assertEqual(smoke["runs-on"], "windows-latest")
+        runs = " ".join(str(step.get("run", "")) for step in smoke["steps"])
+        self.assertIn("scripts/ci/smoke-windows-installer.ps1 -Setup dist/MorphixSetup.exe", runs)
+        self.assertIn("smoke-windows", jobs["publish"]["needs"])
+
+    def test_smoke_evidence_is_kept_even_when_it_fails(self) -> None:
+        for path in (WORKFLOW, ROOT / ".github/workflows/smoke-windows.yml"):
+            jobs = yaml.safe_load(path.read_text())["jobs"]
+            uploads = [step for step in jobs["smoke-windows"]["steps"] if "upload-artifact" in str(step.get("uses", ""))]
+            self.assertTrue(uploads, path.name)
+            self.assertEqual(uploads[0].get("if"), "always()", path.name)
+
+    def test_manual_smoke_can_check_any_published_release(self) -> None:
+        workflow = yaml.safe_load((ROOT / ".github/workflows/smoke-windows.yml").read_text())
+        triggers = workflow[True]
+        self.assertIn("tag", triggers["workflow_dispatch"]["inputs"])
+        self.assertIn("scripts/ci/smoke-windows-installer.ps1", triggers["pull_request"]["paths"])
+        self.assertIn("installer/**", triggers["pull_request"]["paths"])
+
+    def test_pull_requests_smoke_the_installer_built_from_their_own_source(self) -> None:
+        workflow = yaml.safe_load((ROOT / ".github/workflows/smoke-windows.yml").read_text())
+        steps = workflow["jobs"]["smoke-windows"]["steps"]
+        build = [step for step in steps if "package-windows.ps1" in str(step.get("run", ""))]
+        self.assertTrue(build)
+        self.assertEqual(build[0].get("if"), "inputs.tag == ''")
+        cargo = " ".join(str(step.get("run", "")) for step in steps)
+        self.assertIn("--features morphix-gui/custom-protocol", cargo)
 
 
 class CiWorkflowTests(unittest.TestCase):

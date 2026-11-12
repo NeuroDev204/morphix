@@ -1,0 +1,62 @@
+name: smoke-windows
+
+# Kiểm MorphixSetup.exe trên Windows thật như người dùng: cài, CLI, mở từ Start menu, việc từ menu chuột phải (IPC),
+# thoát, gỡ; giữ video và ảnh chụp làm bằng chứng. Bản phát hành được kiểm trong release.yml trước khi đăng.
+# Không truyền tag (PR, hoặc chạy tay để trống) thì dựng exe từ chính mã nguồn đang kiểm, giống job windows của release.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag đã phát hành cần kiểm (bỏ trống = dựng từ nhánh đang chọn)
+        required: false
+        default: ""
+  pull_request:
+    paths:
+      - installer/**
+      - scripts/ci/smoke-windows-installer.ps1
+      - scripts/ci/package-windows.ps1
+      - .github/workflows/smoke-windows.yml
+
+permissions:
+  contents: read
+
+jobs:
+  smoke-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - if: inputs.tag != ''
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          gh release download $env:TAG -p "MorphixSetup.exe*" -D dist
+          $expected = (Get-Content dist/MorphixSetup.exe.sha256).Split(" ")[0]
+          if ((Get-FileHash -Algorithm SHA256 dist/MorphixSetup.exe).Hash -ne $expected) { throw "MorphixSetup.exe sai SHA256" }
+      - if: inputs.tag == ''
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - if: inputs.tag == ''
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+      - if: inputs.tag == ''
+        run: ./scripts/ci/setup-windows-deps.ps1
+        shell: pwsh
+      - if: inputs.tag == ''
+        run: npm ci && npm run build
+        working-directory: crates/morphix-gui/ui
+      - if: inputs.tag == ''
+        run: cargo build --locked --release -p morphix-cli -p morphix-gui -p morphix-shell --features morphix-gui/custom-protocol
+      - if: inputs.tag == ''
+        shell: pwsh
+        run: ./scripts/ci/package-windows.ps1 -Version (python scripts/ci/check_version.py) -OutDir dist
+      - shell: pwsh
+        run: ./scripts/ci/smoke-windows-installer.ps1 -Setup dist/MorphixSetup.exe -Out smoke
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: smoke-windows
+          path: smoke/
