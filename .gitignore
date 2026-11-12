@@ -9,3 +9,6 @@ installer/bundle/*.dll
 installer/store-package/*.exe
 installer/store-package/*.dll
 installer/output/
+
+# Superpowers temporary artifacts and plans
+.superpowers/
