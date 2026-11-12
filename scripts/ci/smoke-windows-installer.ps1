@@ -63,16 +63,33 @@ try {
     Check ($LASTEXITCODE -eq 0 -and (Test-Path anh.png)) "AVIF -> PNG"
     Pop-Location
 
-    Write-Host "### 3. Giao diện và việc từ menu chuột phải (IPC)"
-    Start-Process -FilePath $gui
-    Start-Sleep -Seconds 15
-    $running = Get-Process morphix-gui -ErrorAction SilentlyContinue
-    Check ($null -ne $running) "morphix-gui đang chạy"
+    Write-Host "### 3. Mở Morphix từ Start menu, rồi chạy việc qua đường IPC của menu chuột phải"
+    $shortcut = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Morphix\Morphix.lnk"
+    Check (Test-Path $shortcut) "có lối tắt Start menu"
+    (New-Object -ComObject Shell.Application).MinimizeAll()
+    Start-Sleep -Seconds 2
+    function Wait-KhayVisible {
+        foreach ($i in 1..40) {
+            $window = Get-Process morphix-gui -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 }
+            if ($window) { return $true }
+            Start-Sleep -Milliseconds 500
+        }
+        return $false
+    }
+    Start-Process -FilePath $shortcut
+    Check (Wait-KhayVisible) "bấm Morphix trong Start menu hiện cửa sổ Khay"
+    Start-Sleep -Seconds 3
     Add-Type -AssemblyName System.Windows.Forms, System.Drawing
     $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
     $shot = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
     [System.Drawing.Graphics]::FromImage($shot).CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
-    $shot.Save((Join-Path $Out "gui.png"))
+    $shot.Save((Join-Path $Out "khay.png"))
+    # Đóng Khay chỉ ẩn nó; bấm lối tắt lần nữa (app đang chạy) phải hiện lại.
+    Get-Process morphix-gui | Where-Object { $_.MainWindowHandle -ne 0 } | ForEach-Object { $_.CloseMainWindow() | Out-Null }
+    Start-Sleep -Seconds 2
+    Check ((Get-Process morphix-gui -ErrorAction SilentlyContinue).Count -eq 1) "đóng Khay chỉ ẩn, app vẫn chạy"
+    Start-Process -FilePath $shortcut
+    Check (Wait-KhayVisible) "bấm lại lối tắt khi app đang chạy hiện lại Khay"
     Copy-Item (Join-Path $work "goc.png") (Join-Path $work "menu.png")
     & $morphix menu --action convert:webp (Join-Path $work "menu.png")
     $made = $false

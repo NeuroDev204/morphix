@@ -96,6 +96,16 @@ class WindowsSmokeTests(unittest.TestCase):
         triggers = workflow[True]
         self.assertIn("tag", triggers["workflow_dispatch"]["inputs"])
         self.assertIn("scripts/ci/smoke-windows-installer.ps1", triggers["pull_request"]["paths"])
+        self.assertIn("installer/**", triggers["pull_request"]["paths"])
+
+    def test_pull_requests_smoke_the_installer_built_from_their_own_source(self) -> None:
+        workflow = yaml.safe_load((ROOT / ".github/workflows/smoke-windows.yml").read_text())
+        steps = workflow["jobs"]["smoke-windows"]["steps"]
+        build = [step for step in steps if "package-windows.ps1" in str(step.get("run", ""))]
+        self.assertTrue(build)
+        self.assertEqual(build[0].get("if"), "inputs.tag == ''")
+        cargo = " ".join(str(step.get("run", "")) for step in steps)
+        self.assertIn("--features morphix-gui/custom-protocol", cargo)
 
 
 class CiWorkflowTests(unittest.TestCase):
