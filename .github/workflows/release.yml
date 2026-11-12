@@ -62,7 +62,9 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: deb
-          path: ${{ runner.temp }}/dist/*.deb
+          path: |
+            ${{ runner.temp }}/dist/*.deb
+            ${{ runner.temp }}/dist/*.deb.sha256
           if-no-files-found: error
 
   windows:
@@ -127,6 +129,7 @@ jobs:
           path: dist
       # WHY kiểm trước: thiếu exe thì Release vẫn phát hành được nhưng trang tải về sẽ 404.
       - run: test -f dist/MorphixSetup.exe && test -f dist/MorphixSetup.exe.sha256
+      - run: test -f dist/morphix_*_amd64.deb.sha256
       - run: gh release create "$GITHUB_REF_NAME" dist/* scripts/install.sh --title "Morphix $GITHUB_REF_NAME" --generate-notes
         env:
           GH_TOKEN: ${{ github.token }}

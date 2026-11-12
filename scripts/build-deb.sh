@@ -110,6 +110,6 @@ epoch="${SOURCE_DATE_EPOCH:-$(git -C "$ROOT" log -1 --format=%ct)}"
 find "$STAGE" -exec touch -h -d "@$epoch" {} +
 
 dpkg-deb --root-owner-group --build "$STAGE" "$DEB"
-sha256sum "$DEB" > "$DEB.sha256"
+(cd "$OUT" && sha256sum "$(basename "$DEB")" > "$(basename "$DEB").sha256")
 python3 -c 'import shutil,sys; shutil.rmtree(sys.argv[1])' "$STAGE"
 echo "built $DEB ($(stat -c %s "$DEB") bytes), libc floor GLIBC_$glibc_floor${cxx_depends:+, libstdc++${cxx_depends#*libstdc++6}}"

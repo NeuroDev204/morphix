@@ -6,7 +6,8 @@ from pathlib import Path
 import yaml
 
 
-WORKFLOW: Path = Path(__file__).resolve().parents[2] / ".github/workflows/release.yml"
+ROOT: Path = Path(__file__).resolve().parents[2]
+WORKFLOW: Path = ROOT / ".github/workflows/release.yml"
 
 
 class ReleaseWorkflowTests(unittest.TestCase):
@@ -58,6 +59,19 @@ class ReleaseWorkflowTests(unittest.TestCase):
         text = self.steps_text(publish)
         self.assertNotIn("msix", text.lower())
         self.assertIn("MorphixSetup.exe", text)
+
+
+class DebChecksumTests(unittest.TestCase):
+    def test_release_publishes_the_deb_checksum(self) -> None:
+        release = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+        self.assertIn("${{ runner.temp }}/dist/*.deb.sha256", release)
+        self.assertIn("test -f dist/morphix_*_amd64.deb.sha256", release)
+
+    def test_deb_checksum_names_the_file_relatively(self) -> None:
+        # WHY: `sha256sum -c` trên máy người dùng chỉ chạy được khi file ghi tên tương đối, không có đường dẫn máy build.
+        script = (ROOT / "scripts" / "build-deb.sh").read_text(encoding="utf-8")
+        self.assertNotIn('sha256sum "$DEB" > "$DEB.sha256"', script)
+        self.assertIn('(cd "$OUT" && sha256sum "$(basename "$DEB")" > "$(basename "$DEB").sha256")', script)
 
 
 class CiWorkflowTests(unittest.TestCase):
