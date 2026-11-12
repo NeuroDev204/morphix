@@ -422,3 +422,34 @@ fn action_that_cannot_reach_the_gui_is_reported_with_a_desktop_notification() {
     let text = std::fs::read_to_string(&record).expect("phải gọi notify-send");
     assert!(text.contains("Morphix") && text.contains("không khởi động được"), "{text}");
 }
+
+// ---- quit: yêu cầu GUI thoát êm khi gỡ hoặc nâng cấp cài đặt ----
+
+#[test]
+fn quit_sends_the_quit_request_to_a_running_gui() {
+    let data = tempfile::tempdir().unwrap();
+    let name = format!("morphix-cli-quit-{}", std::process::id());
+    let (server, received) = serve_requests(&name);
+    cargo_bin_cmd!("morphix")
+        .env("MORPHIX_IPC_NAME", &name)
+        .env("MORPHIX_DATA_DIR", data.path())
+        .arg("quit")
+        .assert()
+        .success();
+    let request = wait_for_request(&received);
+    assert!(request.is_quit(), "{request:?}");
+    assert!(request.paths.is_empty());
+    server.shutdown().unwrap();
+}
+
+#[test]
+fn quit_without_a_running_gui_succeeds_and_says_so() {
+    let data = tempfile::tempdir().unwrap();
+    cargo_bin_cmd!("morphix")
+        .env("MORPHIX_IPC_NAME", format!("morphix-cli-quit-none-{}", std::process::id()))
+        .env("MORPHIX_DATA_DIR", data.path())
+        .arg("quit")
+        .assert()
+        .success()
+        .stdout(contains("không đang chạy"));
+}

@@ -87,7 +87,7 @@ class ScriptModeTests(unittest.TestCase):
 
 
 class SupplyChainTests(unittest.TestCase):
-    FILES = ("ci.yml", "release.yml")
+    FILES = ("ci.yml", "release.yml", "ffmpeg.yml")
 
     def load(self, name: str) -> dict:
         return yaml.safe_load((WORKFLOW.parent / name).read_text())
@@ -131,6 +131,31 @@ class SupplyChainTests(unittest.TestCase):
     def test_inno_setup_fallback_install_is_pinned(self) -> None:
         script = (WORKFLOW.parents[2] / "scripts" / "ci" / "package-windows.ps1").read_text(encoding="utf-8-sig")
         self.assertRegex(script, r"choco install innosetup --version \d+\.\d+\.\d+")
+
+
+class FfmpegWorkflowTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.doc = yaml.safe_load((WORKFLOW.parent / "ffmpeg.yml").read_text())
+
+    def test_is_manual_and_does_not_publish_unless_asked(self) -> None:
+        # PyYAML đọc khoá `on` thành True.
+        trigger = self.doc.get("on", self.doc.get(True))
+        self.assertEqual(list(trigger), ["workflow_dispatch"])
+        inputs = trigger["workflow_dispatch"]["inputs"]
+        self.assertEqual(inputs["publish"]["default"], False)
+        self.assertEqual(self.doc["jobs"]["publish"]["if"], "${{ inputs.publish }}")
+
+    def test_builds_both_platforms_with_the_repo_scripts(self) -> None:
+        text = yaml.safe_dump(self.doc)
+        self.assertIn("scripts/build-ffmpeg-slim.sh", text)
+        self.assertIn("scripts/build-ffmpeg-slim-windows.sh", text)
+        self.assertIn("ubuntu:22.04", text)
+        self.assertIn("debian:13", text)
+
+    def test_only_the_publish_job_can_write(self) -> None:
+        for name, job in self.doc["jobs"].items():
+            expected = {"contents": "write"} if name == "publish" else None
+            self.assertEqual(job.get("permissions"), expected, name)
 
 
 if __name__ == "__main__":

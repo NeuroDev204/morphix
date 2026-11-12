@@ -43,7 +43,7 @@ install -Dm0755 "$TARGET_DIR/release/morphix" "$STAGE/usr/bin/morphix"
 install -Dm0755 "$TARGET_DIR/release/morphix-gui" "$STAGE/usr/bin/morphix-gui"
 # WHY: $ORIGIN/../lib/morphix đi từ /usr/bin tới thư viện đi kèm, không phụ thuộc nơi cài.
 for bin in "$STAGE/usr/bin/morphix" "$STAGE/usr/bin/morphix-gui"; do
-  patchelf --set-rpath '$ORIGIN/../lib/morphix/lib:$ORIGIN/../lib/morphix/pdfium' "$bin"
+  patchelf --set-rpath '$ORIGIN/../lib/morphix/pdfium' "$bin"
 done
 # WHY: chặn gói lỗi ngay trong lúc build; thiếu custom-protocol thì cửa sổ Khay không mở được.
 bash "$ROOT/scripts/check-gui-embeds-ui.sh" "$STAGE/usr/bin/morphix-gui"
@@ -52,7 +52,10 @@ bash "$ROOT/scripts/check-gui-embeds-ui.sh" "$STAGE/usr/bin/morphix-gui"
 echo "$PDFIUM_SHA256  $ROOT/third_party/pdfium/lib/libpdfium.so" | sha256sum -c --status -
 install -Dm0644 "$ROOT/third_party/pdfium/lib/libpdfium.so" "$STAGE/usr/lib/morphix/pdfium/libpdfium.so"
 
-bash "$ROOT/scripts/build-ffmpeg-sidecar.sh" "$STAGE"
+# WHY bản gọn tĩnh: cùng ffmpeg với tarball, không kéo theo hàng chục thư viện .so của Ubuntu (gói nhẹ hơn nhiều).
+FFMPEG_WORK="$(mktemp -d "$OUT/ffmpeg.XXXXXX")"
+bash "$ROOT/scripts/install-ffmpeg-slim.sh" "$STAGE/usr/lib/morphix/ffmpeg" "$STAGE/usr/share/doc/morphix" "$FFMPEG_WORK"
+python3 -c 'import shutil,sys; shutil.rmtree(sys.argv[1])' "$FFMPEG_WORK"
 
 DING_SOURCE="${MORPHIX_DING_SOURCE:-/usr/share/gnome-shell/extensions/ding@rastersoft.com}"
 DING_PREPARE_ROOT="$(mktemp -d "$STAGE/.ding-build.XXXXXX")"
@@ -76,29 +79,28 @@ DOC="$STAGE/usr/share/doc/morphix"
 install -Dm0644 "$ROOT/crates/morphix-gui/packaging/deb/copyright" "$DOC/copyright"
 install -Dm0644 "$ROOT/packaging/LICENSES-THIRD-PARTY.md" "$DOC/LICENSES-THIRD-PARTY.md"
 python3 "$ROOT/scripts/collect-bundled-licenses.py" "$DOC/bundled"
-OFFER="$ROOT/packaging/ffmpeg-source-offer.txt"
-install -Dm0644 "$OFFER" "$DOC/ffmpeg-source-offer.txt"
 for licence in "$ROOT"/third_party/pdfium/licenses/*; do
   install -Dm0644 "$licence" "$DOC/pdfium/licenses/$(basename "$licence")"
 done
 install -Dm0644 "$ROOT/third_party/pdfium/LICENSE" "$DOC/pdfium/LICENSE"
 
-# WHY: phiên bản glibc tối thiểu lấy từ symbol thực sự mà binary và thư viện đóng gói cần.
-# ffmpeg bản Noble cần GLIBC_2.38, nên libc6 phải khai báo đúng mức này để apt từ chối cài trên
-# máy cũ thay vì để lỗi xuất hiện lúc chạy.
-glibc_floor="$(find "$STAGE/usr/bin" "$STAGE/usr/lib" -type f -print0 | xargs -0 -r -n1 objdump -T \
-  | awk '/UND/' | grep -o 'GLIBC_2\.[0-9]*' | sort -uV | tail -1 | sed 's/GLIBC_//')"
-# WHY: GLIBCXX_3.4.N xuất hiện từ GCC (N - 19) trở đi, nên libstdc++6 phải đủ mới. Thiếu mục này
-# thì apt vẫn cho cài trên máy có glibc đủ mà libstdc++ cũ, và ffmpeg lỗi khi chạy.
-cxx_minor="$(find "$STAGE/usr/bin" "$STAGE/usr/lib" -type f -print0 | xargs -0 -r -n1 objdump -T \
-  | awk '/UND/' | grep -o 'GLIBCXX_3\.4\.[0-9]*' | sort -uV | tail -1 | sed 's/GLIBCXX_3\.4\.//')"
-cxx_major="$((cxx_minor - 19))"
-# WHY: Noble cung cấp GLIBCXX_3.4.32 từ GCC 13; lấy mức tối thiểu trực tiếp từ symbol binary cần.
+# WHY: phiên bản glibc tối thiểu lấy từ symbol thực sự mà các binary đóng gói cần, để apt từ chối cài trên máy cũ
+# thay vì để lỗi xuất hiện lúc chạy. `|| true` từng file: ffmpeg gọn liên kết tĩnh nên `objdump -T` báo lỗi trên nó.
+dynamic_symbols() {
+  find "$STAGE/usr/bin" "$STAGE/usr/lib" -type f -print0 \
+    | xargs -0 -r -n1 sh -c 'objdump -T "$1" 2>/dev/null || true' _ | awk '/UND/'
+}
+glibc_floor="$(dynamic_symbols | grep -o 'GLIBC_2\.[0-9]*' | sort -uV | tail -1 | sed 's/GLIBC_//')"
+# WHY: GLIBCXX_3.4.N xuất hiện từ GCC (N - 19) trở đi, nên libstdc++6 phải đủ mới; không binary nào cần
+# libstdc++ thì không khai báo nó.
+cxx_minor="$(dynamic_symbols | { grep -o 'GLIBCXX_3\.4\.[0-9]*' || true; } | sort -uV | tail -1 | sed 's/GLIBCXX_3\.4\.//')"
+cxx_depends=""
+[ -z "$cxx_minor" ] || cxx_depends=", libstdc++6 (>= $((cxx_minor - 19)))"
 installed_kb="$(du -sk --exclude=DEBIAN "$STAGE" | cut -f1)"
 ding_version="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["version"])' "$ROOT/integration/ding/source.json")"
 sed -e "s/@VERSION@/${VERSION}-${DEB_REVISION}/" \
     -e "s/@INSTALLED_SIZE@/${installed_kb}/" \
-    -e "s/@DEPENDS@/libwebkit2gtk-4.1-0, libayatana-appindicator3-1, libglib2.0-bin, python3-nautilus, python3-gi, gir1.2-gtk-4.0, gnome-shell-extension-desktop-icons-ng (= ${ding_version}), libc6 (>= ${glibc_floor}), libstdc++6 (>= ${cxx_major})/" \
+    -e "s/@DEPENDS@/libwebkit2gtk-4.1-0, libayatana-appindicator3-1, libglib2.0-bin, python3-nautilus, python3-gi, gir1.2-gtk-4.0, gnome-shell-extension-desktop-icons-ng (= ${ding_version}), libc6 (>= ${glibc_floor})${cxx_depends}/" \
     "$ROOT/crates/morphix-gui/packaging/deb/control.in" > "$STAGE/DEBIAN/control"
 python3 "$ROOT/scripts/render-dpkg-scripts.py" --output "$STAGE/DEBIAN"
 
@@ -110,4 +112,4 @@ find "$STAGE" -exec touch -h -d "@$epoch" {} +
 dpkg-deb --root-owner-group --build "$STAGE" "$DEB"
 sha256sum "$DEB" > "$DEB.sha256"
 python3 -c 'import shutil,sys; shutil.rmtree(sys.argv[1])' "$STAGE"
-echo "built $DEB ($(stat -c %s "$DEB") bytes), libc floor GLIBC_$glibc_floor, libstdc++ floor GCC $cxx_major"
+echo "built $DEB ($(stat -c %s "$DEB") bytes), libc floor GLIBC_$glibc_floor${cxx_depends:+, libstdc++${cxx_depends#*libstdc++6}}"

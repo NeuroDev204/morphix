@@ -13,18 +13,24 @@ jobs:
   test:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           toolchain: stable
           components: clippy
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
       - run: scripts/ci/setup-build-deps.sh
       # WHY không chạy cargo fmt --check toàn workspace: còn drift đã biết (CLAUDE.md), sửa riêng.
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+      # WHY: chạy lại test core với đúng ffmpeg gọn mà tarball và .deb mang theo; thiếu nó thì test media bị bỏ qua
+      # và một bộ mã hoá/muxer bị cắt nhầm chỉ lộ ra trên máy người dùng.
+      - run: bash scripts/install-ffmpeg-slim.sh "$RUNNER_TEMP/ffmpeg/bin/ffmpeg" "$RUNNER_TEMP/ffmpeg/doc" "$RUNNER_TEMP/ffmpeg/work"
+      - env:
+          MORPHIX_FFMPEG: ${{ runner.temp }}/ffmpeg/bin/ffmpeg
+        run: cargo test -p morphix-core
       - run: npm ci && npm run check && npm test
         working-directory: crates/morphix-gui/ui
       - run: python3 -m unittest discover -s scripts/tests
@@ -34,12 +40,12 @@ jobs:
   test-windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           toolchain: stable
           components: clippy
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
       - run: ./scripts/ci/setup-windows-deps.ps1

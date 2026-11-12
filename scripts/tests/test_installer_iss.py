@@ -44,14 +44,26 @@ class InstallerScript(unittest.TestCase):
         self.assertIn(WEBVIEW2_CLIENT, self.text)
         self.assertIn("Check: not WebView2Installed", self.text)
 
-    def test_shell_dll_flags_and_restart_manager_filter_are_present(self) -> None:
-        # WHY chỉ kiểm cờ có mặt: hành vi khi Explorer giữ DLL (restartreplace cần quyền admin) chỉ kiểm được trên
-        # Windows thật; xem danh sách kiểm tay.
+    def test_shell_dll_is_installed_under_a_versioned_name_so_an_upgrade_never_overwrites_a_loaded_file(self) -> None:
+        # WHY: `restartreplace` cần quyền admin; ở chế độ người dùng Explorer đang giữ DLL thì ghi đè là thất bại.
         line = next(l for l in self.text.splitlines() if l.startswith("Source:") and "morphix_shell.dll" in l)
-        self.assertIn("restartreplace", line)
-        self.assertIn("uninsrestartdelete", line)
+        self.assertIn('DestName: "morphix_shell_{#AppVersion}.dll"', line)
+        for banned in ("restartreplace", "uninsrestartdelete"):
+            self.assertNotIn(banned, self.text)
         self.assertIn("CloseApplicationsFilter=*.exe", self.text)
 
+    def test_old_shell_dlls_are_cleaned_up_on_upgrade_and_uninstall(self) -> None:
+        self.assertIn("[InstallDelete]", self.text)
+        self.assertIn("[UninstallDelete]", self.text)
+        self.assertEqual(self.text.count(r'Name: "{app}\morphix_shell*.dll"'), 2)
+
+    def test_the_running_app_is_asked_to_quit_before_it_is_replaced_or_removed(self) -> None:
+        # Thoát êm (huỷ việc đang chạy) trước; taskkill chỉ còn là phương án cuối.
+        quit_at = self.text.index('Parameters: "quit"')
+        kill_at = self.text.index("taskkill.exe")
+        self.assertLess(quit_at, kill_at)
+        self.assertIn("PrepareToInstall", self.text)
+        self.assertIn("'quit'", self.text)
 
 if __name__ == "__main__":
     unittest.main()

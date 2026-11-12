@@ -142,6 +142,12 @@ fn show_menu_for(app: &AppHandle, request: MenuRequest, collecting: bool) {
         );
         return;
     }
+    // WHY thoát chung đường với nút Thoát: `RunEvent::Exit` huỷ việc đang chạy rồi dừng IPC, nên không việc nào bị giết giữa chừng.
+    if request.is_quit() {
+        tracing::info!("nhận yêu cầu thoát qua IPC");
+        commands::request_quit(app);
+        return;
+    }
     if let Some(id) = request.action.as_deref() {
         if let Err(message) = commands::start_action(app, id, request.paths.clone(), true) {
             tracing::error!(%message, action = id, "không chạy được việc nhận qua IPC");

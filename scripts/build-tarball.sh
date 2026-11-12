@@ -2,7 +2,7 @@
 # Dựng gói tar cho bản cài bằng lệnh curl: binary, ffmpeg tĩnh, PDFium, icon và giấy phép, theo bố cục
 # `<prefix>/bin` → `<prefix>/lib/morphix` mà `bundled_lib_dir()` tìm.
 # Usage: scripts/build-tarball.sh <thư mục đầu ra>
-# Biến: MORPHIX_FFMPEG_STATIC_TARBALL (file .tar.xz đã tải sẵn, khỏi tải lại),
+# Biến: MORPHIX_FFMPEG_STATIC_TARBALL (file .tar.xz đã tải sẵn, khỏi tải lại; xem scripts/install-ffmpeg-slim.sh),
 #       MORPHIX_ALLOW_GLIBC_FLOOR (nới ngưỡng glibc khi thử trên máy mới; CI không đặt).
 set -euo pipefail
 
@@ -37,27 +37,12 @@ bash "$ROOT/scripts/check-gui-embeds-ui.sh" "$STAGE/bin/morphix-gui"
 echo "$PDFIUM_SHA256  $ROOT/third_party/pdfium/lib/libpdfium.so" | sha256sum -c --status -
 install -Dm0644 "$ROOT/third_party/pdfium/lib/libpdfium.so" "$STAGE/lib/morphix/pdfium/libpdfium.so"
 
-FFMPEG_URL="$(sed -n 's/^URL: *//p' "$ROOT/packaging/ffmpeg-static.txt")"
-FFMPEG_SHA256="$(sed -n 's/^SHA256: *//p' "$ROOT/packaging/ffmpeg-static.txt")"
-FFMPEG_TAR="${MORPHIX_FFMPEG_STATIC_TARBALL:-$WORK/ffmpeg.tar.xz}"
-[ -f "$FFMPEG_TAR" ] || curl -fsSL -o "$FFMPEG_TAR" "$FFMPEG_URL"
-echo "$FFMPEG_SHA256  $FFMPEG_TAR" | sha256sum -c --status - \
-  || { echo "ffmpeg tĩnh sai SHA256: $FFMPEG_TAR" >&2; exit 1; }
-mkdir "$WORK/ffmpeg"
-tar -xJf "$FFMPEG_TAR" -C "$WORK/ffmpeg" --strip-components=1 --wildcards '*/bin/ffmpeg' '*/LICENSE.txt'
-install -Dm0755 "$WORK/ffmpeg/bin/ffmpeg" "$STAGE/lib/morphix/ffmpeg"
-"$STAGE/lib/morphix/ffmpeg" -hide_banner -buildconf | grep -q -- '--enable-libx264' \
-  || { echo "ffmpeg tĩnh thiếu libx264" >&2; exit 1; }
-
 install -Dm0644 "$ROOT/crates/morphix-gui/icons/128x128.png" \
   "$STAGE/share/icons/hicolor/128x128/apps/morphix.png"
 DOC="$STAGE/share/doc/morphix"
 install -Dm0644 "$ROOT/LICENSE" "$DOC/LICENSE"
 install -Dm0644 "$ROOT/packaging/LICENSES-THIRD-PARTY.md" "$DOC/LICENSES-THIRD-PARTY.md"
-install -Dm0644 "$ROOT/packaging/ffmpeg-static.txt" "$DOC/ffmpeg-source-offer.txt"
-install -Dm0644 "$WORK/ffmpeg/LICENSE.txt" "$DOC/ffmpeg/LICENSE.txt"
-# WHY: ffmpeg tĩnh gộp sẵn hơn trăm thư viện BSD/MIT/LGPL; văn bản lấy bằng scripts/collect-ffmpeg-licenses.py.
-cp -r "$ROOT/packaging/ffmpeg-static-licenses" "$DOC/ffmpeg/third-party"
+bash "$ROOT/scripts/install-ffmpeg-slim.sh" "$STAGE/lib/morphix/ffmpeg" "$DOC" "$WORK"
 # WHY: crate Rust và gói npm bị liên kết tĩnh/gộp vào binary cũng cần kèm giấy phép.
 python3 "$ROOT/scripts/collect-bundled-licenses.py" "$DOC/bundled"
 install -Dm0644 "$ROOT/third_party/pdfium/LICENSE" "$DOC/pdfium/LICENSE"
@@ -67,7 +52,10 @@ done
 printf '%s\n' "$VERSION" > "$STAGE/VERSION"
 
 # WHY: ngưỡng glibc là điều kiện "chạy trên mọi distro" của spec; vượt ngưỡng thì dừng thay vì phát hành.
-floor="$(find "$STAGE/bin" "$STAGE/lib" -type f -print0 | xargs -0 -r -n1 objdump -T 2>/dev/null \
+# WHY `|| true` từng file: ffmpeg gọn liên kết tĩnh hoàn toàn (không có symbol glibc) nên `objdump -T` báo lỗi trên nó, và
+# file không phải ELF cũng vậy; lỗi đó không được làm dừng cả phép tính ngưỡng.
+floor="$(find "$STAGE/bin" "$STAGE/lib" -type f -print0 \
+  | xargs -0 -r -n1 sh -c 'objdump -T "$1" 2>/dev/null || true' _ \
   | awk '/UND/' | grep -o 'GLIBC_2\.[0-9]*' | sort -uV | tail -1 | sed 's/GLIBC_//')"
 if [ "$(printf '%s\n%s\n' "$floor" "$GLIBC_LIMIT" | sort -V | tail -1)" != "$GLIBC_LIMIT" ]; then
   echo "glibc floor $floor vượt ngưỡng $GLIBC_LIMIT; hãy dựng trên Ubuntu 22.04" >&2

@@ -1,8 +1,9 @@
 # Phụ thuộc nhị phân của bản Windows, tải lúc dựng bởi scripts/ci/setup-windows-deps.ps1 (không commit file tải về).
-# ffmpeg: Gyan.dev bản "essentials" 9.0.2, cấu hình GPL v3 có libx264, libvpx, libopus, libmp3lame, libvorbis (đủ cho mọi
-# định dạng Morphix ghi); nhỏ hơn bản "full" khoảng 143 MB khi nén. Đổi bản thì cập nhật cả hai FFMPEG-NOTICE.txt.
-FFMPEG_URL=https://github.com/GyanD/codexffmpeg/releases/download/9.0.2/ffmpeg-9.0.2-essentials_build.zip
-FFMPEG_SHA256=60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba
+# ffmpeg: bản gọn của Morphix (FFmpeg 8.1.3, GPL-3.0-or-later), dựng từ nguồn bằng scripts/build-ffmpeg-slim-windows.sh và
+# đăng ở release ffmpeg-8.1.3-morphix.2 của kho này. Chỉ bật bộ mã hoá và muxer Morphix gọi, giữ mọi bộ giải mã (có AV1 qua
+# dav1d); ffmpeg.exe khoảng 35 MB thay vì 105 MB của bản "essentials" dựng sẵn. Đổi bản thì cập nhật cả hai FFMPEG-NOTICE.txt.
+FFMPEG_URL=https://github.com/NeuroDev204/morphix/releases/download/ffmpeg-8.1.3-morphix.2/ffmpeg-8.1.3-morphix.2-win64-gpl.zip
+FFMPEG_SHA256=509db36f9e2f9bc6f8ea5065f468b96556351a09ea37028c46020c11fa97047f
 # PDFium: cùng bản chromium/7881 với bản Linux (scripts/ci/setup-build-deps.sh).
 PDFIUM_URL=https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F7881/pdfium-win-x64.tgz
 PDFIUM_SHA256=73cc0de638ac2095e7445bf56a38200a5b7c7ca0e9f4ba144598f2457377ac08

@@ -28,8 +28,10 @@ RestartApplications=no
 [Files]
 Source: "..\target\release\morphix-gui.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\target\release\morphix.exe"; DestDir: "{app}"; Flags: ignoreversion
-; WHY restartreplace/uninsrestartdelete: Explorer nạp DLL này vào tiến trình của nó nên có thể đang giữ file khi cập nhật hoặc gỡ.
-Source: "..\target\release\morphix_shell.dll"; DestDir: "{app}"; Flags: ignoreversion restartreplace uninsrestartdelete
+; WHY tên có phiên bản: Explorer nạp DLL này vào tiến trình của nó và giữ file; ghi đè lên bản đang nạp thất bại ở chế độ
+; người dùng (cờ thay-sau-khi-khởi-động-lại của Inno cần quyền admin). Bản mới nằm cạnh bản cũ dưới tên khác, `morphix install-integration` đăng ký
+; menu trỏ sang tên mới, còn bản cũ bị dọn ở [InstallDelete] (hoặc lần sau nếu Explorer vẫn đang giữ).
+Source: "..\target\release\morphix_shell.dll"; DestDir: "{app}"; DestName: "morphix_shell_{#AppVersion}.dll"; Flags: ignoreversion
 Source: "bundle\ffmpeg.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "bundle\pdfium.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "bundle\PDFium-LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
@@ -37,6 +39,12 @@ Source: "bundle\FFMPEG-NOTICE.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
 Source: "..\packaging\LICENSES-THIRD-PARTY.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "bundle\MicrosoftEdgeWebview2Setup.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall; Check: not WebView2Installed
+
+[InstallDelete]
+Type: files; Name: "{app}\morphix_shell*.dll"
+
+[UninstallDelete]
+Type: files; Name: "{app}\morphix_shell*.dll"
 
 [Icons]
 ; WHY AppUserModelID trùng `identifier` của Tauri: Windows chỉ hiện thông báo của app có lối tắt mang đúng ID này.
@@ -49,10 +57,24 @@ Filename: "{tmp}\MicrosoftEdgeWebview2Setup.exe"; Parameters: "/silent /install"
 Filename: "{app}\morphix.exe"; Parameters: "install-integration"; StatusMsg: "Đang đăng ký menu chuột phải..."; Flags: runhidden waituntilterminated
 
 [UninstallRun]
+; Thoát êm trước (huỷ việc đang chạy gọn gàng); taskkill chỉ là phương án cuối nếu app không thoát.
+Filename: "{app}\morphix.exe"; Parameters: "quit"; Flags: runhidden waituntilterminated skipifdoesntexist; RunOnceId: "MorphixQuitGui"
 Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM morphix-gui.exe"; Flags: runhidden waituntilterminated skipifdoesntexist; RunOnceId: "MorphixStopGui"
 Filename: "{app}\morphix.exe"; Parameters: "uninstall-integration"; Flags: runhidden waituntilterminated; RunOnceId: "MorphixUninstallIntegration"
 
 [Code]
+// Nâng cấp: nhờ bản đang chạy thoát êm trước khi thay file, thay vì để Restart Manager hay taskkill giết giữa chừng.
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  OldMorphix: String;
+  ResultCode: Integer;
+begin
+  Result := '';
+  OldMorphix := ExpandConstant('{app}\morphix.exe');
+  if FileExists(OldMorphix) then
+    Exec(OldMorphix, 'quit', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
 const
   WebView2Client = '{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}';
 

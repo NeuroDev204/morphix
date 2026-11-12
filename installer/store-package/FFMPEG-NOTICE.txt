@@ -1,3 +1,4 @@
-﻿ffmpeg.exe la ban "essentials" cua Gyan.dev (ffmpeg 9.0.2), cau hinh GPL v3: co libx264, libvpx, libopus, libmp3lame, libvorbis.
-Ma nguon va giay phep: https://ffmpeg.org/legal.html va https://github.com/GyanD/codexffmpeg
+﻿ffmpeg.exe la ban ffmpeg gon cua Morphix (FFmpeg 8.1.3), dung tu ma nguon bang scripts/build-ffmpeg-slim-windows.sh, lien ket tinh hoan toan.
+Cau hinh GPL (GPL-3.0-or-later): co libx264, libvpx, libopus, libmp3lame, libvorbis, libdav1d va zlib.
+Ma nguon va giay phep: https://ffmpeg.org/legal.html va https://github.com/NeuroDev204/morphix/releases/tag/ffmpeg-8.1.3-morphix.2 (BUILD-INFO.txt trong goi liet ke nguon va SHA256 cua tung thanh phan).
 Morphix chi goi ffmpeg nhu mot chuong trinh rieng, khong lien ket thu vien.

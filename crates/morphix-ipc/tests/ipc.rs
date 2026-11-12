@@ -3,7 +3,7 @@ use interprocess::local_socket::GenericFilePath;
 #[cfg(not(unix))]
 use interprocess::local_socket::GenericNamespaced;
 use interprocess::local_socket::{prelude::*, Stream};
-use morphix_ipc::{decode, encode, Batcher, IpcServer, MenuRequest};
+use morphix_ipc::{decode, encode, Batcher, IpcServer, MenuRequest, QUIT_ACTION};
 use std::io::{self, ErrorKind, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -338,4 +338,34 @@ fn shutdown_flushes_the_batch_still_inside_its_window() {
     }));
     server.shutdown().unwrap();
     assert_eq!(*batches.lock().unwrap(), vec![request.paths]);
+}
+
+#[test]
+fn quit_request_needs_no_files_and_is_recognised() {
+    let quit = MenuRequest {
+        paths: Vec::new(),
+        action: Some(QUIT_ACTION.to_string()),
+    };
+    assert!(quit.is_quit());
+    let decoded = decode(&encode(&quit).unwrap()).unwrap();
+    assert!(decoded.is_quit() && decoded.paths.is_empty());
+    assert!(!MenuRequest::default().is_quit());
+}
+
+#[test]
+fn other_actions_still_need_a_file_and_an_id() {
+    let no_files = MenuRequest {
+        paths: Vec::new(),
+        action: Some("convert:webp".to_string()),
+    };
+    assert!(encode(&no_files).is_err());
+    let no_id = MenuRequest {
+        paths: vec![PathBuf::from("/tmp/a.png")],
+        action: Some(String::new()),
+    };
+    assert!(encode(&no_id).is_err());
+    // Bên nhận cũng phải từ chối dòng do một client khác viết tay.
+    assert!(decode(r#"{"paths":[],"action":"convert:webp"}"#).is_err());
+    assert!(decode(r#"{"paths":["/tmp/a.png"],"action":""}"#).is_err());
+    assert!(decode(&format!(r#"{{"paths":[],"action":"{QUIT_ACTION}"}}"#)).is_ok());
 }
