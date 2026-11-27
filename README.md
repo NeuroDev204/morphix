@@ -27,7 +27,7 @@ curl -fsSL https://github.com/NeuroDev204/morphix/releases/latest/download/insta
   - Ở hai kiểu sau menu liệt kê mọi việc của nhóm nên có thể có việc không hợp với file cụ thể (ví dụ PNG sang PNG); bấm vào sẽ hiện thông báo lỗi rõ ràng, không làm gì với file. `morphix doctor` cho biết máy bạn đang dùng menu động hay menu tĩnh.
 - Lệnh trên cần `curl` (Kubuntu 24.04 live không có sẵn; cài bằng `sudo apt install curl`).
 - Gói Python của Nautilus (`nautilus-python` trên Fedora, Arch, openSUSE; `python3-nautilus` trên Debian, Ubuntu) cho menu động trong Files. Thiếu nó thì Files dùng menu Scripts như trên. `morphix doctor` sẽ in đúng lệnh nếu thiếu.
-- Trên GNOME chưa bật AppIndicator (icon khay), lệnh cài tự bật; nếu chưa cài thì hỏi rồi cài `gnome-shell-extension-appindicator` (Ubuntu: `gnome-shell-ubuntu-extensions`), sau đó cần đăng nhập lại. openSUSE không có gói này: cài từ extensions.gnome.org, hoặc dùng `morphix tray`.
+- Trên GNOME chưa bật AppIndicator (icon khay), lệnh cài tự bật; nếu chưa cài thì hỏi rồi cài `gnome-shell-extension-appindicator`, sau đó cần đăng nhập lại. openSUSE không có gói này: cài từ extensions.gnome.org, hoặc dùng `morphix tray`.
 - Phím **Alt+C** (mở Morphix với các file đang chọn) chỉ có trên GNOME chạy X11. Trên Wayland và các desktop khác, dùng menu chuột phải.
 - Ubuntu 24.04 còn có gói `.deb` trong mục Releases, kèm menu chuột phải ngay trên desktop.
 

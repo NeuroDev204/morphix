@@ -12,7 +12,7 @@ Chủ dự án chọn phạm vi A: chỉ 4 họ đã hỗ trợ (Debian/Ubuntu, 
 
 | Họ | Nautilus binding | Gói AppIndicator | UUID |
 |---|---|---|---|
-| Ubuntu 26.04 | python3-nautilus | gnome-shell-ubuntu-extensions | ubuntu-appindicators@ubuntu.com |
+| Ubuntu 22.04/24.04/26.04 | python3-nautilus | gnome-shell-extension-appindicator (26.04: qua Provides → gnome-shell-ubuntu-extensions; gói đó không có trên 22.04) | ubuntu-appindicators@ubuntu.com |
 | Debian 13 | python3-nautilus | gnome-shell-extension-appindicator | appindicatorsupport@rgcjonas.gmail.com |
 | Fedora | nautilus-python | gnome-shell-extension-appindicator | appindicatorsupport@rgcjonas.gmail.com |
 | openSUSE TW | **python3-nautilus** (capability → python313-nautilus; `nautilus-python` không tồn tại) | **không có gói** | — |

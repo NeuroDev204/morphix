@@ -75,8 +75,8 @@ case " $ids " in
     *" debian "*|*" ubuntu "*) pm="apt install"; pm_run="apt-get install -y"
         pkg_webkit=libwebkit2gtk-4.1-0; pkg_tray=libayatana-appindicator3-1; pkg_nautilus=python3-nautilus
         ext_pkg=gnome-shell-extension-appindicator
-        # WHY: Ubuntu không có gói Debian này; AppIndicator của Ubuntu nằm trong gói extension chung.
-        case " $ids " in *" ubuntu "*) ext_pkg=gnome-shell-ubuntu-extensions; ext_uuid=ubuntu-appindicators@ubuntu.com ;; esac ;;
+        # WHY cùng tên gói: trên Ubuntu gói này mang UUID riêng của Ubuntu (26.04 giải qua Provides).
+        case " $ids " in *" ubuntu "*) ext_uuid=ubuntu-appindicators@ubuntu.com ;; esac ;;
     *) pm="" ;;
 esac
 
@@ -119,9 +119,12 @@ need_ext=""
 ext_manual=""
 case "${XDG_CURRENT_DESKTOP:-}" in
     *GNOME*)
+        # WHY bỏ qua khi `list` lỗi: Shell không trả lời (Flashback, Budgie, `su`) thì không biết gì đã cài.
         if command -v gnome-extensions >/dev/null 2>&1 \
-            && ! gnome-extensions list --enabled 2>/dev/null | grep -qE 'appindicatorsupport@rgcjonas.gmail.com|ubuntu-appindicators@ubuntu.com'; then
-            ext_enable="$(gnome-extensions list 2>/dev/null | grep -oE 'appindicatorsupport@rgcjonas.gmail.com|ubuntu-appindicators@ubuntu.com' | head -1 || true)"
+            && all_ext="$(gnome-extensions list 2>/dev/null)" \
+            && enabled_ext="$(gnome-extensions list --enabled 2>/dev/null)" \
+            && ! printf '%s\n' "$enabled_ext" | grep -qE 'appindicatorsupport@rgcjonas.gmail.com|ubuntu-appindicators@ubuntu.com'; then
+            ext_enable="$(printf '%s\n' "$all_ext" | grep -oE 'appindicatorsupport@rgcjonas.gmail.com|ubuntu-appindicators@ubuntu.com' | head -1 || true)"
             if [ -z "$ext_enable" ] && [ -n "$pm" ] && [ -n "$ext_pkg" ]; then
                 need_ext=1
                 pkgs="$pkgs $ext_pkg"

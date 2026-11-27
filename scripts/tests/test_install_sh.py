@@ -31,6 +31,9 @@ STUBS: dict[str, str] = {
     "gnome-extensions": (
         'echo "gnome-extensions $*" >> "$FAKE_LOG"\n'
         'case "$1 ${2:-}" in\n'
+        '  "list"*) [ -z "${FAKE_EXT_UNREACHABLE:-}" ] || exit 2 ;;\n'
+        'esac\n'
+        'case "$1 ${2:-}" in\n'
         '  "list --enabled") printf "%s\\n" "${FAKE_EXT_ENABLED:-}" ;;\n'
         '  "list "*) printf "%s\\n" "${FAKE_EXT_ALL:-}" ;;\n'
         '  "enable "*) [ -z "${FAKE_EXT_ENABLE_FAIL:-}" ] ;;\n'
@@ -375,7 +378,8 @@ class InstallScriptTests(unittest.TestCase):
         self.tty.write_text("\n")
         result = self.gnome()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(self.sudo_calls(), ["sudo apt-get install -y gnome-shell-ubuntu-extensions stdin=0"])
+        # WHY gói Debian: 22.04/24.04 có gói thật (mang UUID Ubuntu); 26.04 giải qua Provides. gnome-shell-ubuntu-extensions không có trên 22.04.
+        self.assertEqual(self.sudo_calls(), ["sudo apt-get install -y gnome-shell-extension-appindicator stdin=0"])
         self.assertIn("gnome-extensions enable ubuntu-appindicators@ubuntu.com", self.log.read_text())
 
     def test_gsettings_from_empty_list(self) -> None:
@@ -399,6 +403,15 @@ class InstallScriptTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.sudo_calls(), [])
         self.assertNotIn("gnome-extensions enable", self.log.read_text())
+
+    def test_unreachable_shell_skips_appindicator(self) -> None:
+        # GNOME Flashback, Budgie, `su`: XDG_CURRENT_DESKTOP có GNOME nhưng Shell không trả lời qua D-Bus.
+        self.tty.write_text("\n")
+        result = self.gnome(FAKE_EXT_UNREACHABLE="1")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.sudo_calls(), [])
+        self.assertNotIn("gnome-extensions enable", self.log.read_text())
+        self.assertNotIn("Đăng xuất", result.stdout)
 
     def test_not_gnome_skips_appindicator(self) -> None:
         self.tty.write_text("\n")
