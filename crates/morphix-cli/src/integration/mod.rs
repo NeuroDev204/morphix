@@ -2,6 +2,7 @@
 //! Các lệnh cài/gỡ theo người dùng không sửa tài nguyên desktop thuộc package.
 
 pub mod desktop;
+pub mod desktop_switch;
 pub mod ding_fork;
 pub mod fake;
 pub mod files;

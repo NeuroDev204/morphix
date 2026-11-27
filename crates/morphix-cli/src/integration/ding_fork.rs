@@ -160,22 +160,23 @@ pub fn read_marker(fork: &Path) -> Option<ForkMarker> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod fixtures {
     use super::*;
     use std::fs;
 
-    const MENU_26: &str = "class M {\n    showMenu() {\n        this._menu = DesktopIconsUtil.createDesktopMenu(['fileitemmenu']);\n        x();\n    }\n}\n";
-    const MENU_24: &str = "class M {\n    showMenu() {\n        this._menu = new Gtk.Menu();\n        const menuStyleContext = this._menu.get_style_context();\n        menuStyleContext.add_class('fileitemmenu');\n    }\n}\n";
-    const MANAGER: &str = "a();\n        this._menu.add(selectAll);\n        b();\n";
-    const EXTENSION: &str = "import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';\nexport default class DING extends Extension {\n    enable() {\n        go();\n    }\n\n    disable() {\n        stop();\n    }\n}\n";
-    const METADATA: &str = "{\"name\": \"Desktop Icons NG (DING)\", \"shell-version\": [\"46\", \"47\"], \"uuid\": \"ding@rastersoft.com\"}";
+    pub const MENU_26: &str = "class M {\n    showMenu() {\n        this._menu = DesktopIconsUtil.createDesktopMenu(['fileitemmenu']);\n        x();\n    }\n}\n";
+    pub const MENU_24: &str = "class M {\n    showMenu() {\n        this._menu = new Gtk.Menu();\n        const menuStyleContext = this._menu.get_style_context();\n        menuStyleContext.add_class('fileitemmenu');\n    }\n}\n";
+    pub const MANAGER: &str = "a();\n        this._menu.add(selectAll);\n        b();\n";
+    pub const EXTENSION: &str = "import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';\nexport default class DING extends Extension {\n    enable() {\n        go();\n    }\n\n    disable() {\n        stop();\n    }\n}\n";
+    pub const METADATA: &str = "{\"name\": \"Desktop Icons NG (DING)\", \"shell-version\": [\"46\", \"47\"], \"uuid\": \"ding@rastersoft.com\"}";
 
-    fn write(path: &Path, text: &str) {
+    pub fn write(path: &Path, text: &str) {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, text).unwrap();
     }
 
-    fn fake_ding(dir: &Path, menu: &str) -> PathBuf {
+    /// DING giả có đủ mốc; `dir` là gốc kiểu `/usr/share` (chứa `gnome-shell/extensions`).
+    pub fn fake_ding(dir: &Path, menu: &str) -> PathBuf {
         let root = dir.join("gnome-shell/extensions").join(DING_UUID);
         write(&root.join("metadata.json"), METADATA);
         write(&root.join("extension.js"), EXTENSION);
@@ -184,6 +185,13 @@ mod tests {
         write(&root.join("app/other.js"), "keep();\n");
         root
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fixtures::*;
+    use super::*;
+    use std::fs;
 
     fn count(text: &str, needle: &str) -> usize {
         text.matches(needle).count()
