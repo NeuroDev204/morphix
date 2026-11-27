@@ -2320,10 +2320,13 @@ fn user_mode_installs_nautilus_extension_and_launcher() {
     );
 }
 
+#[cfg(unix)]
 const DING_ANCHORS_FILE_MENU: &str = "class M {\n    showMenu() {\n        this._menu = DesktopIconsUtil.createDesktopMenu(['fileitemmenu']);\n    }\n}\n";
+#[cfg(unix)]
 const DING_ANCHORS_EXTENSION: &str = "import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';\nexport default class DING extends Extension {\n    enable() {\n        go();\n    }\n\n    disable() {\n        stop();\n    }\n}\n";
 
 /// DING giả kiểu hệ thống: `<root>/sys/gnome-shell/extensions/ding@rastersoft.com` có đủ mốc để dựng bản chép.
+#[cfg(unix)]
 fn fake_system_ding(root: &Path) -> PathBuf {
     let ding = root.join("sys/gnome-shell/extensions/ding@rastersoft.com");
     fs::create_dir_all(ding.join("app")).unwrap();
@@ -2334,6 +2337,7 @@ fn fake_system_ding(root: &Path) -> PathBuf {
     ding
 }
 
+#[cfg(unix)]
 fn session_with_ding(root: &Path) -> SessionEnv {
     SessionEnv {
         system_data_dirs: Some(vec![root.join("sys")]),
@@ -2342,6 +2346,7 @@ fn session_with_ding(root: &Path) -> SessionEnv {
 }
 
 /// `gnome-extensions` giả: DING có trong `list`; `enabled` là kết quả của `list --enabled`. Mọi lệnh đổi trạng thái được ghi vào `calls`.
+#[cfg(unix)]
 fn desktop_tools(enabled: &'static str, calls: std::rc::Rc<std::cell::RefCell<Vec<String>>>) -> Box<ToolRunner> {
     Box::new(move |program: &str, args: &[&OsStr]| {
         let args: Vec<String> = args.iter().map(|a| a.to_string_lossy().into_owned()).collect();
@@ -2357,6 +2362,7 @@ fn desktop_tools(enabled: &'static str, calls: std::rc::Rc<std::cell::RefCell<Ve
     })
 }
 
+#[cfg(unix)]
 fn no_calls() -> std::rc::Rc<std::cell::RefCell<Vec<String>>> {
     std::rc::Rc::new(std::cell::RefCell::new(Vec::new()))
 }
