@@ -1,5 +1,5 @@
 // Menu Morphix cho bản chép DING (chạy trong tiến trình ding.js, legacy imports, Gtk3).
-// Cùng hành vi với integration/nautilus/morphix_menu.py; @MORPHIX@ được `morphix install-integration` thay bằng đường dẫn binary.
+// Cùng hành vi với integration/nautilus/morphix_menu.py; chuỗi giữ chỗ trong dòng MORPHIX bên dưới được `morphix install-integration` thay bằng đường dẫn binary.
 /* exported addFileItems, addBackgroundItem */
 
 var MORPHIX = '@MORPHIX@';
