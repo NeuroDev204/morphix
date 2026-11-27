@@ -2836,7 +2836,7 @@ dependencies = [
 
 [[package]]
 name = "morphix-cli"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -2861,7 +2861,7 @@ dependencies = [
 
 [[package]]
 name = "morphix-core"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "base64 0.22.1",
  "csv",
@@ -2890,7 +2890,7 @@ dependencies = [
 
 [[package]]
 name = "morphix-gui"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "clap",
  "gtk",
@@ -2915,7 +2915,7 @@ dependencies = [
 
 [[package]]
 name = "morphix-ipc"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "directories",
  "interprocess",
@@ -2926,7 +2926,7 @@ dependencies = [
 
 [[package]]
 name = "morphix-shell"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "image",
  "morphix-core",
