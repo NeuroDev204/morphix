@@ -59,16 +59,24 @@ fi
 
 # 4. Gói hệ thống không đóng kèm được: hỏi rồi tự cài bằng sudo; không hỏi được thì chỉ in lệnh.
 ids="$(. "$OS_RELEASE" 2>/dev/null; printf '%s %s' "${ID:-}" "${ID_LIKE:-}")"
+# Tên gói đã kiểm trong container ngày 2026-11-27 (xem docs/superpowers/specs/2026-11-27-morphix-install-appindicator-design.md).
+ext_pkg=""
+ext_uuid=appindicatorsupport@rgcjonas.gmail.com
 case " $ids " in
     *" fedora "*) pm="dnf install"; pm_run="dnf install -y"
-        pkg_webkit=webkit2gtk4.1; pkg_tray=libayatana-appindicator-gtk3; pkg_nautilus=nautilus-python ;;
+        pkg_webkit=webkit2gtk4.1; pkg_tray=libayatana-appindicator-gtk3; pkg_nautilus=nautilus-python
+        ext_pkg=gnome-shell-extension-appindicator ;;
     *" arch "*) pm="pacman -S"; pm_run="pacman -S --needed --noconfirm"
-        # shortcut: tên gói python-nautilus chưa kiểm trên Arch thật; sửa khi có người dùng Arch báo lỗi.
-        pkg_webkit=webkit2gtk-4.1; pkg_tray=libayatana-appindicator; pkg_nautilus=python-nautilus ;;
+        pkg_webkit=webkit2gtk-4.1; pkg_tray=libayatana-appindicator; pkg_nautilus=nautilus-python
+        ext_pkg=gnome-shell-extension-appindicator ;;
+    # WHY python3-nautilus: openSUSE chỉ có python3XX-nautilus; zypper giải tên này theo capability. Không có gói AppIndicator.
     *" opensuse"*|*" suse "*) pm="zypper install"; pm_run="zypper --non-interactive install"
-        pkg_webkit=libwebkit2gtk-4_1-0; pkg_tray=libayatana-appindicator3-1; pkg_nautilus=nautilus-python ;;
+        pkg_webkit=libwebkit2gtk-4_1-0; pkg_tray=libayatana-appindicator3-1; pkg_nautilus=python3-nautilus ;;
     *" debian "*|*" ubuntu "*) pm="apt install"; pm_run="apt-get install -y"
-        pkg_webkit=libwebkit2gtk-4.1-0; pkg_tray=libayatana-appindicator3-1; pkg_nautilus=python3-nautilus ;;
+        pkg_webkit=libwebkit2gtk-4.1-0; pkg_tray=libayatana-appindicator3-1; pkg_nautilus=python3-nautilus
+        ext_pkg=gnome-shell-extension-appindicator
+        # WHY: Ubuntu không có gói Debian này; AppIndicator của Ubuntu nằm trong gói extension chung.
+        case " $ids " in *" ubuntu "*) ext_pkg=gnome-shell-ubuntu-extensions; ext_uuid=ubuntu-appindicators@ubuntu.com ;; esac ;;
     *) pm="" ;;
 esac
 
@@ -105,6 +113,41 @@ if command -v nautilus >/dev/null 2>&1; then
 fi
 [ -z "$need_nautilus" ] || [ -z "$pm" ] || pkgs="$pkgs $pkg_nautilus"
 
+# Extension AppIndicator của GNOME: chưa bật thì không thấy icon khay. Chỉ kiểm trong phiên GNOME (không qua ssh).
+ext_enable=""
+need_ext=""
+ext_manual=""
+case "${XDG_CURRENT_DESKTOP:-}" in
+    *GNOME*)
+        if command -v gnome-extensions >/dev/null 2>&1 \
+            && ! gnome-extensions list --enabled 2>/dev/null | grep -qE 'appindicatorsupport@rgcjonas.gmail.com|ubuntu-appindicators@ubuntu.com'; then
+            ext_enable="$(gnome-extensions list 2>/dev/null | grep -oE 'appindicatorsupport@rgcjonas.gmail.com|ubuntu-appindicators@ubuntu.com' | head -1 || true)"
+            if [ -z "$ext_enable" ] && [ -n "$pm" ] && [ -n "$ext_pkg" ]; then
+                need_ext=1
+                pkgs="$pkgs $ext_pkg"
+            elif [ -z "$ext_enable" ]; then
+                ext_manual=1
+            fi
+        fi
+        ;;
+esac
+
+# Bật extension cho người dùng hiện tại (không sudo).
+enable_ext() {
+    gnome-extensions enable "$1" 2>/dev/null && return 0
+    # WHY gsettings: extension vừa cài chưa được GNOME Shell nạp tới lần đăng nhập sau, nên `enable` báo không tồn tại.
+    command -v gsettings >/dev/null 2>&1 || return 1
+    current="$(gsettings get org.gnome.shell enabled-extensions 2>/dev/null)" || return 1
+    case "$current" in
+        *"'$1'"*) return 0 ;;
+        "@as []"|"[]") updated="['$1']" ;;
+        *) updated="${current%]}, '$1']" ;;
+    esac
+    gsettings set org.gnome.shell enabled-extensions "$updated"
+}
+[ -z "$ext_enable" ] || enable_ext "$ext_enable" \
+    || printf 'Morphix: chưa bật được AppIndicator; chạy: gnome-extensions enable %s\n' "$ext_enable" >&2
+
 # Hỏi một lần rồi cài. WHY /dev/tty: với `curl … | sh`, stdin là phần còn lại của script.
 # WHY </dev/null cho lệnh cài: lệnh con đọc stdin sẽ nuốt mất phần script chưa chạy.
 # Chỉ hỏi khi thực sự cài được: có tty, và là root hoặc có sudo.
@@ -125,7 +168,8 @@ install_pkgs() {
 }
 
 installed_nautilus=""
-if [ -n "$missing$need_nautilus" ]; then
+installed_ext=""
+if [ -n "$missing$need_nautilus$need_ext" ]; then
     if [ -z "$pm" ]; then
         if [ -n "$missing" ]; then
             printf 'Morphix cần thư viện hệ thống còn thiếu:%s\n' "$missing"
@@ -135,10 +179,16 @@ if [ -n "$missing$need_nautilus" ]; then
         printf 'Morphix: hãy cài gói nautilus-python của bản Linux này để có menu chuột phải theo file; tạm thời menu nằm trong mục Scripts.\n' >&2
     elif printf 'Morphix cần cài thêm:%s\n' "$pkgs" && install_pkgs; then
         [ -z "$need_nautilus" ] || installed_nautilus=1
+        if [ -n "$need_ext" ]; then
+            installed_ext=1
+            enable_ext "$ext_uuid" \
+                || printf 'Morphix: chưa bật được AppIndicator; sau khi đăng nhập lại hãy chạy: gnome-extensions enable %s\n' "$ext_uuid" >&2
+        fi
     else
         printf 'Hãy cài bằng lệnh sau rồi chạy lại lệnh cài Morphix:\n  sudo %s%s\n' "$pm" "$pkgs"
         [ -z "$missing" ] || exit 1
-        printf 'Tạm thời menu chuột phải của Morphix nằm trong mục Scripts.\n'
+        [ -z "$need_nautilus" ] || printf 'Tạm thời menu chuột phải của Morphix nằm trong mục Scripts.\n'
+        [ -z "$need_ext" ] || printf 'Tạm thời icon Morphix chưa hiện trên khay; mở cửa sổ bằng lệnh: morphix tray\n'
     fi
 fi
 
@@ -206,3 +256,5 @@ case ":$PATH:" in
 esac
 printf 'Đã cài Morphix %s. Gỡ: morphix uninstall\n' "$version"
 [ -z "$installed_nautilus" ] || printf 'Đóng hết cửa sổ Files rồi mở lại để thấy menu Morphix.\n'
+[ -z "$installed_ext" ] || printf 'Đăng xuất rồi đăng nhập lại để thấy icon Morphix trên khay.\n'
+[ -z "$ext_manual" ] || printf 'Để thấy icon Morphix trên khay, cài extension AppIndicator: https://extensions.gnome.org/extension/615/appindicator-support/\n'

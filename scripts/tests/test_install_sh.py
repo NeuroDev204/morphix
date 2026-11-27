@@ -28,6 +28,20 @@ STUBS: dict[str, str] = {
     "sudo": 'echo "sudo $* stdin=$(wc -c)" >> "$FAKE_LOG"; [ -z "${FAKE_SUDO_FAIL:-}" ]\n',
     "apt-get": 'echo "apt-get $* stdin=$(wc -c)" >> "$FAKE_LOG"\n',
     "id": 'echo "${FAKE_UID:-1000}"\n',
+    "gnome-extensions": (
+        'echo "gnome-extensions $*" >> "$FAKE_LOG"\n'
+        'case "$1 ${2:-}" in\n'
+        '  "list --enabled") printf "%s\\n" "${FAKE_EXT_ENABLED:-}" ;;\n'
+        '  "list "*) printf "%s\\n" "${FAKE_EXT_ALL:-}" ;;\n'
+        '  "enable "*) [ -z "${FAKE_EXT_ENABLE_FAIL:-}" ] ;;\n'
+        'esac\n'
+    ),
+    "gsettings": (
+        'case "$1" in\n'
+        '  get) echo "${FAKE_GSETTINGS:-@as []}" ;;\n'
+        '  set) echo "gsettings $*" >> "$FAKE_LOG" ;;\n'
+        'esac\n'
+    ),
     "curl": (
         'out=""; url=""\n'
         'while [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift 2 ;; -*) shift ;; *) url="$1"; shift ;; esac; done\n'
@@ -337,6 +351,83 @@ class InstallScriptTests(unittest.TestCase):
     def test_no_tty_still_names_missing_packages(self) -> None:
         result = self.run_install(piped=True, FAKE_NO_WEBKIT="1")
         self.assertIn("Morphix cần cài thêm: libwebkit2gtk-4.1-0", result.stdout)
+
+
+    # --- AppIndicator của GNOME ---
+    RG = "appindicatorsupport@rgcjonas.gmail.com"
+
+    def gnome(self, **env: str) -> subprocess.CompletedProcess[str]:
+        return self.run_install(piped=True, XDG_CURRENT_DESKTOP="ubuntu:GNOME", **env)
+
+    def test_debian_installs_and_enables_appindicator(self) -> None:
+        self.os_release.write_text("ID=debian\n")
+        self.tty.write_text("\n")
+        result = self.gnome(FAKE_EXT_ENABLE_FAIL="1", FAKE_GSETTINGS="['ding@rastersoft.com']")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.sudo_calls(), ["sudo apt-get install -y gnome-shell-extension-appindicator stdin=0"])
+        self.assertIn(
+            f"gsettings set org.gnome.shell enabled-extensions ['ding@rastersoft.com', '{self.RG}']",
+            self.log.read_text(),
+        )
+        self.assertIn("Đăng xuất rồi đăng nhập lại", result.stdout)
+
+    def test_ubuntu_uses_ubuntu_extension_package(self) -> None:
+        self.tty.write_text("\n")
+        result = self.gnome()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.sudo_calls(), ["sudo apt-get install -y gnome-shell-ubuntu-extensions stdin=0"])
+        self.assertIn("gnome-extensions enable ubuntu-appindicators@ubuntu.com", self.log.read_text())
+
+    def test_gsettings_from_empty_list(self) -> None:
+        self.os_release.write_text("ID=fedora\n")
+        self.tty.write_text("\n")
+        result = self.gnome(FAKE_EXT_ENABLE_FAIL="1")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(f"gsettings set org.gnome.shell enabled-extensions ['{self.RG}']", self.log.read_text())
+
+    def test_installed_but_disabled_is_enabled_without_sudo(self) -> None:
+        self.tty.write_text("\n")
+        result = self.gnome(FAKE_EXT_ALL=f"ding@rastersoft.com\n{self.RG}")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.sudo_calls(), [])
+        self.assertIn(f"gnome-extensions enable {self.RG}", self.log.read_text())
+        self.assertNotIn("Cài luôn", result.stdout)
+
+    def test_already_enabled_does_nothing(self) -> None:
+        self.tty.write_text("\n")
+        result = self.gnome(FAKE_EXT_ENABLED="ubuntu-appindicators@ubuntu.com")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.sudo_calls(), [])
+        self.assertNotIn("gnome-extensions enable", self.log.read_text())
+
+    def test_not_gnome_skips_appindicator(self) -> None:
+        self.tty.write_text("\n")
+        result = self.run_install(piped=True, XDG_CURRENT_DESKTOP="KDE")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.sudo_calls(), [])
+        self.assertNotIn("gnome-extensions", self.log.read_text())
+
+    def test_opensuse_without_package_prints_hint(self) -> None:
+        self.os_release.write_text('ID="opensuse-tumbleweed"\nID_LIKE="opensuse suse"\n')
+        self.tty.write_text("\n")
+        result = self.gnome()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.sudo_calls(), [])
+        self.assertIn("extensions.gnome.org", result.stdout + result.stderr)
+
+    def test_nautilus_binding_names_per_distro(self) -> None:
+        cases = {
+            "ID=arch\n": "sudo pacman -S --needed --noconfirm nautilus-python stdin=0",
+            'ID="opensuse-tumbleweed"\nID_LIKE="opensuse suse"\n': "sudo zypper --non-interactive install python3-nautilus stdin=0",
+        }
+        self.add_nautilus()
+        for os_release, expected in cases.items():
+            self.os_release.write_text(os_release)
+            self.tty.write_text("\n")
+            self.log.write_text("")
+            result = self.run_install(piped=True, MORPHIX_NAUTILUS_DIRS=str(self.empty_dir))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(self.sudo_calls(), [expected], os_release)
 
 
 if __name__ == "__main__":
