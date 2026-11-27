@@ -10,6 +10,10 @@ use crate::state::AppState;
 
 pub const KHAY_WINDOW_LABEL: &str = "khay";
 pub const SETTINGS_WINDOW_LABEL: &str = "settings";
+/// Popup tiến trình của việc chạy từ menu; khai trong `tauri.conf.json` (không tạo lúc chạy: tạo cửa sổ từ luồng khác dễ treo trên Windows).
+pub const PROGRESS_WINDOW_LABEL: &str = "tien-trinh";
+/// Kích thước popup khai trong `tauri.conf.json` (điểm ảnh logic).
+const PROGRESS_LOGICAL_SIZE: (f64, f64) = (360.0, 120.0);
 /// Khoảng cách logic từ mép vùng làm việc tới khay, để cửa sổ không dính sát viền màn hình.
 const KHAY_MARGIN_LOGICAL_PX: f64 = 16.0;
 /// Kích thước Khay khai báo trong `tauri.conf.json` (điểm ảnh logic).
@@ -64,8 +68,51 @@ pub fn bottom_right_origin(
 pub fn close_hides_window(label: &str) -> bool {
     matches!(
         label,
-        KHAY_WINDOW_LABEL | SETTINGS_WINDOW_LABEL
+        KHAY_WINDOW_LABEL | SETTINGS_WINDOW_LABEL | PROGRESS_WINDOW_LABEL
     )
+}
+
+/// Popup chỉ hiện khi đúng việc từ menu đó còn chạy sau độ trễ và app chưa thoát.
+pub fn should_show_progress(started_id: u64, active: Option<&crate::jobs::JobSnapshot>, exiting: bool) -> bool {
+    !exiting && active.is_some_and(|job| job.id == started_id && job.from_menu)
+}
+
+/// Hiện popup tiến trình ở góc dưới phải, không lấy focus (người dùng đang làm việc ở cửa sổ khác).
+pub fn show_progress(app: &AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window(PROGRESS_WINDOW_LABEL)
+        .ok_or_else(|| "Không tìm thấy cửa sổ tiến trình.".to_string())?;
+    match window.primary_monitor() {
+        Ok(Some(monitor)) => {
+            let area = monitor.work_area();
+            let scale = monitor.scale_factor();
+            let (x, y) = bottom_right_origin(
+                WorkArea {
+                    x: area.position.x,
+                    y: area.position.y,
+                    width: area.size.width,
+                    height: area.size.height,
+                },
+                (PROGRESS_LOGICAL_SIZE.0 * scale).round() as u32,
+                (PROGRESS_LOGICAL_SIZE.1 * scale).round() as u32,
+                (KHAY_MARGIN_LOGICAL_PX * scale).round() as u32,
+            );
+            if let Err(error) = window.set_position(PhysicalPosition::new(x, y)) {
+                tracing::warn!(error = %error, "compositor từ chối đặt vị trí popup tiến trình: {error}");
+            }
+        }
+        _ => tracing::warn!("không đọc được màn hình chính; popup tiến trình giữ vị trí mặc định"),
+    }
+    window
+        .show()
+        .map_err(|error| format!("Không hiện được popup tiến trình: {error}"))
+}
+
+pub fn hide_progress(app: &AppHandle) -> Result<(), String> {
+    app.get_webview_window(PROGRESS_WINDOW_LABEL)
+        .ok_or_else(|| "Không tìm thấy cửa sổ tiến trình.".to_string())?
+        .hide()
+        .map_err(|error| format!("Không ẩn được popup tiến trình: {error}"))
 }
 
 fn khay_window(app: &AppHandle) -> Result<WebviewWindow, String> {
@@ -231,4 +278,36 @@ fn set_khay_selection(
         .map_err(|error| error.to_string());
     open_khay(app)?;
     emitted
+}
+
+#[cfg(test)]
+mod progress_tests {
+    use super::*;
+    use crate::jobs::{JobSnapshot, JobState};
+
+    fn snapshot(id: u64, from_menu: bool) -> JobSnapshot {
+        JobSnapshot {
+            id,
+            label: "Đổi sang MP4".into(),
+            done: 0,
+            total: 1,
+            state: JobState::Running,
+            from_menu,
+            first_name: "a.mov".into(),
+        }
+    }
+
+    #[test]
+    fn progress_shows_only_for_the_same_running_menu_job() {
+        assert!(should_show_progress(7, Some(&snapshot(7, true)), false));
+        assert!(!should_show_progress(7, Some(&snapshot(8, true)), false));
+        assert!(!should_show_progress(7, Some(&snapshot(7, false)), false));
+        assert!(!should_show_progress(7, None, false));
+        assert!(!should_show_progress(7, Some(&snapshot(7, true)), true));
+    }
+
+    #[test]
+    fn progress_window_hides_instead_of_closing() {
+        assert!(close_hides_window(PROGRESS_WINDOW_LABEL));
+    }
 }

@@ -345,6 +345,7 @@ pub fn run(startup: StartupRequest) -> Result<(), String> {
             commands::menu_payload,
             commands::run_action,
             commands::cancel_job,
+            commands::hide_progress,
             commands::active_job,
             commands::submit_menu_request,
             commands::recent_history,
