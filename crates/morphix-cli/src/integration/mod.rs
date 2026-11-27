@@ -117,7 +117,7 @@ const ALL_COMPONENTS: [ComponentId; 16] = [
     ComponentId::CajaScriptMenu,
 ];
 
-const INSTALLABLE_COMPONENTS: [ComponentId; 13] = [
+const INSTALLABLE_COMPONENTS: [ComponentId; 14] = [
     ComponentId::WindowsContextMenu,
     ComponentId::NautilusScript,
     ComponentId::NautilusAccel,
@@ -126,6 +126,7 @@ const INSTALLABLE_COMPONENTS: [ComponentId; 13] = [
     ComponentId::Autostart,
     ComponentId::NautilusExtension,
     ComponentId::ApplicationLauncher,
+    ComponentId::DesktopContextMenu,
     ComponentId::CajaScript,
     ComponentId::ThunarAction,
     ComponentId::NautilusScriptMenu,

@@ -9,6 +9,8 @@ use std::{
 };
 
 use super::{
+    desktop_switch::{self, load_state, save_state, DesktopCtx},
+    ding_fork::{self, build_fork, find_source, fingerprint, read_marker},
     files::{
         classify, publish_file, read_existing, remove_file_if_owned, ExistingFile, FileOwnership,
         Transaction, MANAGED_MARKER,
@@ -21,6 +23,7 @@ use super::{
 
 const NAUTILUS_SCRIPT_NAME: &str = "Morphix";
 const AUTOSTART_NAME: &str = "morphix.desktop";
+const DESKTOP_CHECK_AUTOSTART_NAME: &str = "morphix-desktop-check.desktop";
 const NAUTILUS_EXTENSION_PATH: &str = "/usr/share/nautilus-python/extensions/morphix_menu.py";
 const APPLICATION_LAUNCHER_PATH: &str = "/usr/share/applications/morphix.desktop";
 const NAUTILUS_EXTENSION_TEMPLATE: &str =
@@ -61,6 +64,8 @@ pub struct SessionEnv {
     pub path: Option<std::ffi::OsString>,
     /// Thư mục tìm `libnautilus-python.so`; `None` là các thư mục hệ thống thông dụng.
     pub nautilus_python_dirs: Option<Vec<PathBuf>>,
+    /// `XDG_DATA_DIRS` (nơi tìm DING của hệ thống); `None` là mặc định XDG.
+    pub system_data_dirs: Option<Vec<PathBuf>>,
 }
 
 impl SessionEnv {
@@ -78,6 +83,9 @@ impl SessionEnv {
                 .or_else(|| std::env::var_os("PATH")),
             // WHY biến riêng: như `MORPHIX_FILE_MANAGER_PATH`, để test không phụ thuộc gói nautilus-python của máy.
             nautilus_python_dirs: std::env::var_os("MORPHIX_NAUTILUS_PYTHON_DIRS")
+                .map(|dirs| std::env::split_paths(&dirs).collect()),
+            system_data_dirs: std::env::var_os("XDG_DATA_DIRS")
+                .filter(|dirs| !dirs.is_empty())
                 .map(|dirs| std::env::split_paths(&dirs).collect()),
         }
     }
@@ -596,9 +604,7 @@ fn outside_linux(id: ComponentId) -> IntegrationComponentReport {
             None,
             "menu chuột phải Windows không áp dụng trên Linux",
         ),
-        ComponentId::NautilusExtension
-        | ComponentId::DesktopContextMenu
-        | ComponentId::ApplicationLauncher => report(
+        ComponentId::NautilusExtension | ComponentId::DesktopContextMenu | ComponentId::ApplicationLauncher => report(
             id,
             ComponentStatus::Unsupported,
             false,
@@ -857,19 +863,7 @@ fn absent_report(id: ComponentId, label: &str) -> IntegrationComponentReport {
 fn is_package_owned(id: ComponentId) -> bool {
     matches!(
         id,
-        ComponentId::NautilusExtension
-            | ComponentId::ApplicationLauncher
-            | ComponentId::DesktopContextMenu
-    )
-}
-
-fn desktop_menu_not_applicable() -> IntegrationComponentReport {
-    report(
-        ComponentId::DesktopContextMenu,
-        ComponentStatus::NotApplicable,
-        false,
-        None,
-        "menu trên desktop chỉ có trong gói .deb cho Ubuntu",
+        ComponentId::NautilusExtension | ComponentId::ApplicationLauncher
     )
 }
 
@@ -900,9 +894,6 @@ impl IntegrationBackend for LinuxBackend {
             // WHY: gói `.deb` đã cài các mục này cho cả máy; ghi thêm bản per-user sẽ hiện hai mục Morphix.
             return self.inspect(id, binaries);
         }
-        if id == ComponentId::DesktopContextMenu {
-            return desktop_menu_not_applicable();
-        }
         if let Some(label) = absent_file_manager(&self.session, id) {
             return absent_report(id, label);
         }
@@ -910,6 +901,9 @@ impl IntegrationBackend for LinuxBackend {
             Ok(roots) => roots,
             Err(message) => return failed_report(id, message),
         };
+        if id == ComponentId::DesktopContextMenu {
+            return self.install_desktop_menu(roots, binaries);
+        }
         #[cfg(target_os = "linux")]
         if id == ComponentId::NautilusAccel {
             return super::selection::accelerator(
@@ -963,6 +957,9 @@ impl IntegrationBackend for LinuxBackend {
             Ok(roots) => roots,
             Err(message) => return failed_report(id, message),
         };
+        if id == ComponentId::DesktopContextMenu {
+            return self.uninstall_desktop_menu(roots);
+        }
         #[cfg(target_os = "linux")]
         if id == ComponentId::NautilusAccel {
             return super::selection::accelerator(
@@ -1014,7 +1011,173 @@ impl IntegrationBackend for LinuxBackend {
     }
 }
 
+/// Autostart kiểm desktop: chạy `morphix desktop-check` mỗi lần đăng nhập. WHY trễ 5 giây: để GNOME Shell kịp nạp
+/// extension (kể cả bản chép vừa cài) trước khi kiểm.
+pub fn desktop_check_entry_body(morphix: &Path) -> Result<String, String> {
+    let morphix = utf8(morphix)?;
+    let exec = escape_desktop_value(&format!("{} desktop-check", desktop_exec_argument(morphix)));
+    let try_exec = escape_desktop_value(morphix);
+    Ok([
+        format!("# {MANAGED_MARKER}"),
+        "[Desktop Entry]".to_string(),
+        "Type=Application".to_string(),
+        "Name=Morphix desktop check".to_string(),
+        format!("Exec={exec}"),
+        format!("TryExec={try_exec}"),
+        "Terminal=false".to_string(),
+        "NoDisplay=true".to_string(),
+        "X-GNOME-Autostart-Delay=5".to_string(),
+    ]
+    .join("\n")
+        + "\n")
+}
+
 impl LinuxBackend {
+    /// DING nguồn của máy; `Err` là báo cáo "không áp dụng" cho chỗ gọi trả về luôn.
+    fn desktop_menu_source(&self, ctx: &DesktopCtx) -> Result<PathBuf, IntegrationComponentReport> {
+        let id = ComponentId::DesktopContextMenu;
+        let skip = |message: &str| report(id, ComponentStatus::NotApplicable, false, None, message);
+        if !self.session.is_gnome() {
+            return Err(skip("menu trên desktop chỉ dành cho desktop GNOME"));
+        }
+        find_source(&ctx.data_home, &ctx.data_dirs)
+            .ok_or_else(|| skip("không có desktop icon GNOME (DING) trên máy"))
+    }
+
+    fn desktop_check_file(&self, roots: &XdgRoots, binaries: &BinaryPaths) -> Result<DesiredFile, String> {
+        Ok(DesiredFile {
+            path: roots.config_home.join("autostart").join(DESKTOP_CHECK_AUTOSTART_NAME),
+            bytes: desktop_check_entry_body(&binaries.morphix)?.into_bytes(),
+            mode: DESKTOP_ENTRY_MODE,
+        })
+    }
+
+    /// Dựng bản chép DING và autostart kiểm; KHÔNG đụng gnome-extensions/gsettings (việc đổi bản ở `desktop-check`
+    /// lần đăng nhập sau, vì GNOME chưa thấy thư mục extension mới).
+    fn install_desktop_menu(&self, roots: &XdgRoots, binaries: &BinaryPaths) -> IntegrationComponentReport {
+        let id = ComponentId::DesktopContextMenu;
+        let ctx = DesktopCtx::new(roots.data_home.clone(), &self.session, binaries.morphix.clone());
+        let source = match self.desktop_menu_source(&ctx) {
+            Ok(source) => source,
+            Err(skipped) => return skipped,
+        };
+        let skip = |message: &str| report(id, ComponentStatus::NotApplicable, false, None, message);
+        let fork_on = desktop_switch::is_enabled(&*self.tools, ding_fork::FORK_UUID);
+        match desktop_switch::is_enabled(&*self.tools, ding_fork::DING_UUID) {
+            None => return skip("không hỏi được GNOME Shell (cần gnome-extensions và phiên đồ hoạ)"),
+            Some(false) if fork_on != Some(true) => return skip("desktop icon (DING) đang tắt nên không cài menu cho desktop"),
+            Some(_) => {}
+        }
+        let fork_dir = ctx.fork_dir();
+        let before = read_marker(&fork_dir);
+        let current = match fingerprint(&source) {
+            Ok(value) => value,
+            Err(message) => return failed_report(id, &message),
+        };
+        let up_to_date = before
+            .as_ref()
+            .is_some_and(|m| m.fingerprint == current && m.morphix_version == ctx.version && m.source == source);
+        if !up_to_date {
+            if let Err(message) = build_fork(&source, &ctx.extensions_dir(), &binaries.morphix, &ctx.version) {
+                return failed_report(id, &message);
+            }
+        }
+        let autostart = match self.desktop_check_file(roots, binaries) {
+            Ok(file) => install_file(id, &file),
+            Err(message) => return failed_report(id, &message),
+        };
+        if matches!(autostart.status, ComponentStatus::Conflict | ComponentStatus::Failed) {
+            return autostart;
+        }
+        // WHY xoá lý do lùi: chạy lại lệnh cài luôn được thử lại.
+        let mut state = load_state(&ctx);
+        if state.fallback.take().is_some() {
+            if let Err(message) = save_state(&ctx, &state) {
+                return failed_report(id, &message);
+            }
+        }
+        if up_to_date && !autostart.changed {
+            return report(id, ComponentStatus::AlreadyInstalled, false, Some(&fork_dir), "bản chép DING có menu Morphix đã mới");
+        }
+        let message = if before.is_none() {
+            "đã dựng bản chép DING có menu Morphix; đăng xuất rồi đăng nhập lại để thấy menu trên desktop"
+        } else {
+            "đã cập nhật bản chép DING; có hiệu lực ở lần đăng nhập sau"
+        };
+        report(id, ComponentStatus::Installed, true, Some(&fork_dir), message)
+    }
+
+    fn uninstall_desktop_menu(&self, roots: &XdgRoots) -> IntegrationComponentReport {
+        let id = ComponentId::DesktopContextMenu;
+        let ctx = DesktopCtx::new(roots.data_home.clone(), &self.session, PathBuf::new());
+        let fork_dir = ctx.fork_dir();
+        let had_fork = read_marker(&fork_dir).is_some();
+        // WHY trước khi xoá: trả DING gốc về trước, để lỗi ở đây không để desktop mất icon.
+        if let Err(message) = desktop_switch::restore(&ctx, &*self.tools) {
+            return failed_report(id, &message);
+        }
+        if had_fork {
+            if let Err(error) = fs::remove_dir_all(&fork_dir) {
+                return io_failure(id, &fork_dir, &error);
+            }
+        }
+        let state = ctx.state_path();
+        let had_state = state.exists();
+        if had_state {
+            if let Err(error) = fs::remove_file(&state) {
+                return io_failure(id, &state, &error);
+            }
+        }
+        let autostart = uninstall_file(
+            id,
+            &roots.config_home.join("autostart").join(DESKTOP_CHECK_AUTOSTART_NAME),
+        );
+        if matches!(autostart.status, ComponentStatus::Failed | ComponentStatus::Conflict) {
+            return autostart;
+        }
+        if had_fork || had_state || autostart.status == ComponentStatus::Removed {
+            report(id, ComponentStatus::Removed, true, Some(&fork_dir), "đã gỡ bản chép DING của Morphix; DING gốc giữ nguyên")
+        } else {
+            report(id, ComponentStatus::AlreadyAbsent, false, Some(&fork_dir), "chưa có bản chép DING của Morphix")
+        }
+    }
+
+    fn inspect_desktop_menu(&self, roots: &XdgRoots, binaries: &BinaryPaths) -> IntegrationComponentReport {
+        let id = ComponentId::DesktopContextMenu;
+        let ctx = DesktopCtx::new(roots.data_home.clone(), &self.session, binaries.morphix.clone());
+        let source = match self.desktop_menu_source(&ctx) {
+            Ok(source) => source,
+            Err(skipped) => return skipped,
+        };
+        let fork_dir = ctx.fork_dir();
+        let Some(marker) = read_marker(&fork_dir) else {
+            return report(id, ComponentStatus::Missing, false, Some(&fork_dir), "chưa dựng bản chép DING cho menu desktop; chạy morphix install-integration");
+        };
+        let current = match fingerprint(&source) {
+            Ok(value) => value,
+            Err(message) => return failed_report(id, &message),
+        };
+        if marker.fingerprint != current || marker.morphix_version != ctx.version {
+            return report(id, ComponentStatus::Stale, false, Some(&fork_dir), "bản chép DING cũ so với DING của máy hoặc Morphix; tự dựng lại ở lần đăng nhập sau, hoặc chạy morphix install-integration");
+        }
+        if let Some(fallback) = load_state(&ctx).fallback {
+            let message = format!("đã lùi về DING gốc vì lỗi: {}", fallback.reason);
+            return report(id, ComponentStatus::Stale, false, Some(&fork_dir), &message);
+        }
+        match self.desktop_check_file(roots, binaries) {
+            Ok(file) if inspect_file(id, &file).status == ComponentStatus::Installed => {}
+            Ok(_) => return report(id, ComponentStatus::Missing, false, Some(&fork_dir), "thiếu autostart kiểm desktop; chạy morphix install-integration"),
+            Err(message) => return failed_report(id, &message),
+        }
+        let running = desktop_switch::is_enabled(&*self.tools, ding_fork::FORK_UUID) == Some(true);
+        let message = if running {
+            "menu Morphix trên desktop đang dùng bản chép DING"
+        } else {
+            "đã dựng bản chép DING; sẽ đổi sang ở lần đăng nhập sau"
+        };
+        report(id, ComponentStatus::Installed, false, Some(&fork_dir), message)
+    }
+
     fn inspect_component(
         &self,
         id: ComponentId,
@@ -1028,15 +1191,6 @@ impl LinuxBackend {
             return skipped;
         }
         let package = install_mode(&binaries.morphix) == InstallMode::Package;
-        if id == ComponentId::DesktopContextMenu && !package {
-            return desktop_menu_not_applicable();
-        }
-        if id == ComponentId::DesktopContextMenu {
-            return super::desktop::inspect_desktop(
-                Path::new(super::desktop::SYSTEM_DING_EXTENSION_PATH),
-                &*self.tools,
-            );
-        }
         if id == ComponentId::NautilusExtension && package {
             return super::desktop::inspect_package_file(
                 id,
@@ -1057,6 +1211,9 @@ impl LinuxBackend {
         };
         if id == ComponentId::DesktopValidation {
             return desktop_validation_report(roots, &*self.tools);
+        }
+        if id == ComponentId::DesktopContextMenu {
+            return self.inspect_desktop_menu(roots, binaries);
         }
         #[cfg(target_os = "linux")]
         if id == ComponentId::NautilusAccel {

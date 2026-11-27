@@ -49,6 +49,19 @@ pub struct DesktopCtx {
 }
 
 impl DesktopCtx {
+    /// `session.system_data_dirs` `None` là mặc định XDG (`/usr/local/share:/usr/share`).
+    pub fn new(data_home: PathBuf, session: &SessionEnv, morphix: PathBuf) -> Self {
+        DesktopCtx {
+            data_home,
+            data_dirs: session
+                .system_data_dirs
+                .clone()
+                .unwrap_or_else(|| vec![PathBuf::from("/usr/local/share"), PathBuf::from("/usr/share")]),
+            session: session.clone(),
+            morphix,
+            version: env!("CARGO_PKG_VERSION").to_string(),
+        }
+    }
     pub fn extensions_dir(&self) -> PathBuf {
         self.data_home.join("gnome-shell/extensions")
     }
@@ -99,6 +112,11 @@ fn exts(tools: &ToolRunner) -> Option<Exts> {
         _ => None,
     };
     Some(Exts { known: lines(&["list"])?, enabled: lines(&["list", "--enabled"])? })
+}
+
+/// `Some(bật?)`; `None` khi không hỏi được GNOME Shell.
+pub(super) fn is_enabled(tools: &ToolRunner, uuid: &str) -> Option<bool> {
+    exts(tools).map(|e| e.is_enabled(uuid))
 }
 
 fn set_enabled(tools: &ToolRunner, uuid: &str, on: bool) -> Result<(), String> {
