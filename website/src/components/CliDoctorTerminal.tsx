@@ -46,7 +46,7 @@ const COMMANDS: Record<CliTabKey, CommandDetail> = {
           </div>
         </div>
         <div className="pt-2 text-teal-300 font-bold">
-          Trạng thái: Hoàn hảo. Tất cả các menu chuột phải đang hoạt động không cần sudo.
+          Trạng thái: Hoàn hảo. Tất cả các menu chuột phải đang hoạt động.
         </div>
       </div>
     ),

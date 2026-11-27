@@ -139,7 +139,7 @@ export default function DownloadMatrix() {
                     Cách 1: Lệnh cài tự động (Khuyên dùng):
                   </label>
                   <span className="text-[10px] text-teal-800 font-semibold bg-teal-50 px-2 py-0.5 rounded border border-teal-200/60">
-                    Không cần sudo
+                    Tự cài thư viện còn thiếu
                   </span>
                 </div>
                 <div className="relative group">

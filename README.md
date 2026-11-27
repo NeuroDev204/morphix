@@ -18,8 +18,8 @@ Hỗ trợ: ảnh (JPG, PNG, WebP, AVIF, GIF, TIFF, BMP, sang PDF), âm thanh v�
 curl -fsSL https://github.com/NeuroDev204/morphix/releases/latest/download/install.sh | sh
 ```
 
-- Cài cho người dùng hiện tại vào `~/.local`, **không cần sudo**. Chạy lại đúng lệnh trên để cập nhật.
-- Cần Linux x86_64, glibc 2.35 trở lên (Ubuntu 22.04+, Debian 12+, Fedora 36+, Arch, openSUSE Tumbleweed, Mint 21+…) và hai thư viện hệ thống `webkit2gtk-4.1`, `libayatana-appindicator3`. Thiếu thì lệnh cài in đúng lệnh `sudo` cho bản Linux của bạn để bạn tự chạy.
+- Cài cho người dùng hiện tại vào `~/.local`; **chỉ hỏi mật khẩu sudo khi máy thiếu thư viện**. Chạy lại đúng lệnh trên để cập nhật.
+- Cần Linux x86_64, glibc 2.35 trở lên (Ubuntu 22.04+, Debian 12+, Fedora 36+, Arch, openSUSE Tumbleweed, Mint 21+…) và hai thư viện hệ thống `webkit2gtk-4.1`, `libayatana-appindicator3`. Thiếu thư viện, hoặc máy có Nautilus mà thiếu `nautilus-python`, thì lệnh cài hỏi `Cài luôn bằng sudo? [Y/n]` rồi tự cài bằng `apt`/`dnf`/`zypper`/`pacman`. Từ chối hoặc không có terminal để hỏi thì nó in đúng lệnh `sudo` để bạn tự chạy.
 - Menu chuột phải được thêm cho trình quản lý file có trên máy: Nautilus (Files), Dolphin, Nemo, Thunar, Caja. Mỗi việc là một mục trong submenu **Morphix**, bấm là chạy ngay, không mở cửa sổ nào:
   - **Nautilus có `nautilus-python`:** submenu Morphix liệt kê đúng các việc hợp với các file đang chọn (đọc theo nội dung file), giống Windows.
   - **Dolphin, Thunar:** submenu Morphix lọc theo loại file (ảnh, âm thanh, video, văn bản, PDF, file nén).
