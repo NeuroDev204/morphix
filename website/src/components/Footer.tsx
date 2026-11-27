@@ -118,6 +118,11 @@ export default function Footer() {
                 Giấy phép GPL-3.0
               </a>
             </li>
+            <li>
+              <a href="/chinh-sach-rieng-tu" className="hover:text-white transition-colors">
+                Chính sách quyền riêng tư
+              </a>
+            </li>
           </ul>
         </div>
       </div>

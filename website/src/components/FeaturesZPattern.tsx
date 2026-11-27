@@ -113,7 +113,7 @@ export default function FeaturesZPattern() {
             </li>
             <li className="flex items-center gap-2.5">
               <Check className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span>Không thu thập thông tin, không gắn mã theo dõi (analytics)</span>
+              <span>Ứng dụng không thu thập thông tin, không gắn mã theo dõi (analytics)</span>
             </li>
           </ul>
         </div>
