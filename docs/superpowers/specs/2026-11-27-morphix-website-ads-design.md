@@ -66,3 +66,29 @@ Thời điểm hiện ô: chủ dự án chọn "hiện lúc bấm đổi, giữ
 - Kích thước ô (gợi ý: responsive, cao tối thiểu 250 px).
 - Kiểm tra: `npm run build` qua; mở trang thấy không có request tới `googlesyndication`
   cho đến khi bấm đổi file.
+
+---
+
+## Sửa đổi 2026-11-27: chuyển sang Adsterra (Social Bar + Popunder)
+
+Chủ dự án bỏ Google AdSense, dùng Adsterra với 2 loại **Social Bar** và **Popunder**, không quảng cáo 18+.
+Phần AdSense ở trên **không còn hiệu lực**; phần dưới đây thay thế nó.
+
+**Chủ dự án chọn:** tải 2 script **ngay khi mở trang**, trên mọi trang (thay vì chỉ sau khi đổi file):
+nhiều tiền nhất, chấp nhận ấn tượng đầu kém hơn.
+
+**Cách làm (một cách hợp lý):** `next/script` với `strategy="afterInteractive"` trong `layout.tsx`.
+Bỏ: lazy-load (trượt cú bấm đầu, nơi popunder ăn tiền); script thô trong `<head>` (chặn lần vẽ đầu).
+
+**Thiết kế:**
+1. Xoá phần banner: `AdSlot.tsx`, `lib/ads.ts`, `lib/ads.test.ts`, ô quảng cáo trong `DropzonePlayground.tsx`,
+   meta `google-adsense-account`; trả script `test` trong `package.json` về như cũ.
+2. `constants/ads.ts`: `ADSTERRA = { socialBar: "", popunder: "" }` (URL script). Rỗng → không render script đó.
+3. `layout.tsx`: mỗi URL khác rỗng → `<Script src strategy="afterInteractive" />`.
+4. Trang chính sách: thay đoạn Google bằng Adsterra (thanh thông báo nổi, tab quảng cáo mở khi bấm, cookie,
+   link https://adsterra.com/privacy-policy/). FAQ: "quảng cáo của Google" → "quảng cáo".
+5. Giữ: các câu "ứng dụng không quảng cáo", link chính sách ở footer.
+
+**Không làm:** quảng cáo 18+, Smartlink, Native Banner, banner cookie tự viết, `ads.txt`.
+
+**Kiểm tra:** build với URL giả → `out/index.html` chứa cả 2 URL; URL rỗng → không chứa.
