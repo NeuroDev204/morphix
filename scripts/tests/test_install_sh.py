@@ -25,6 +25,9 @@ STUBS: dict[str, str] = {
     "dpkg-query": '[ -n "${FAKE_DEB:-}" ] && { echo "install ok installed"; exit 0; }; exit 1\n',
     "pgrep": 'echo "pgrep $*" >> "$FAKE_LOG"; [ -n "${FAKE_GUI_RUNNING:-}" ]\n',
     "pkill": 'echo "pkill $* bin=$(sed -n 2p "$MORPHIX_PREFIX/bin/morphix" 2>/dev/null)" >> "$FAKE_LOG"; exit 0\n',
+    "sudo": 'echo "sudo $* stdin=$(wc -c)" >> "$FAKE_LOG"; [ -z "${FAKE_SUDO_FAIL:-}" ]\n',
+    "apt-get": 'echo "apt-get $* stdin=$(wc -c)" >> "$FAKE_LOG"\n',
+    "id": 'echo "${FAKE_UID:-1000}"\n',
     "curl": (
         'out=""; url=""\n'
         'while [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift 2 ;; -*) shift ;; *) url="$1"; shift ;; esac; done\n'
@@ -78,11 +81,18 @@ class InstallScriptTests(unittest.TestCase):
         self.os_release.write_text("ID=ubuntu\nID_LIKE=debian\n")
         self.log.write_text("")
         build_release(self.release, "0.2.0")
+        # Mặc định: máy đã có binding Nautilus và không có tty, để test cũ không bị hỏi gì.
+        self.binding_dir: Path = root / "nautilus-ext"
+        self.binding_dir.mkdir()
+        (self.binding_dir / "libnautilus-python.so").write_text("")
+        self.empty_dir: Path = root / "empty"
+        self.empty_dir.mkdir()
+        self.tty: Path = root / "tty"
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
-    def run_install(self, **env: str) -> subprocess.CompletedProcess[str]:
+    def run_install(self, piped: bool = False, **env: str) -> subprocess.CompletedProcess[str]:
         base: dict[str, str] = {
             "PATH": f"{self.fakebin}:/usr/bin:/bin",
             "HOME": str(self.prefix.parent),
@@ -91,9 +101,29 @@ class InstallScriptTests(unittest.TestCase):
             "MORPHIX_OS_RELEASE": str(self.os_release),
             "MORPHIX_SKIP_INTEGRATION": "1",
             "FAKE_LOG": str(self.log),
+            "MORPHIX_TTY": str(self.tty),
+            "MORPHIX_NAUTILUS_DIRS": str(self.binding_dir),
         }
         base.update(env)
+        if piped:
+            # Như `curl … | sh`: script đến từ stdin.
+            return subprocess.run(["sh"], input=SCRIPT.read_text(), env=base, capture_output=True, text=True, timeout=60)
         return subprocess.run(["sh", str(SCRIPT)], env=base, capture_output=True, text=True, timeout=60)
+
+    def add_nautilus(self) -> None:
+        stub = self.fakebin / "nautilus"
+        stub.write_text("#!/bin/sh\n")
+        stub.chmod(0o755)
+
+    def basic_path(self) -> str:
+        basic = Path(self.tmp.name) / "basic-bin"
+        if not basic.exists():
+            basic.mkdir()
+            for tool in ("sh", "grep", "sort", "head", "mktemp", "sha256sum", "tar", "gzip", "cat",
+                         "mkdir", "rm", "mv", "cp", "sleep", "nohup", "sed", "df", "wc", "tr", "cut"):
+                real = subprocess.run(["sh", "-c", f"command -v {tool}"], capture_output=True, text=True).stdout.strip()
+                (basic / tool).symlink_to(real)
+        return f"{self.fakebin}:{basic}"
 
     def install_old(self) -> bytes:
         old: bytes = b"#!/bin/sh\n# OLD\n"
@@ -191,13 +221,7 @@ class InstallScriptTests(unittest.TestCase):
 
     def test_needs_only_basic_tools(self) -> None:
         # WHY: ảnh tối giản (openSUSE Tumbleweed) không có awk; script phải chạy với bộ lệnh cơ bản.
-        basic = Path(self.tmp.name) / "basic-bin"
-        basic.mkdir()
-        for tool in ("sh", "grep", "sort", "head", "mktemp", "sha256sum", "tar", "gzip", "cat",
-                     "mkdir", "rm", "mv", "cp", "sleep", "nohup", "sed", "df", "wc", "tr", "cut"):
-            real = subprocess.run(["sh", "-c", f"command -v {tool}"], capture_output=True, text=True).stdout.strip()
-            (basic / tool).symlink_to(real)
-        result = self.run_install(PATH=f"{self.fakebin}:{basic}")
+        result = self.run_install(PATH=self.basic_path())
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_refuses_when_disk_is_too_full_and_changes_nothing(self) -> None:
@@ -221,6 +245,65 @@ class InstallScriptTests(unittest.TestCase):
         result = self.run_install(MORPHIX_SKIP_INTEGRATION="")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("morphix install-integration", self.log.read_text())
+
+
+    def sudo_calls(self) -> list[str]:
+        return [line for line in self.log.read_text().splitlines() if line.startswith("sudo ")]
+
+    def test_missing_nautilus_binding_installed_after_yes(self) -> None:
+        self.add_nautilus()
+        self.tty.write_text("\n")
+        result = self.run_install(piped=True, MORPHIX_NAUTILUS_DIRS=str(self.empty_dir))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.sudo_calls(), ["sudo apt-get install -y python3-nautilus stdin=0"])
+        self.assertIn("Đóng hết cửa sổ Files", result.stdout)
+        self.assertIn("Đã cài Morphix 0.2.0", result.stdout)
+
+    def test_declined_binding_still_installs(self) -> None:
+        self.add_nautilus()
+        self.tty.write_text("n\n")
+        result = self.run_install(piped=True, MORPHIX_NAUTILUS_DIRS=str(self.empty_dir))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.sudo_calls(), [])
+        self.assertIn("sudo apt install python3-nautilus", result.stdout + result.stderr)
+        self.assertIn("Scripts", result.stdout + result.stderr)
+        self.assertIn("Đã cài Morphix 0.2.0", result.stdout)
+
+    def test_no_tty_never_runs_sudo(self) -> None:
+        result = self.run_install(piped=True, FAKE_NO_WEBKIT="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.sudo_calls(), [])
+        self.assertIn("sudo apt install libwebkit2gtk-4.1-0", result.stdout + result.stderr)
+        self.assertFalse(self.prefix.exists())
+
+    def test_missing_webkit_installed_after_yes(self) -> None:
+        self.tty.write_text("y\n")
+        result = self.run_install(piped=True, FAKE_NO_WEBKIT="1")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.sudo_calls(), ["sudo apt-get install -y libwebkit2gtk-4.1-0 stdin=0"])
+        self.assertTrue((self.prefix / "bin/morphix").is_file())
+
+    def test_failed_required_install_stops(self) -> None:
+        self.tty.write_text("\n")
+        result = self.run_install(piped=True, FAKE_NO_WEBKIT="1", FAKE_SUDO_FAIL="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("sudo apt install libwebkit2gtk-4.1-0", result.stdout + result.stderr)
+        self.assertFalse(self.prefix.exists())
+
+    def test_root_installs_without_sudo(self) -> None:
+        self.add_nautilus()
+        self.tty.write_text("\n")
+        result = self.run_install(piped=True, FAKE_UID="0", MORPHIX_NAUTILUS_DIRS=str(self.empty_dir))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.sudo_calls(), [])
+        self.assertIn("apt-get install -y python3-nautilus stdin=0", self.log.read_text())
+
+    def test_no_nautilus_no_prompt(self) -> None:
+        self.tty.write_text("\n")
+        result = self.run_install(PATH=self.basic_path(), MORPHIX_NAUTILUS_DIRS=str(self.empty_dir))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.sudo_calls(), [])
+        self.assertNotIn("cần cài thêm", result.stdout + result.stderr)
 
 
 if __name__ == "__main__":

@@ -1,9 +1,10 @@
 #!/bin/sh
-# Cài Morphix cho người dùng hiện tại, không cần sudo:
+# Cài Morphix cho người dùng hiện tại; chỉ hỏi sudo khi máy thiếu gói hệ thống:
 #   curl -fsSL https://github.com/NeuroDev204/morphix/releases/latest/download/install.sh | sh
 # Chạy lại để cập nhật. Gỡ: morphix uninstall.
 # Biến: MORPHIX_VERSION (vd v0.2.0; trống = mới nhất), MORPHIX_PREFIX (mặc định ~/.local),
-#       MORPHIX_RELEASE_BASE, MORPHIX_OS_RELEASE, MORPHIX_SKIP_INTEGRATION (chỉ dùng khi test).
+#       MORPHIX_RELEASE_BASE, MORPHIX_OS_RELEASE, MORPHIX_SKIP_INTEGRATION, MORPHIX_TTY,
+#       MORPHIX_NAUTILUS_DIRS (chỉ dùng khi test).
 set -eu
 
 ASSET=morphix-x86_64-linux.tar.gz
@@ -56,7 +57,21 @@ if [ ! -f "$marker" ]; then
     done
 fi
 
-# 4. Thư viện hệ thống không đóng kèm được: chỉ in lệnh cài, không tự chạy sudo.
+# 4. Gói hệ thống không đóng kèm được: hỏi rồi tự cài bằng sudo; không hỏi được thì chỉ in lệnh.
+ids="$(. "$OS_RELEASE" 2>/dev/null; printf '%s %s' "${ID:-}" "${ID_LIKE:-}")"
+case " $ids " in
+    *" fedora "*) pm="dnf install"; pm_run="dnf install -y"
+        pkg_webkit=webkit2gtk4.1; pkg_tray=libayatana-appindicator-gtk3; pkg_nautilus=nautilus-python ;;
+    *" arch "*) pm="pacman -S"; pm_run="pacman -S --needed --noconfirm"
+        # shortcut: tên gói python-nautilus chưa kiểm trên Arch thật; sửa khi có người dùng Arch báo lỗi.
+        pkg_webkit=webkit2gtk-4.1; pkg_tray=libayatana-appindicator; pkg_nautilus=python-nautilus ;;
+    *" opensuse"*|*" suse "*) pm="zypper install"; pm_run="zypper --non-interactive install"
+        pkg_webkit=libwebkit2gtk-4_1-0; pkg_tray=libayatana-appindicator3-1; pkg_nautilus=nautilus-python ;;
+    *" debian "*|*" ubuntu "*) pm="apt install"; pm_run="apt-get install -y"
+        pkg_webkit=libwebkit2gtk-4.1-0; pkg_tray=libayatana-appindicator3-1; pkg_nautilus=python3-nautilus ;;
+    *) pm="" ;;
+esac
+
 # WHY thử cả /sbin: PATH của người dùng thường trên Debian/openSUSE không có sbin, nơi chứa ldconfig.
 libs=""
 for candidate in ldconfig /sbin/ldconfig /usr/sbin/ldconfig; do
@@ -66,29 +81,63 @@ for candidate in ldconfig /sbin/ldconfig /usr/sbin/ldconfig; do
     fi
 done
 missing=""
+pkgs=""
 if [ -z "$libs" ]; then
     printf 'Morphix: không chạy được ldconfig để kiểm thư viện; nếu Morphix không mở, hãy cài webkit2gtk-4.1 và libayatana-appindicator3.\n' >&2
 else
     for lib in libwebkit2gtk-4.1.so.0 libayatana-appindicator3.so.1; do
-        printf '%s\n' "$libs" | grep -q "$lib" || missing="$missing $lib"
+        printf '%s\n' "$libs" | grep -q "$lib" && continue
+        missing="$missing $lib"
+        case "$lib" in
+            libwebkit*) pkgs="$pkgs ${pkg_webkit:-}" ;;
+            *) pkgs="$pkgs ${pkg_tray:-}" ;;
+        esac
     done
 fi
-if [ -n "$missing" ]; then
-    ids="$(. "$OS_RELEASE" 2>/dev/null; printf '%s %s' "${ID:-}" "${ID_LIKE:-}")"
-    case " $ids " in
-        *" fedora "*) cmd="sudo dnf install webkit2gtk4.1 libayatana-appindicator-gtk3" ;;
-        *" arch "*) cmd="sudo pacman -S webkit2gtk-4.1 libayatana-appindicator" ;;
-        *" opensuse"*|*" suse "*) cmd="sudo zypper install libwebkit2gtk-4_1-0 libayatana-appindicator3-1" ;;
-        *" debian "*|*" ubuntu "*) cmd="sudo apt install libwebkit2gtk-4.1-0 libayatana-appindicator3-1" ;;
-        *) cmd="" ;;
-    esac
-    printf 'Morphix cần thư viện hệ thống còn thiếu:%s\n' "$missing"
-    if [ -n "$cmd" ]; then
-        printf 'Hãy cài bằng lệnh sau rồi chạy lại lệnh cài Morphix:\n  %s\n' "$cmd"
+
+# Binding Python của Nautilus: thiếu thì menu chuột phải rơi về cây Scripts. Cùng thư mục với NAUTILUS_EXTENSION_DIRS bên Rust.
+need_nautilus=""
+if command -v nautilus >/dev/null 2>&1; then
+    need_nautilus=1
+    for dir in ${MORPHIX_NAUTILUS_DIRS-/usr/lib64/nautilus/extensions-4 /usr/lib/nautilus/extensions-4 /usr/lib/x86_64-linux-gnu/nautilus/extensions-4 /usr/lib/nautilus/extensions-3.0}; do
+        [ -f "$dir/libnautilus-python.so" ] && need_nautilus=""
+    done
+fi
+[ -z "$need_nautilus" ] || [ -z "$pm" ] || pkgs="$pkgs $pkg_nautilus"
+
+# Hỏi một lần rồi cài. WHY /dev/tty: với `curl … | sh`, stdin là phần còn lại của script.
+# WHY </dev/null cho lệnh cài: lệnh con đọc stdin sẽ nuốt mất phần script chưa chạy.
+install_pkgs() {
+    tty="${MORPHIX_TTY:-/dev/tty}"
+    (: <"$tty") 2>/dev/null || return 1
+    printf 'Morphix cần cài thêm:%s\nCài luôn bằng sudo? [Y/n] ' "$pkgs"
+    read -r answer <"$tty" || return 1
+    case "$answer" in ""|y|Y|yes|Yes|c|C|có) ;; *) return 1 ;; esac
+    if [ "$(id -u)" = 0 ]; then
+        $pm_run $pkgs </dev/null
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo $pm_run $pkgs </dev/null
     else
-        printf 'Hãy cài các thư viện trên bằng trình quản lý gói của bản Linux này rồi chạy lại.\n'
+        return 1
     fi
-    exit 1
+}
+
+installed_nautilus=""
+if [ -n "$missing$need_nautilus" ]; then
+    if [ -z "$pm" ]; then
+        if [ -n "$missing" ]; then
+            printf 'Morphix cần thư viện hệ thống còn thiếu:%s\n' "$missing"
+            printf 'Hãy cài các thư viện trên bằng trình quản lý gói của bản Linux này rồi chạy lại.\n'
+            exit 1
+        fi
+        printf 'Morphix: hãy cài gói nautilus-python của bản Linux này để có menu chuột phải theo file; tạm thời menu nằm trong mục Scripts.\n' >&2
+    elif install_pkgs; then
+        [ -z "$need_nautilus" ] || installed_nautilus=1
+    else
+        printf '\nHãy cài bằng lệnh sau rồi chạy lại lệnh cài Morphix:\n  sudo %s%s\n' "$pm" "$pkgs"
+        [ -z "$missing" ] || exit 1
+        printf 'Tạm thời menu chuột phải của Morphix nằm trong mục Scripts.\n'
+    fi
 fi
 
 # 5. Tải và kiểm checksum trước khi đụng vào bản đang cài.
@@ -154,3 +203,4 @@ case ":$PATH:" in
     *) printf 'Thêm %s vào PATH để gõ được lệnh morphix:\n  echo '"'"'export PATH="$HOME/.local/bin:$PATH"'"'"' >> ~/.profile\n' "$PREFIX/bin" ;;
 esac
 printf 'Đã cài Morphix %s. Gỡ: morphix uninstall\n' "$version"
+[ -z "$installed_nautilus" ] || printf 'Đóng hết cửa sổ Files rồi mở lại để thấy menu Morphix.\n'
