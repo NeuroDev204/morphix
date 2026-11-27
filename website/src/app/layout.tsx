@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+import { ADSENSE } from "@/constants/ads";
+import { isAdConfigured } from "@/lib/ads";
 
 const plusJakarta = Plus_Jakarta_Sans({
   subsets: ["latin", "vietnamese"],
@@ -36,6 +38,7 @@ export const metadata: Metadata = {
     locale: "vi_VN",
     type: "website",
   },
+  other: isAdConfigured(ADSENSE) ? { "google-adsense-account": ADSENSE.client } : undefined,
   icons: {
     icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='96' fill='%230f766e'/><path d='M136 368V144L256 280L376 144V368' stroke='%23ffffff' stroke-width='48' stroke-linecap='square'/></svg>",
   },

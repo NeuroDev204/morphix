@@ -16,6 +16,8 @@ import {
   zipResults,
   resetEngines,
 } from "@/lib/convert/engines";
+import { shouldShowAd } from "@/lib/ads";
+import AdSlot from "@/components/AdSlot";
 
 interface SourceFileItem {
   id: string;
@@ -524,6 +526,12 @@ export default function DropzonePlayground() {
                       );
                     })}
                   </div>
+                </div>
+              )}
+
+              {shouldShowAd(isRunning, results.length) && (
+                <div className="pt-4">
+                  <AdSlot />
                 </div>
               )}
 
