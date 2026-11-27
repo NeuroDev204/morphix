@@ -13,6 +13,7 @@ export default defineConfig({
       input: {
         khay: fileURLToPath(new URL("./khay.html", import.meta.url)),
         settings: fileURLToPath(new URL("./settings.html", import.meta.url)),
+        progress: fileURLToPath(new URL("./progress.html", import.meta.url)),
       },
     },
   },
