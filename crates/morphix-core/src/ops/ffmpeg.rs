@@ -45,8 +45,9 @@ pub fn run_ffmpeg(
     let reader: JoinHandle<io::Result<()>> = thread::spawn(move || read_segments(stderr, tx));
 
     let mut last_line: String = String::new();
+    let mut duration_ms: Option<u64> = None;
     let status = loop {
-        drain(&rx, on_time_ms, &mut last_line);
+        drain(&rx, on_time_ms, &mut last_line, &mut duration_ms, cancel);
         if cancel.is_cancelled() {
             stop_child(&mut child, ffmpeg)?;
             finish_reader(reader, ffmpeg)?;
@@ -63,7 +64,7 @@ pub fn run_ffmpeg(
         }
     };
     finish_reader(reader, ffmpeg)?;
-    drain(&rx, on_time_ms, &mut last_line);
+    drain(&rx, on_time_ms, &mut last_line, &mut duration_ms, cancel);
 
     if status.success() {
         return Ok(());
@@ -151,13 +152,31 @@ fn finish_reader(reader: JoinHandle<io::Result<()>>, ffmpeg: &Path) -> Result<()
 }
 
 /// Lấy hết dòng đang chờ trong kênh, cập nhật mốc thời gian và dòng cuối.
-fn drain(rx: &Receiver<String>, on_time_ms: &mut dyn FnMut(u64), last_line: &mut String) {
+fn drain(
+    rx: &Receiver<String>,
+    on_time_ms: &mut dyn FnMut(u64),
+    last_line: &mut String,
+    duration_ms: &mut Option<u64>,
+    cancel: &CancelToken,
+) {
     while let Ok(line) = rx.try_recv() {
+        if let Some(total) = parse_duration_ms(&line) {
+            *duration_ms = Some(total);
+        }
         if let Some(ms) = parse_time_ms(&line) {
             on_time_ms(ms);
+            if let Some(total) = duration_ms.filter(|total| *total > 0) {
+                cancel.set_fraction(ms as f32 / total as f32);
+            }
         }
         *last_line = line;
     }
+}
+
+/// Đọc `Duration: HH:MM:SS.xx` từ phần đầu đầu ra của ffmpeg (mili-giây); `N/A` thì `None`.
+pub fn parse_duration_ms(stderr_line: &str) -> Option<u64> {
+    let (_, rest) = stderr_line.split_once("Duration:")?;
+    parse_time_ms(&format!("time={}", rest.trim().split(',').next()?))
 }
 
 /// Tách stderr thành các đoạn theo `\r` hoặc `\n`. ffmpeg dùng `\r` cho dòng tiến trình

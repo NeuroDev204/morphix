@@ -88,8 +88,8 @@ class WindowsDeps(unittest.TestCase):
 
 
 class LinuxPackagesTests(unittest.TestCase):
-    def test_tarball_and_deb_ship_the_same_slim_ffmpeg_through_one_script(self) -> None:
-        for name in ("build-tarball.sh", "build-deb.sh"):
+    def test_tarball_ships_the_slim_ffmpeg_through_one_script(self) -> None:
+        for name in ("build-tarball.sh",):
             text = (ROOT / "scripts" / name).read_text(encoding="utf-8")
             self.assertIn("scripts/install-ffmpeg-slim.sh", text, name)
             self.assertNotIn("build-ffmpeg-sidecar", text, name)
@@ -109,12 +109,6 @@ class LinuxPackagesTests(unittest.TestCase):
             self.assertFalse((ROOT / relative).exists(), relative)
         release = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
         self.assertNotIn("ffmpeg=", release)
-
-    def test_deb_check_requires_a_static_ffmpeg_and_its_licences(self) -> None:
-        check = (ROOT / "scripts" / "check-deb.sh").read_text(encoding="utf-8")
-        for needle in ("./usr/share/doc/morphix/ffmpeg/BUILD-INFO.txt", "./usr/share/doc/morphix/ffmpeg/third-party/x264/COPYING", "not a dynamic executable"):
-            self.assertIn(needle, check)
-        self.assertNotIn("rely-packages", check)
 
 
 class SlimFfmpegCoversMorphixTests(unittest.TestCase):

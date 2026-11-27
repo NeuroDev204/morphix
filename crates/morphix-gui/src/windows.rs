@@ -10,6 +10,10 @@ use crate::state::AppState;
 
 pub const KHAY_WINDOW_LABEL: &str = "khay";
 pub const SETTINGS_WINDOW_LABEL: &str = "settings";
+/// Popup tiến trình của việc chạy từ menu. Tạo lười ở lần hiện đầu tiên (như Cài đặt): khởi động chỉ dựng Khay.
+pub const PROGRESS_WINDOW_LABEL: &str = "tien-trinh";
+/// Kích thước popup (điểm ảnh logic).
+const PROGRESS_LOGICAL_SIZE: (f64, f64) = (360.0, 120.0);
 /// Khoảng cách logic từ mép vùng làm việc tới khay, để cửa sổ không dính sát viền màn hình.
 const KHAY_MARGIN_LOGICAL_PX: f64 = 16.0;
 /// Kích thước Khay khai báo trong `tauri.conf.json` (điểm ảnh logic).
@@ -64,8 +68,86 @@ pub fn bottom_right_origin(
 pub fn close_hides_window(label: &str) -> bool {
     matches!(
         label,
-        KHAY_WINDOW_LABEL | SETTINGS_WINDOW_LABEL
+        KHAY_WINDOW_LABEL | SETTINGS_WINDOW_LABEL | PROGRESS_WINDOW_LABEL
     )
+}
+
+/// Popup chỉ hiện khi đúng việc từ menu đó còn chạy sau độ trễ và app chưa thoát.
+pub fn should_show_progress(started_id: u64, active: Option<&crate::jobs::JobSnapshot>, exiting: bool) -> bool {
+    !exiting && active.is_some_and(|job| job.id == started_id && job.from_menu)
+}
+
+/// Hiện popup tiến trình ở góc dưới phải, không lấy focus (người dùng đang làm việc ở cửa sổ khác).
+pub fn show_progress(app: &AppHandle) -> Result<(), String> {
+    let window = progress_window(app)?;
+    // WHY thử cả màn hình hiện tại và màn hình đầu tiên: trên Wayland primary_monitor có thể trả None.
+    let monitor = window
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.current_monitor().ok().flatten())
+        .or_else(|| window.available_monitors().ok().and_then(|list| list.into_iter().next()));
+    match monitor {
+        Some(monitor) => {
+            let area = monitor.work_area();
+            let scale = monitor.scale_factor();
+            let (x, y) = bottom_right_origin(
+                WorkArea {
+                    x: area.position.x,
+                    y: area.position.y,
+                    width: area.size.width,
+                    height: area.size.height,
+                },
+                (PROGRESS_LOGICAL_SIZE.0 * scale).round() as u32,
+                (PROGRESS_LOGICAL_SIZE.1 * scale).round() as u32,
+                (KHAY_MARGIN_LOGICAL_PX * scale).round() as u32,
+            );
+            if let Err(error) = window.set_position(PhysicalPosition::new(x, y)) {
+                tracing::warn!(error = %error, "compositor từ chối đặt vị trí popup tiến trình: {error}");
+            }
+        }
+        None => {
+            tracing::warn!("không đọc được màn hình nào; popup tiến trình căn giữa");
+            if let Err(error) = window.center() {
+                tracing::warn!(error = %error, "không căn giữa được popup tiến trình: {error}");
+            }
+        }
+    }
+    window
+        .show()
+        .map_err(|error| format!("Không hiện được popup tiến trình: {error}"))
+}
+
+/// Chưa tạo lần nào thì không có gì để ẩn.
+pub fn hide_progress(app: &AppHandle) -> Result<(), String> {
+    match app.get_webview_window(PROGRESS_WINDOW_LABEL) {
+        Some(window) => window
+            .hide()
+            .map_err(|error| format!("Không ẩn được popup tiến trình: {error}")),
+        None => Ok(()),
+    }
+}
+
+/// WHY gọi từ luồng hẹn giờ riêng: trên Windows tạo cửa sổ từ lệnh đồng bộ hay event handler bị treo (xem `open_settings`).
+fn progress_window(app: &AppHandle) -> Result<WebviewWindow, String> {
+    if let Some(window) = app.get_webview_window(PROGRESS_WINDOW_LABEL) {
+        return Ok(window);
+    }
+    WebviewWindowBuilder::new(
+        app,
+        PROGRESS_WINDOW_LABEL,
+        WebviewUrl::App("progress.html".into()),
+    )
+    .title("Morphix Tiến trình")
+    .inner_size(PROGRESS_LOGICAL_SIZE.0, PROGRESS_LOGICAL_SIZE.1)
+    .decorations(false)
+    .resizable(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .focused(false)
+    .visible(false)
+    .build()
+    .map_err(|error| format!("Không tạo được popup tiến trình: {error}"))
 }
 
 fn khay_window(app: &AppHandle) -> Result<WebviewWindow, String> {
@@ -231,4 +313,37 @@ fn set_khay_selection(
         .map_err(|error| error.to_string());
     open_khay(app)?;
     emitted
+}
+
+#[cfg(test)]
+mod progress_tests {
+    use super::*;
+    use crate::jobs::{JobSnapshot, JobState};
+
+    fn snapshot(id: u64, from_menu: bool) -> JobSnapshot {
+        JobSnapshot {
+            id,
+            label: "Đổi sang MP4".into(),
+            done: 0,
+            total: 1,
+            state: JobState::Running,
+            from_menu,
+            first_name: "a.mov".into(),
+            fraction: 0.0,
+        }
+    }
+
+    #[test]
+    fn progress_shows_only_for_the_same_running_menu_job() {
+        assert!(should_show_progress(7, Some(&snapshot(7, true)), false));
+        assert!(!should_show_progress(7, Some(&snapshot(8, true)), false));
+        assert!(!should_show_progress(7, Some(&snapshot(7, false)), false));
+        assert!(!should_show_progress(7, None, false));
+        assert!(!should_show_progress(7, Some(&snapshot(7, true)), true));
+    }
+
+    #[test]
+    fn progress_window_hides_instead_of_closing() {
+        assert!(close_hides_window(PROGRESS_WINDOW_LABEL));
+    }
 }

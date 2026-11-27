@@ -2,6 +2,8 @@
 //! Các lệnh cài/gỡ theo người dùng không sửa tài nguyên desktop thuộc package.
 
 pub mod desktop;
+pub mod desktop_switch;
+pub mod ding_fork;
 pub mod fake;
 pub mod files;
 pub mod linux;
@@ -115,7 +117,7 @@ const ALL_COMPONENTS: [ComponentId; 16] = [
     ComponentId::CajaScriptMenu,
 ];
 
-const INSTALLABLE_COMPONENTS: [ComponentId; 13] = [
+const INSTALLABLE_COMPONENTS: [ComponentId; 14] = [
     ComponentId::WindowsContextMenu,
     ComponentId::NautilusScript,
     ComponentId::NautilusAccel,
@@ -124,6 +126,7 @@ const INSTALLABLE_COMPONENTS: [ComponentId; 13] = [
     ComponentId::Autostart,
     ComponentId::NautilusExtension,
     ComponentId::ApplicationLauncher,
+    ComponentId::DesktopContextMenu,
     ComponentId::CajaScript,
     ComponentId::ThunarAction,
     ComponentId::NautilusScriptMenu,

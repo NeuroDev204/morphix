@@ -74,7 +74,7 @@ fn binaries_in(dir: &Path) -> BinaryPaths {
     BinaryPaths { morphix, gui }
 }
 
-const INSTALLABLE: [ComponentId; 13] = [
+const INSTALLABLE: [ComponentId; 14] = [
     ComponentId::WindowsContextMenu,
     ComponentId::NautilusScript,
     ComponentId::NautilusAccel,
@@ -83,6 +83,7 @@ const INSTALLABLE: [ComponentId; 13] = [
     ComponentId::Autostart,
     ComponentId::NautilusExtension,
     ComponentId::ApplicationLauncher,
+    ComponentId::DesktopContextMenu,
     ComponentId::CajaScript,
     ComponentId::ThunarAction,
     ComponentId::NautilusScriptMenu,
@@ -323,14 +324,14 @@ fn uninstall_removes_owned_entries_and_second_run_is_already_absent() {
 
 #[cfg(unix)]
 #[test]
-fn user_integration_lifecycle_excludes_only_the_desktop_menu() {
-    // WHY: bản cài trong home tự ghi extension Nautilus và launcher; chỉ menu DING là riêng của gói .deb.
+fn user_integration_lifecycle_includes_the_desktop_menu() {
+    // WHY: không còn gói .deb; bản cài trong home tự dựng bản chép DING cho menu desktop.
     let f = Fixture::new();
     let install = integration::install(&f.fake(), &f.binaries, &f.options(false, true));
     let uninstall = integration::uninstall(&f.fake(), &f.binaries, &f.options(false, true));
     for report in [install, uninstall] {
         let ids: Vec<ComponentId> = report.components.iter().map(|c| c.id).collect();
-        assert!(!ids.contains(&ComponentId::DesktopContextMenu));
+        assert!(ids.contains(&ComponentId::DesktopContextMenu));
         assert!(ids.contains(&ComponentId::NautilusExtension));
         assert!(ids.contains(&ComponentId::ApplicationLauncher));
     }
@@ -373,6 +374,7 @@ fn no_autostart_leaves_out_only_the_autostart_component() {
             ComponentId::DolphinServiceMenu,
             ComponentId::NautilusExtension,
             ComponentId::ApplicationLauncher,
+            ComponentId::DesktopContextMenu,
             ComponentId::CajaScript,
             ComponentId::ThunarAction,
             ComponentId::NautilusScriptMenu,
@@ -790,6 +792,7 @@ fn install_integration_json_installs_linux_components_into_sandboxed_roots() {
             "installed",
             "not_applicable",
             "not_applicable",
+            "not_applicable",
             "installed",
             "not_applicable",
             "not_applicable"
@@ -817,7 +820,7 @@ fn no_autostart_flag_drops_autostart_in_the_cli_output() {
         .map(|c| c["id"].clone())
         .collect();
     assert!(!ids.contains(&json!("autostart")), "{ids:?}");
-    assert_eq!(ids.len(), 12);
+    assert_eq!(ids.len(), 13);
 }
 
 #[cfg(target_os = "linux")]
@@ -1332,9 +1335,6 @@ const APPINDICATOR_ENABLED: &str =
     "x11gestures@joseexposito.github.io\nubuntu-appindicators@ubuntu.com\n";
 const APPINDICATOR_ABSENT: &str = "x11gestures@joseexposito.github.io\n";
 
-#[cfg(target_os = "linux")]
-const DING_SOURCE_MANIFEST: &str = include_str!("../../../integration/ding/source.json");
-
 fn gnome_session() -> SessionEnv {
     SessionEnv {
         current_desktop: Some("ubuntu:GNOME".to_string()),
@@ -1374,274 +1374,6 @@ fn healthy_tools(listing: &'static str) -> Box<ToolRunner> {
         ("gnome-extensions", exited(0, listing, "")),
         ("desktop-file-validate", exited(0, "", "")),
     ])
-}
-
-#[cfg(target_os = "linux")]
-fn ding_test_tree(root: &Path) -> PathBuf {
-    let extension_root = root.join("ding@rastersoft.com");
-    let manifest: Value = serde_json::from_str(DING_SOURCE_MANIFEST).unwrap();
-    for relative_path in manifest["patched_files"].as_object().unwrap().keys() {
-        let file = extension_root.join(relative_path);
-        fs::create_dir_all(file.parent().unwrap()).unwrap();
-        fs::write(&file, b"test patched file").unwrap();
-        fs::write(
-            PathBuf::from(format!("{}.morphix-original", file.display())),
-            b"test original file",
-        )
-        .unwrap();
-    }
-    extension_root
-}
-
-#[cfg(target_os = "linux")]
-fn ding_tools(
-    extension_root: &Path,
-    package_version: Option<&str>,
-    diversion_owner: Option<&str>,
-    diversion_suffix: Option<&str>,
-    hash_mismatch: Option<&Path>,
-) -> Box<ToolRunner> {
-    let manifest: Value = serde_json::from_str(DING_SOURCE_MANIFEST).unwrap();
-    let source_hashes = manifest["source_files"].as_object().unwrap().clone();
-    let patched_hashes = manifest["patched_files"].as_object().unwrap().clone();
-    let extension_root = extension_root.to_path_buf();
-    let package_version = package_version.map(str::to_string);
-    let diversion_owner = diversion_owner.map(str::to_string);
-    let diversion_suffix = diversion_suffix.map(str::to_string);
-    let hash_mismatch = hash_mismatch.map(Path::to_path_buf);
-
-    Box::new(move |program: &str, raw_args: &[&OsStr]| {
-        let args: Vec<String> = raw_args
-            .iter()
-            .map(|argument| argument.to_string_lossy().into_owned())
-            .collect();
-        if program == "dpkg-query" && args.first().is_some_and(|argument| argument == "-W") {
-            return match &package_version {
-                Some(version) => exited(0, version, ""),
-                None => exited(1, "", "package is not installed"),
-            };
-        }
-        if program == "dpkg-divert"
-            && args
-                .first()
-                .is_some_and(|argument| argument == "--listpackage")
-        {
-            return match &diversion_owner {
-                Some(owner) => exited(0, owner, ""),
-                None => exited(0, "", ""),
-            };
-        }
-        if program == "dpkg-divert"
-            && args
-                .first()
-                .is_some_and(|argument| argument == "--truename")
-        {
-            let target = PathBuf::from(args.get(1).expect("--truename phải có file"));
-            return match &diversion_suffix {
-                Some(suffix) => exited(0, &format!("{}{suffix}", target.display()), ""),
-                None => exited(0, &target.to_string_lossy(), ""),
-            };
-        }
-        if program == "sha256sum" {
-            let file = PathBuf::from(args.first().expect("sha256sum phải có file"));
-            if hash_mismatch.as_deref() == Some(file.as_path()) {
-                return exited(0, &format!("{}  {}", "0".repeat(64), file.display()), "");
-            }
-            let Ok(relative_path) = file.strip_prefix(&extension_root) else {
-                return exited(1, "", "file không thuộc extension root");
-            };
-            let relative = relative_path.to_string_lossy();
-            let (hashes, key) = match relative.strip_suffix(".morphix-original") {
-                Some(source_path) => (&source_hashes, source_path),
-                None if diversion_suffix.is_none() => (&source_hashes, relative.as_ref()),
-                None => (&patched_hashes, relative.as_ref()),
-            };
-            return match hashes.get(key) {
-                Some(hash) => exited(
-                    0,
-                    &format!("{}  {}", hash.as_str().unwrap(), file.display()),
-                    "",
-                ),
-                None => exited(1, "", "không có hash cho file"),
-            };
-        }
-        ToolOutcome::NotFound
-    })
-}
-
-#[cfg(target_os = "linux")]
-#[test]
-fn desktop_context_menu_is_installed_only_when_version_diversions_and_hashes_match() {
-    let sandbox = tempdir().unwrap();
-    let extension_root = ding_test_tree(sandbox.path());
-    let report = morphix_cli::integration::desktop::inspect_desktop(
-        &extension_root,
-        &*ding_tools(
-            &extension_root,
-            Some("46+really47.0.9-1ubuntu5"),
-            Some("morphix"),
-            Some(".morphix-original"),
-            None,
-        ),
-    );
-
-    assert_eq!(report.id, ComponentId::DesktopContextMenu);
-    assert_eq!(report.status, ComponentStatus::Installed);
-}
-
-#[cfg(target_os = "linux")]
-#[test]
-fn desktop_context_menu_reports_missing_or_stale_ding_package() {
-    let sandbox = tempdir().unwrap();
-    let extension_root = ding_test_tree(sandbox.path());
-    let missing = morphix_cli::integration::desktop::inspect_desktop(
-        &extension_root,
-        &*ding_tools(&extension_root, None, None, None, None),
-    );
-    assert_eq!(missing.status, ComponentStatus::Missing);
-
-    let stale = morphix_cli::integration::desktop::inspect_desktop(
-        &extension_root,
-        &*ding_tools(
-            &extension_root,
-            Some("46+really47.0.9-1ubuntu4"),
-            Some("morphix"),
-            Some(".morphix-original"),
-            None,
-        ),
-    );
-    assert_eq!(stale.status, ComponentStatus::Stale);
-}
-
-#[cfg(target_os = "linux")]
-#[test]
-fn desktop_context_menu_reports_package_manager_failures() {
-    let sandbox = tempdir().unwrap();
-    let extension_root = ding_test_tree(sandbox.path());
-    let tools: Box<ToolRunner> = Box::new(|program: &str, _args: &[&OsStr]| {
-        if program == "dpkg-query" {
-            ToolOutcome::Failed("dpkg database is unreadable".to_string())
-        } else {
-            ToolOutcome::NotFound
-        }
-    });
-    let report = morphix_cli::integration::desktop::inspect_desktop(&extension_root, &*tools);
-
-    assert_eq!(report.status, ComponentStatus::Failed);
-    assert!(report.message.contains("dpkg database is unreadable"));
-}
-
-#[cfg(target_os = "linux")]
-#[test]
-fn desktop_context_menu_rejects_a_symlinked_ding_app_directory() {
-    let sandbox = tempdir().unwrap();
-    let extension_root = ding_test_tree(sandbox.path());
-    let app_path = extension_root.join("app");
-    let real_app_path = extension_root.join("app.real");
-    fs::rename(&app_path, &real_app_path).unwrap();
-    std::os::unix::fs::symlink(&real_app_path, &app_path).unwrap();
-    let report = morphix_cli::integration::desktop::inspect_desktop(
-        &extension_root,
-        &*ding_tools(
-            &extension_root,
-            Some("46+really47.0.9-1ubuntu5"),
-            Some("morphix"),
-            Some(".morphix-original"),
-            None,
-        ),
-    );
-
-    assert_eq!(report.status, ComponentStatus::Conflict);
-}
-
-#[cfg(target_os = "linux")]
-#[test]
-fn desktop_context_menu_reports_missing_and_foreign_diversions() {
-    let sandbox = tempdir().unwrap();
-    let extension_root = ding_test_tree(sandbox.path());
-    let no_diversion = morphix_cli::integration::desktop::inspect_desktop(
-        &extension_root,
-        &*ding_tools(
-            &extension_root,
-            Some("46+really47.0.9-1ubuntu5"),
-            None,
-            None,
-            None,
-        ),
-    );
-    assert_eq!(no_diversion.status, ComponentStatus::Missing);
-
-    let changed_file = extension_root.join("app/fileItemMenu.js");
-    let untracked_patch = morphix_cli::integration::desktop::inspect_desktop(
-        &extension_root,
-        &*ding_tools(
-            &extension_root,
-            Some("46+really47.0.9-1ubuntu5"),
-            None,
-            None,
-            Some(&changed_file),
-        ),
-    );
-    assert_eq!(untracked_patch.status, ComponentStatus::Conflict);
-
-    let foreign_diversion = morphix_cli::integration::desktop::inspect_desktop(
-        &extension_root,
-        &*ding_tools(
-            &extension_root,
-            Some("46+really47.0.9-1ubuntu5"),
-            Some("another-package"),
-            Some(".original"),
-            None,
-        ),
-    );
-    assert_eq!(foreign_diversion.status, ComponentStatus::Conflict);
-}
-
-#[cfg(target_os = "linux")]
-#[test]
-fn desktop_context_menu_reports_diversion_path_and_file_hash_conflicts() {
-    let sandbox = tempdir().unwrap();
-    let extension_root = ding_test_tree(sandbox.path());
-    let wrong_target = morphix_cli::integration::desktop::inspect_desktop(
-        &extension_root,
-        &*ding_tools(
-            &extension_root,
-            Some("46+really47.0.9-1ubuntu5"),
-            Some("morphix"),
-            Some(".wrong-original"),
-            None,
-        ),
-    );
-    assert_eq!(wrong_target.status, ComponentStatus::Conflict);
-
-    let changed_patch = extension_root.join("app/fileItemMenu.js");
-    let changed_patch_report = morphix_cli::integration::desktop::inspect_desktop(
-        &extension_root,
-        &*ding_tools(
-            &extension_root,
-            Some("46+really47.0.9-1ubuntu5"),
-            Some("morphix"),
-            Some(".morphix-original"),
-            Some(&changed_patch),
-        ),
-    );
-    assert_eq!(changed_patch_report.status, ComponentStatus::Conflict);
-
-    let changed_source = PathBuf::from(format!(
-        "{}.morphix-original",
-        extension_root.join("app/fileItemMenu.js").display()
-    ));
-    let changed_source_report = morphix_cli::integration::desktop::inspect_desktop(
-        &extension_root,
-        &*ding_tools(
-            &extension_root,
-            Some("46+really47.0.9-1ubuntu5"),
-            Some("morphix"),
-            Some(".morphix-original"),
-            Some(&changed_source),
-        ),
-    );
-    assert_eq!(changed_source_report.status, ComponentStatus::Conflict);
 }
 
 #[cfg(target_os = "linux")]
@@ -2588,18 +2320,165 @@ fn user_mode_installs_nautilus_extension_and_launcher() {
     );
 }
 
+const DING_ANCHORS_FILE_MENU: &str = "class M {\n    showMenu() {\n        this._menu = DesktopIconsUtil.createDesktopMenu(['fileitemmenu']);\n    }\n}\n";
+const DING_ANCHORS_EXTENSION: &str = "import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';\nexport default class DING extends Extension {\n    enable() {\n        go();\n    }\n\n    disable() {\n        stop();\n    }\n}\n";
+
+/// DING giả kiểu hệ thống: `<root>/sys/gnome-shell/extensions/ding@rastersoft.com` có đủ mốc để dựng bản chép.
+fn fake_system_ding(root: &Path) -> PathBuf {
+    let ding = root.join("sys/gnome-shell/extensions/ding@rastersoft.com");
+    fs::create_dir_all(ding.join("app")).unwrap();
+    fs::write(ding.join("metadata.json"), r#"{"name":"DING","shell-version":["46"],"uuid":"ding@rastersoft.com"}"#).unwrap();
+    fs::write(ding.join("extension.js"), DING_ANCHORS_EXTENSION).unwrap();
+    fs::write(ding.join("app/fileItemMenu.js"), DING_ANCHORS_FILE_MENU).unwrap();
+    fs::write(ding.join("app/desktopManager.js"), "this._menu.add(selectAll);\n").unwrap();
+    ding
+}
+
+fn session_with_ding(root: &Path) -> SessionEnv {
+    SessionEnv {
+        system_data_dirs: Some(vec![root.join("sys")]),
+        ..gnome_session()
+    }
+}
+
+/// `gnome-extensions` giả: DING có trong `list`; `enabled` là kết quả của `list --enabled`. Mọi lệnh đổi trạng thái được ghi vào `calls`.
+fn desktop_tools(enabled: &'static str, calls: std::rc::Rc<std::cell::RefCell<Vec<String>>>) -> Box<ToolRunner> {
+    Box::new(move |program: &str, args: &[&OsStr]| {
+        let args: Vec<String> = args.iter().map(|a| a.to_string_lossy().into_owned()).collect();
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        match (program, args.as_slice()) {
+            ("gnome-extensions", ["list"]) => exited(0, "ding@rastersoft.com\n", ""),
+            ("gnome-extensions", ["list", "--enabled"]) => exited(0, enabled, ""),
+            _ => {
+                calls.borrow_mut().push(format!("{program} {}", args.join(" ")));
+                exited(0, "", "")
+            }
+        }
+    })
+}
+
+fn no_calls() -> std::rc::Rc<std::cell::RefCell<Vec<String>>> {
+    std::rc::Rc::new(std::cell::RefCell::new(Vec::new()))
+}
+
+#[cfg(unix)]
 #[test]
-fn user_mode_reports_desktop_menu_not_applicable() {
+fn desktop_menu_without_ding_is_not_applicable() {
     let f = tempdir().unwrap();
     let binaries = binaries_in(f.path());
-    let backend = linux_with(
-        &f.path().join("root"),
-        gnome_session(),
-        scripted_tools(Vec::new()),
-    );
+    let backend = linux_with(&f.path().join("root"), SessionEnv { system_data_dirs: Some(Vec::new()), ..gnome_session() }, scripted_tools(Vec::new()));
     let report = backend.inspect(ComponentId::DesktopContextMenu, &binaries);
     assert_eq!(report.status, ComponentStatus::NotApplicable);
-    assert!(report.message.contains(".deb"), "{}", report.message);
+    assert!(report.message.contains("DING"), "{}", report.message);
+    let report = backend.install(ComponentId::DesktopContextMenu, &binaries);
+    assert_eq!(report.status, ComponentStatus::NotApplicable);
+}
+
+#[cfg(unix)]
+#[test]
+fn desktop_menu_install_builds_the_copy_and_autostart_without_changing_gnome() {
+    let f = tempdir().unwrap();
+    let binaries = binaries_in(f.path());
+    let root = f.path().join("root");
+    fake_system_ding(f.path());
+    let calls = no_calls();
+    let backend = linux_with(&root, session_with_ding(f.path()), desktop_tools("ding@rastersoft.com\n", calls.clone()));
+    let report = backend.install(ComponentId::DesktopContextMenu, &binaries);
+    assert_eq!(report.status, ComponentStatus::Installed, "{}", report.message);
+    assert!(report.message.contains("đăng nhập lại"), "{}", report.message);
+    let fork = root.join("data/gnome-shell/extensions/morphix-desktop@morphix");
+    assert!(fork.join("morphix-source.json").is_file());
+    let js = fs::read_to_string(fork.join("app/morphixMenu.js")).unwrap();
+    assert!(js.contains(binaries.morphix.to_str().unwrap()), "{js}");
+    let autostart = fs::read_to_string(root.join("config/autostart/morphix-desktop-check.desktop")).unwrap();
+    assert!(autostart.contains("desktop-check"), "{autostart}");
+    assert!(calls.borrow().is_empty(), "cài không được đổi gì của GNOME: {:?}", calls.borrow());
+    let again = backend.install(ComponentId::DesktopContextMenu, &binaries);
+    assert_eq!(again.status, ComponentStatus::AlreadyInstalled, "{}", again.message);
+}
+
+#[cfg(unix)]
+#[test]
+fn desktop_menu_with_an_unsupported_ding_layout_is_not_applicable() {
+    // WHY: Ubuntu 22.04 có DING cũ không có mốc ESM; đó là "không áp dụng", không phải lỗi làm cả lần cài báo một phần.
+    let f = tempdir().unwrap();
+    let binaries = binaries_in(f.path());
+    let ding = fake_system_ding(f.path());
+    fs::write(ding.join("extension.js"), "const old = imports.ui.main;\n").unwrap();
+    let backend = linux_with(&f.path().join("root"), session_with_ding(f.path()), desktop_tools("ding@rastersoft.com\n", no_calls()));
+    let report = backend.install(ComponentId::DesktopContextMenu, &binaries);
+    assert_eq!(report.status, ComponentStatus::NotApplicable, "{}", report.message);
+}
+
+#[cfg(unix)]
+#[test]
+fn desktop_menu_uninstall_keeps_everything_when_gnome_is_unreachable_after_a_switch() {
+    let f = tempdir().unwrap();
+    let binaries = binaries_in(f.path());
+    let root = f.path().join("root");
+    fake_system_ding(f.path());
+    let backend = linux_with(&root, session_with_ding(f.path()), desktop_tools("ding@rastersoft.com\n", no_calls()));
+    backend.install(ComponentId::DesktopContextMenu, &binaries);
+    let state = root.join("data/morphix/desktop-state.json");
+    fs::create_dir_all(state.parent().unwrap()).unwrap();
+    fs::write(&state, r#"{"switched":true,"ding_was_enabled":true,"fallback":null}"#).unwrap();
+    let blind = linux_with(&root, session_with_ding(f.path()), scripted_tools(Vec::new()));
+    let report = blind.uninstall(ComponentId::DesktopContextMenu);
+    assert_eq!(report.status, ComponentStatus::Failed, "{}", report.message);
+    assert!(root.join("data/gnome-shell/extensions/morphix-desktop@morphix/morphix-source.json").is_file());
+    assert!(state.is_file());
+}
+
+#[cfg(unix)]
+#[test]
+fn desktop_menu_with_ding_disabled_is_not_applicable() {
+    let f = tempdir().unwrap();
+    let binaries = binaries_in(f.path());
+    let root = f.path().join("root");
+    fake_system_ding(f.path());
+    let backend = linux_with(&root, session_with_ding(f.path()), desktop_tools("", no_calls()));
+    let report = backend.install(ComponentId::DesktopContextMenu, &binaries);
+    assert_eq!(report.status, ComponentStatus::NotApplicable, "{}", report.message);
+    assert!(!root.join("data/gnome-shell/extensions/morphix-desktop@morphix").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn desktop_menu_inspect_reports_missing_installed_and_stale() {
+    let f = tempdir().unwrap();
+    let binaries = binaries_in(f.path());
+    let root = f.path().join("root");
+    let ding = fake_system_ding(f.path());
+    let backend = linux_with(&root, session_with_ding(f.path()), desktop_tools("ding@rastersoft.com\n", no_calls()));
+    assert_eq!(backend.inspect(ComponentId::DesktopContextMenu, &binaries).status, ComponentStatus::Missing);
+    backend.install(ComponentId::DesktopContextMenu, &binaries);
+    assert_eq!(backend.inspect(ComponentId::DesktopContextMenu, &binaries).status, ComponentStatus::Installed);
+    fs::write(ding.join("extension.js"), format!("{DING_ANCHORS_EXTENSION}// updated\n")).unwrap();
+    assert_eq!(backend.inspect(ComponentId::DesktopContextMenu, &binaries).status, ComponentStatus::Stale);
+}
+
+#[cfg(unix)]
+#[test]
+fn desktop_menu_uninstall_removes_copy_autostart_and_state_and_restores_ding() {
+    let f = tempdir().unwrap();
+    let binaries = binaries_in(f.path());
+    let root = f.path().join("root");
+    fake_system_ding(f.path());
+    let calls = no_calls();
+    let backend = linux_with(&root, session_with_ding(f.path()), desktop_tools("ding@rastersoft.com\n", calls.clone()));
+    backend.install(ComponentId::DesktopContextMenu, &binaries);
+    let state = root.join("data/morphix/desktop-state.json");
+    fs::create_dir_all(state.parent().unwrap()).unwrap();
+    fs::write(&state, r#"{"switched":true,"ding_was_enabled":true,"fallback":null}"#).unwrap();
+    // sau lần đổi, DING gốc đang tắt: lệnh gỡ phải bật lại
+    let after_switch = linux_with(&root, session_with_ding(f.path()), desktop_tools("", calls.clone()));
+    let report = after_switch.uninstall(ComponentId::DesktopContextMenu);
+    assert_eq!(report.status, ComponentStatus::Removed, "{}", report.message);
+    assert!(!root.join("data/gnome-shell/extensions/morphix-desktop@morphix").exists());
+    assert!(!root.join("config/autostart/morphix-desktop-check.desktop").exists());
+    assert!(!state.exists());
+    assert!(calls.borrow().iter().any(|c| c == "gnome-extensions enable ding@rastersoft.com"), "{:?}", calls.borrow());
+    assert_eq!(after_switch.uninstall(ComponentId::DesktopContextMenu).status, ComponentStatus::AlreadyAbsent);
 }
 
 #[test]

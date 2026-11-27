@@ -150,6 +150,10 @@ enum Command {
     UninstallIntegration,
     /// Gỡ Morphix đã cài bằng lệnh curl; giữ dữ liệu người dùng.
     Uninstall,
+    /// Kiểm menu desktop GNOME mỗi lần đăng nhập: đổi sang bản chép DING của Morphix, dựng lại khi DING hoặc Morphix đổi,
+    /// lùi về DING gốc khi bản chép lỗi. Autostart gọi lệnh này; không dành cho người dùng.
+    #[command(hide = true)]
+    DesktopCheck,
     /// Đổi kích thước ảnh theo phần trăm hoặc cạnh dài nhất; không phóng to.
     Resize {
         #[arg(required = true)]
@@ -316,6 +320,7 @@ fn build_jobs(cli: &Cli) -> Result<Vec<Job>, String> {
         | Command::Menu { .. }
         | Command::InstallIntegration { .. }
         | Command::UninstallIntegration
+        | Command::DesktopCheck
         | Command::Uninstall => Err("lệnh này không tạo việc xử lý file".to_string()),
         Command::Convert { files, to, merge } => {
             // WHY: `--merge` chỉ có nghĩa với PDF; nhánh văn bản phải báo lỗi chứ không bỏ cờ âm thầm.
@@ -725,6 +730,11 @@ fn run_uninstall() -> ExitCode {
         eprintln!("lỗi: không in được báo cáo tích hợp ({error})");
         return ExitCode::from(1);
     }
+    // WHY dừng: chưa trả được DING gốc về mà xoá chương trình thì không còn gì để sửa lỗi; desktop có thể trống icon.
+    if report.components.iter().any(|c| c.id == integration::ComponentId::DesktopContextMenu && c.status == integration::ComponentStatus::Failed) {
+        eprintln!("lỗi: chưa trả được DING gốc về nên chưa gỡ chương trình; sửa lỗi ở trên rồi chạy lại morphix uninstall");
+        return ExitCode::from(1);
+    }
     if package {
         println!(
             "Morphix được cài bằng gói .deb: chạy `sudo apt remove morphix` để gỡ chương trình."
@@ -941,6 +951,36 @@ fn notify_failure(message: &str) {
     }
 }
 
+/// Luôn thoát 0: đây là việc chạy nền lúc đăng nhập, lỗi đã vào log và thông báo.
+fn run_desktop_check() -> ExitCode {
+    use morphix_cli::integration::{
+        desktop_switch::{desktop_check, DesktopCtx},
+        linux::{resolve_xdg_roots, SessionEnv},
+        tools::system_tool,
+    };
+    let roots = resolve_xdg_roots(
+        std::env::var_os("XDG_DATA_HOME").as_deref(),
+        std::env::var_os("XDG_CONFIG_HOME").as_deref(),
+        std::env::var_os("HOME").as_deref(),
+    );
+    let (roots, morphix) = match (roots, std::env::current_exe()) {
+        (Ok(roots), Ok(morphix)) => (roots, morphix),
+        (Err(error), _) => {
+            tracing::warn!(%error, "desktop-check: không xác định được thư mục dữ liệu");
+            return ExitCode::SUCCESS;
+        }
+        (_, Err(error)) => {
+            tracing::warn!(%error, "desktop-check: không xác định được vị trí morphix");
+            return ExitCode::SUCCESS;
+        }
+    };
+    let ctx = DesktopCtx::new(roots.data_home, &SessionEnv::from_env(), morphix);
+    let outcome = desktop_check(&ctx, &system_tool, &|pause| thread::sleep(pause));
+    tracing::info!(?outcome, "desktop-check");
+    println!("{outcome:?}");
+    ExitCode::SUCCESS
+}
+
 /// `morphix quit`: gửi yêu cầu thoát tới GUI đang chạy. Không kết nối được nghĩa là app không chạy, và đó không phải lỗi.
 fn run_quit() -> ExitCode {
     let request = MenuRequest {
@@ -981,6 +1021,7 @@ fn main() -> ExitCode {
         Command::Formats { files } => return run_formats(files, cli.json),
         Command::Doctor => return run_doctor(cli.json),
         Command::Quit => return run_quit(),
+        Command::DesktopCheck => return run_desktop_check(),
         Command::Tray {
             selection,
             unsupported_selection,

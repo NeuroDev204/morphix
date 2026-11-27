@@ -22,6 +22,8 @@ use crate::windows;
 
 pub const JOB_UPDATE_EVENT: &str = "job-update";
 pub const JOB_FINISHED_EVENT: &str = "job-finished";
+/// Báo riêng cho popup tiến trình rằng cửa sổ vừa được hiện, để nó kéo `active_job`.
+const PROGRESS_SHOWN_EVENT: &str = "progress-shown";
 
 /// Chuyển danh sách đường dẫn từ giao diện thành `PathBuf`, từ chối mục rỗng hoặc chỉ có khoảng trắng.
 /// WHY: một đường dẫn rỗng sẽ trỏ vào thư mục hiện tại và xử lý nhầm, nên phải chặn ngay ở biên.
@@ -104,7 +106,46 @@ pub fn start_action(
     let handle = app.clone();
     let on_update =
         Arc::new(move |snapshot: JobSnapshot| publish_update(&handle, snapshot, &history_job, notify));
-    state.jobs.start(job, label, on_update)
+    let id = state.jobs.start(job, label, notify, on_update)?;
+    if notify {
+        schedule_progress_popup(app, id);
+    }
+    Ok(id)
+}
+
+/// Việc từ menu chạy quá chừng này thì mới hiện popup; việc nhanh không chớp cửa sổ.
+const PROGRESS_POPUP_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
+
+fn schedule_progress_popup(app: &AppHandle, id: u64) {
+    let handle = app.clone();
+    let spawned = std::thread::Builder::new()
+        .name("morphix-progress-popup".into())
+        .spawn(move || {
+            std::thread::sleep(PROGRESS_POPUP_DELAY);
+            let state = handle.state::<AppState>();
+            let active = state.jobs.active();
+            if !windows::should_show_progress(id, active.as_ref(), state.exiting.load(std::sync::atomic::Ordering::SeqCst)) {
+                return;
+            }
+            match windows::show_progress(&handle) {
+                // WHY chỉ báo "đã hiện" (không kèm ảnh chụp): ảnh chụp cũ tới sau sự kiện xong sẽ làm popup kẹt ở "đang chạy";
+                // trang tự kéo `active_job` mới nhất.
+                Ok(()) => {
+                    if let Err(error) = handle.emit_to(windows::PROGRESS_WINDOW_LABEL, PROGRESS_SHOWN_EVENT, ()) {
+                        tracing::warn!(%error, "không báo được popup tiến trình là đã hiện");
+                    }
+                }
+                Err(reason) => tracing::warn!(%reason, "không hiện được popup tiến trình"),
+            }
+        });
+    if let Err(error) = spawned {
+        tracing::warn!(%error, "không tạo được luồng hẹn giờ popup tiến trình");
+    }
+}
+
+#[tauri::command]
+pub async fn hide_progress(app: AppHandle) -> Result<(), String> {
+    windows::hide_progress(&app)
 }
 
 #[tauri::command]

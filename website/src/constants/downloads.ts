@@ -11,13 +11,7 @@ export const DOWNLOADS = {
     os: "Windows 10 / 11 (64-bit)",
   },
   linux: {
-    deb: "https://github.com/NeuroDev204/morphix/releases/download/v0.1.6/morphix_0.1.6-1_amd64.deb",
-    tarball: "https://github.com/NeuroDev204/morphix/releases/download/v0.1.6/morphix-x86_64-linux.tar.gz",
     curlCommand: "curl -fsSL https://github.com/NeuroDev204/morphix/releases/latest/download/install.sh | sh",
-    nameDeb: "morphix_0.1.6-1_amd64.deb",
-    sizeDeb: "12.4 MB",
-    nameTarball: "morphix-x86_64-linux.tar.gz",
-    sizeTarball: "11.8 MB",
-    os: "Ubuntu 20.04+, Debian, Fedora, Arch (x86_64)",
+    os: "Ubuntu 22.04+, Debian 12+, Fedora, Arch, openSUSE (x86_64)",
   },
 } as const;

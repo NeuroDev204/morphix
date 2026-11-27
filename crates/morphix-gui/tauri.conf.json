@@ -38,8 +38,7 @@
       "icons/icon.ico"
     ],
     "targets": [
-      "appimage",
-      "deb"
+      "appimage"
     ]
   }
 }

@@ -6,8 +6,6 @@ import {
   Terminal,
   Download,
   Info,
-  Package,
-  Archive,
   Copy,
   Check,
 } from "lucide-react";
@@ -136,7 +134,7 @@ export default function DownloadMatrix() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                    Cách 1: Lệnh cài tự động (Khuyên dùng):
+                    Lệnh cài tự động:
                   </label>
                   <span className="text-[10px] text-teal-800 font-semibold bg-teal-50 px-2 py-0.5 rounded border border-teal-200/60">
                     Tự cài thư viện còn thiếu
@@ -167,31 +165,10 @@ export default function DownloadMatrix() {
                 </div>
               </div>
 
-              {/* Tùy chọn 2 & 3: .deb & tarball */}
-              <div className="space-y-2.5 pt-1">
-                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
-                  Cách 2: Gói tải về thủ công v{DOWNLOADS.version}:
-                </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {/* .deb */}
-                  <a
-                    href={DOWNLOADS.linux.deb}
-                    className="inline-flex items-center justify-center gap-2 p-3.5 rounded-2xl border border-slate-200 bg-slate-50 hover:bg-slate-100 hover:border-slate-300 text-slate-800 text-xs font-semibold transition-all"
-                  >
-                    <Package className="w-4 h-4 text-orange-600" />
-                    <span>Gói .deb ({DOWNLOADS.linux.sizeDeb})</span>
-                  </a>
-
-                  {/* tarball */}
-                  <a
-                    href={DOWNLOADS.linux.tarball}
-                    className="inline-flex items-center justify-center gap-2 p-3.5 rounded-2xl border border-slate-200 bg-slate-50 hover:bg-slate-100 hover:border-slate-300 text-slate-800 text-xs font-semibold transition-all"
-                  >
-                    <Archive className="w-4 h-4 text-slate-600" />
-                    <span>Tarball ({DOWNLOADS.linux.sizeTarball})</span>
-                  </a>
-                </div>
-              </div>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Một lệnh cho mọi bản Linux (Ubuntu, Debian, Fedora, Arch, openSUSE). Thiếu thư viện nào, lệnh sẽ hỏi
+                trước khi cài bằng sudo. Trên GNOME, menu chuột phải cho file trên desktop cần đăng nhập lại một lần.
+              </p>
             </div>
 
             <div className="pt-4 border-t border-slate-200/80 flex items-center justify-between text-xs text-slate-500">

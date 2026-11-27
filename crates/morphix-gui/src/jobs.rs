@@ -21,7 +21,7 @@ pub enum JobState {
 }
 
 /// Ảnh chụp nhanh tiến trình xử lý của tác vụ tại một thời điểm.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct JobSnapshot {
     /// Định danh duy nhất của tác vụ.
     pub id: u64,
@@ -33,6 +33,13 @@ pub struct JobSnapshot {
     pub total: usize,
     /// Trạng thái hiện tại của tác vụ.
     pub state: JobState,
+    /// Việc do menu chuột phải bắt đầu: chỉ những việc này mới có popup tiến trình.
+    pub from_menu: bool,
+    /// Tên file (không đường dẫn) của đầu vào đầu tiên; rỗng khi việc không có đầu vào.
+    pub first_name: String,
+    /// Tiến trình của mục đang chạy (0.0..=1.0) do ffmpeg báo; chỉ có ở việc media, còn lại luôn 0.
+    #[serde(default)]
+    pub fraction: f32,
 }
 
 /// Thông tin về tác vụ đang chạy trên luồng nền.
@@ -81,6 +88,7 @@ impl JobRunner {
         &self,
         job: Job,
         label: String,
+        from_menu: bool,
         on_update: Arc<dyn Fn(JobSnapshot) + Send + Sync>,
     ) -> Result<u64, String> {
         // Sử dụng unwrap_or_else(|p| p.into_inner()) khi khoá Mutex:
@@ -122,6 +130,12 @@ impl JobRunner {
         // WHY lấy từ lõi: gộp PDF và tạo file nén là một mục; tự đếm ở đây sẽ lệch khi lõi thêm việc mới.
         let total = item_count(&job);
 
+        let first_name = job
+            .inputs
+            .first()
+            .and_then(|path| path.file_name())
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
         let cancel_token = CancelToken::new();
         let initial_snapshot = JobSnapshot {
             id,
@@ -129,6 +143,9 @@ impl JobRunner {
             done: 0,
             total,
             state: JobState::Running,
+            from_menu,
+            first_name: first_name.clone(),
+            fraction: 0.0,
         };
 
         *active_guard = Some(ActiveJob {
@@ -192,6 +209,9 @@ impl JobRunner {
                         done,
                         total,
                         state: final_state,
+                        from_menu,
+                        first_name,
+                        fraction: 0.0,
                     }
                 };
 
@@ -229,7 +249,11 @@ impl JobRunner {
     /// Lấy ảnh chụp nhanh của tác vụ đang chạy nếu có.
     pub fn active(&self) -> Option<JobSnapshot> {
         let guard = self.inner.active.lock().unwrap_or_else(|p| p.into_inner());
-        guard.as_ref().map(|active| active.snapshot.clone())
+        // WHY đọc tiến trình lúc hỏi: ffmpeg cập nhật liên tục trong token, còn ảnh chụp chỉ đổi khi một mục xong.
+        guard.as_ref().map(|active| JobSnapshot {
+            fraction: active.cancel.fraction(),
+            ..active.snapshot.clone()
+        })
     }
 
     /// Lấy báo cáo chi tiết của tác vụ sau khi kết thúc.
