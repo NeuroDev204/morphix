@@ -28,7 +28,7 @@ const FAQ_ITEMS: FaqItem[] = [
       <>
         Hoàn toàn chính xác. Ứng dụng Morphix không chứa bất kỳ mã theo dõi (analytics), không có máy chủ nhận
         file, và không yêu cầu đăng nhập. Toàn bộ thuật toán chuyển đổi chạy trực tiếp bằng CPU và lưu trữ trên
-        ổ cứng của bạn. Riêng website này có hiển thị quảng cáo của Google, xem{" "}
+        ổ cứng của bạn. Riêng website này có hiển thị quảng cáo, xem{" "}
         <a href="/chinh-sach-rieng-tu" className="text-teal-700 font-semibold underline hover:text-teal-900">
           Chính sách quyền riêng tư
         </a>
