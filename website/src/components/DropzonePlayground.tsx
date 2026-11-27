@@ -16,8 +16,6 @@ import {
   zipResults,
   resetEngines,
 } from "@/lib/convert/engines";
-import { shouldShowAd } from "@/lib/ads";
-import AdSlot from "@/components/AdSlot";
 
 interface SourceFileItem {
   id: string;
@@ -562,15 +560,7 @@ export default function DropzonePlayground() {
               </div>
             </div>
           )}
-        </div>
-
-        {/* Outside the dropzone and below every control, so it can't be mistaken for a download button. */}
-        {shouldShowAd(isRunning, results.length) && (
-          <div className="max-w-2xl mx-auto mt-8">
-            <AdSlot />
-          </div>
-        )}
-      </div>
+        </div>      </div>
     </section>
   );
 }

@@ -1,5 +1,5 @@
-// Fill in from the AdSense dashboard; empty values show a placeholder and load nothing.
-export const ADSENSE = {
-  client: "",
-  slot: "",
+// Script URLs from the Adsterra dashboard (the src of each "Get code" snippet); empty loads nothing.
+export const ADSTERRA = {
+  socialBar: "",
+  popunder: "",
 };

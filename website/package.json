@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "node --test \"src/lib/*.test.ts\" \"src/lib/convert/*.test.ts\""
+    "test": "node --test \"src/lib/convert/*.test.ts\""
   },
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.15",
