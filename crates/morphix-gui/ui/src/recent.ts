@@ -22,6 +22,7 @@ export interface JobSnapshot {
   readonly state: JobState;
   readonly from_menu: boolean;
   readonly first_name: string;
+  readonly fraction: number;
 }
 
 export type RecentRow =

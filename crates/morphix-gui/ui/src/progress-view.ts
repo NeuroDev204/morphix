@@ -19,7 +19,9 @@ const CLOSE_AFTER_CANCEL_MS: number = 2000;
 
 export function progressView(snapshot: JobSnapshot, latest: HistoryEntry | null): ProgressView {
   const count: string = snapshot.total > 1 ? ` (${snapshot.done}/${snapshot.total} file)` : "";
-  const percent: number | null = snapshot.total <= 1 ? null : progressPercent(snapshot.done, snapshot.total);
+  // WHY null khi chưa có gì: việc không phải media không báo tiến trình trong từng file, nên một file không có % thật.
+  const known: boolean = snapshot.total > 1 || snapshot.fraction > 0;
+  const percent: number | null = known ? progressPercent(snapshot.done + snapshot.fraction, snapshot.total) : null;
   const base = {
     title: `Morphix · ${snapshot.label}`,
     fileLine: `${snapshot.first_name}${count}`,

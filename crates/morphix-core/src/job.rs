@@ -464,6 +464,7 @@ pub fn run_job(job: &Job, cancel: &CancelToken, on_progress: &dyn Fn(Progress)) 
     let mut items = Vec::with_capacity(total);
     for (index, inputs) in groups.into_iter().enumerate() {
         let mut warnings: Vec<String> = Vec::new();
+        cancel.set_fraction(0.0);
         let result = if cancel.is_cancelled() {
             Err(MorphixError::Cancelled)
         } else {

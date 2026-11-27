@@ -9,6 +9,7 @@ const JOB_UPDATE_EVENT: string = "job-update";
 const JOB_FINISHED_EVENT: string = "job-finished";
 const PROGRESS_SHOWN_EVENT: string = "progress-shown";
 const NAME_MAX_CHARS: number = 40;
+const POLL_MS: number = 500;
 
 let current: { snapshot: JobSnapshot; view: ProgressView; latest: HistoryEntry | null } | null = null;
 let closeTimer: number | undefined;
@@ -103,15 +104,52 @@ async function onSnapshot(snapshot: JobSnapshot, finished: boolean): Promise<voi
   if (!snapshot.from_menu || isStale(current, snapshot)) {
     return;
   }
-  clearTimeout(closeTimer);
   let latest: HistoryEntry | null = null;
   if (finished) {
-    const entries: HistoryEntry[] = await invoke<HistoryEntry[]>("recent_history", { limit: 1 });
-    latest = entries[0] ?? null;
+    latest = await lastHistoryEntry();
   }
+  show(snapshot, latest);
+}
+
+async function lastHistoryEntry(): Promise<HistoryEntry | null> {
+  try {
+    return (await invoke<HistoryEntry[]>("recent_history", { limit: 1 }))[0] ?? null;
+  } catch (error: unknown) {
+    console.error("không đọc được lịch sử", error);
+    return null;
+  }
+}
+
+function show(snapshot: JobSnapshot, latest: HistoryEntry | null): void {
+  clearTimeout(closeTimer);
   current = { snapshot, view: progressView(snapshot, latest), latest };
   render();
   scheduleClose();
+}
+
+// WHY hỏi lại thay vì chỉ nghe sự kiện: sự kiện chỉ tới khi một file xong (không có % trong file) và có thể trễ hoặc mất;
+// `active_job` luôn đúng. Việc biến mất khỏi `active_job` nghĩa là đã xong: lấy kết quả từ lịch sử.
+async function poll(): Promise<void> {
+  const job: JobSnapshot | null = await invoke<JobSnapshot | null>("active_job");
+  if (job !== null) {
+    if (job.from_menu) {
+      show(job, null);
+    }
+    return;
+  }
+  if (current === null || current.view.status !== "running") {
+    return;
+  }
+  const latest: HistoryEntry | null = await lastHistoryEntry();
+  const failed: boolean = latest?.status === "failed";
+  const cancelled: boolean = latest?.status === "cancelled";
+  const done: JobSnapshot = {
+    ...current.snapshot,
+    done: current.snapshot.total,
+    fraction: 0,
+    state: cancelled ? { kind: "cancelled" } : { kind: "finished", ok: failed ? 0 : current.snapshot.total, failed: failed ? 1 : 0 },
+  };
+  show(done, latest);
 }
 
 async function start(): Promise<void> {
@@ -120,6 +158,7 @@ async function start(): Promise<void> {
   // WHY kéo ảnh chụp khi cửa sổ vừa hiện: lõi chỉ báo khi một mục xong, nên việc một file lớn chưa có sự kiện nào.
   await listen(PROGRESS_SHOWN_EVENT, () => void pullActiveJob());
   await pullActiveJob();
+  window.setInterval(() => void poll().catch((error: unknown) => console.error("không hỏi được tiến trình", error)), POLL_MS);
 }
 
 async function pullActiveJob(): Promise<void> {

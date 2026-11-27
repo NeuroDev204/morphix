@@ -15,6 +15,9 @@ const runningJob: JobSnapshot = {
   done: 1,
   total: 4,
   state: { kind: "running" },
+  from_menu: true,
+  first_name: "a.png",
+  fraction: 0,
 };
 
 describe("composeRecentRows", () => {

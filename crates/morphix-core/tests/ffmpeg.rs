@@ -7,7 +7,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use morphix_core::error::MorphixError;
-use morphix_core::ops::ffmpeg::{parse_time_ms, run_ffmpeg};
+use morphix_core::ops::ffmpeg::{parse_duration_ms, parse_time_ms, run_ffmpeg};
 use morphix_core::CancelToken;
 use tempfile::{tempdir, TempDir};
 
@@ -224,3 +224,20 @@ fn run_ffmpeg_passes_args_as_argv_without_shell() {
 #[test]
 #[ignore = "script giả là sh, chỉ chạy trên unix; Windows chờ bản thử thật"]
 fn fake_ffmpeg_tests_need_unix() {}
+
+#[test]
+fn parse_duration_ms_reads_the_header_line() {
+    assert_eq!(parse_duration_ms("  Duration: 00:01:02.50, start: 0.000000, bitrate: 900 kb/s"), Some(62_500));
+    assert_eq!(parse_duration_ms("  Duration: N/A, bitrate: N/A"), None);
+    assert_eq!(parse_duration_ms("frame=1 time=00:00:01.00"), None);
+}
+
+#[cfg(unix)]
+#[test]
+fn run_ffmpeg_reports_the_fraction_of_the_item_through_the_cancel_token() {
+    let dir = tempdir().unwrap();
+    let ffmpeg = fake_ffmpeg(&dir, "echo '  Duration: 00:00:10.00, start: 0' >&2; printf 'time=00:00:05.00 x\\r' >&2");
+    let token = CancelToken::new();
+    run_ffmpeg(sh(), &sh_args(&ffmpeg, &[]), &token, &mut |_: u64| {}).unwrap();
+    assert_eq!(token.fraction(), 0.5);
+}

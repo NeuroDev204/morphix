@@ -10,6 +10,7 @@ const snap = (over: Partial<JobSnapshot> = {}): JobSnapshot => ({
   state: { kind: "running" },
   from_menu: true,
   first_name: "du-lich.mov",
+  fraction: 0,
   ...over,
 });
 const entry = (over: Partial<HistoryEntry> = {}): HistoryEntry => ({
@@ -32,6 +33,16 @@ describe("progressView", () => {
       closeAfterMs: null,
       showOpenFolder: false,
     });
+  });
+
+  it("a single big file shows the percent ffmpeg reports", () => {
+    const view = progressView(snap({ done: 0, total: 1, fraction: 0.42 }), null);
+    expect(view.percent).toBe(42);
+    expect(view.detail).toBe("42%");
+  });
+
+  it("percent counts finished files plus the fraction of the current one", () => {
+    expect(progressView(snap({ done: 1, total: 4, fraction: 0.5 }), null).percent).toBe(38);
   });
 
   it("single file is indeterminate", () => {

@@ -80,8 +80,15 @@ pub fn should_show_progress(started_id: u64, active: Option<&crate::jobs::JobSna
 /// Hiện popup tiến trình ở góc dưới phải, không lấy focus (người dùng đang làm việc ở cửa sổ khác).
 pub fn show_progress(app: &AppHandle) -> Result<(), String> {
     let window = progress_window(app)?;
-    match window.primary_monitor() {
-        Ok(Some(monitor)) => {
+    // WHY thử cả màn hình hiện tại và màn hình đầu tiên: trên Wayland primary_monitor có thể trả None.
+    let monitor = window
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.current_monitor().ok().flatten())
+        .or_else(|| window.available_monitors().ok().and_then(|list| list.into_iter().next()));
+    match monitor {
+        Some(monitor) => {
             let area = monitor.work_area();
             let scale = monitor.scale_factor();
             let (x, y) = bottom_right_origin(
@@ -99,7 +106,12 @@ pub fn show_progress(app: &AppHandle) -> Result<(), String> {
                 tracing::warn!(error = %error, "compositor từ chối đặt vị trí popup tiến trình: {error}");
             }
         }
-        _ => tracing::warn!("không đọc được màn hình chính; popup tiến trình giữ vị trí mặc định"),
+        None => {
+            tracing::warn!("không đọc được màn hình nào; popup tiến trình căn giữa");
+            if let Err(error) = window.center() {
+                tracing::warn!(error = %error, "không căn giữa được popup tiến trình: {error}");
+            }
+        }
     }
     window
         .show()
@@ -317,6 +329,7 @@ mod progress_tests {
             state: JobState::Running,
             from_menu,
             first_name: "a.mov".into(),
+            fraction: 0.0,
         }
     }
 

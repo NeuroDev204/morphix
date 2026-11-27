@@ -21,7 +21,7 @@ pub enum JobState {
 }
 
 /// Ảnh chụp nhanh tiến trình xử lý của tác vụ tại một thời điểm.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct JobSnapshot {
     /// Định danh duy nhất của tác vụ.
     pub id: u64,
@@ -37,6 +37,9 @@ pub struct JobSnapshot {
     pub from_menu: bool,
     /// Tên file (không đường dẫn) của đầu vào đầu tiên; rỗng khi việc không có đầu vào.
     pub first_name: String,
+    /// Tiến trình của mục đang chạy (0.0..=1.0) do ffmpeg báo; chỉ có ở việc media, còn lại luôn 0.
+    #[serde(default)]
+    pub fraction: f32,
 }
 
 /// Thông tin về tác vụ đang chạy trên luồng nền.
@@ -142,6 +145,7 @@ impl JobRunner {
             state: JobState::Running,
             from_menu,
             first_name: first_name.clone(),
+            fraction: 0.0,
         };
 
         *active_guard = Some(ActiveJob {
@@ -207,6 +211,7 @@ impl JobRunner {
                         state: final_state,
                         from_menu,
                         first_name,
+                        fraction: 0.0,
                     }
                 };
 
@@ -244,7 +249,11 @@ impl JobRunner {
     /// Lấy ảnh chụp nhanh của tác vụ đang chạy nếu có.
     pub fn active(&self) -> Option<JobSnapshot> {
         let guard = self.inner.active.lock().unwrap_or_else(|p| p.into_inner());
-        guard.as_ref().map(|active| active.snapshot.clone())
+        // WHY đọc tiến trình lúc hỏi: ffmpeg cập nhật liên tục trong token, còn ảnh chụp chỉ đổi khi một mục xong.
+        guard.as_ref().map(|active| JobSnapshot {
+            fraction: active.cancel.fraction(),
+            ..active.snapshot.clone()
+        })
     }
 
     /// Lấy báo cáo chi tiết của tác vụ sau khi kết thúc.

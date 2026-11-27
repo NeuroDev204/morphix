@@ -59,6 +59,14 @@ const VP9_OPUS: &[&str] = &[
     "0",
     "-row-mt",
     "1",
+    // WHY: libvpx-vp9 mặc định (cpu-used 0) chậm nhất. Đo trên 4K: good/cpu-used 4 = 16 s, realtime/cpu-used 5/tile 2 = 3,8 s
+    // (nhanh gấp 4, file lớn hơn khoảng 37%). Chủ dự án chọn tốc độ.
+    "-deadline",
+    "realtime",
+    "-cpu-used",
+    "5",
+    "-tile-columns",
+    "2",
     "-c:a",
     "libopus",
     "-b:a",
@@ -147,7 +155,7 @@ pub fn convert_args_with(
 
 /// Tuỳ chọn thuộc luồng video / luồng âm thanh trong argv encoder; mỗi tuỳ chọn đi kèm đúng một giá trị.
 const VIDEO_FLAGS: &[&str] = &[
-    "-c:v", "-preset", "-crf", "-pix_fmt", "-b:v", "-row-mt", "-vf",
+    "-c:v", "-preset", "-crf", "-pix_fmt", "-b:v", "-row-mt", "-deadline", "-cpu-used", "-tile-columns", "-vf",
 ];
 const AUDIO_FLAGS: &[&str] = &["-c:a", "-b:a", "-q:a"];
 
