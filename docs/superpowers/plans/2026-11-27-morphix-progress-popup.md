@@ -53,7 +53,7 @@ Trang `progress.html` nghe `job-update`/`job-finished`, hiển thị theo một 
 **Interfaces:**
 - `export interface ProgressView { title: string; fileLine: string; percent: number | null; status: "running" | "done" | "failed" | "cancelled"; detail: string; closeAfterMs: number | null; showOpenFolder: boolean; showCancel: boolean }`
 - `export function progressView(snapshot: JobSnapshot, latest: HistoryEntry | null): ProgressView`
-  - title `Morphix · <label>`; fileLine: `<first_name>` + (total > 1 ? ` (<done>/<total> file)` : "") + (total > 2 ? `, và <total-1> file khác` chỉ khi running? — không: chỉ `(done/total file)`); percent: total ≤ 1 → `null`, ngược lại `progressPercent(done,total)`.
+  - title `Morphix · <label>`; fileLine: `<first_name>` + (total > 1 ? ` (<done>/<total> file)` : ""); percent: total ≤ 1 → `null`, ngược lại `progressPercent(done,total)`.
   - running: showCancel true, closeAfterMs null; finished failed == 0: status done, detail `Xong`, showOpenFolder = latest?.path có, closeAfterMs 4000; failed > 0: status failed, detail = `latest.detail`, closeAfterMs null; cancelled: detail `Đã huỷ`, closeAfterMs 2000.
 - `progress.ts`: nghe `job-update`/`job-finished` (bỏ qua `!from_menu`); khi finished gọi `invoke("recent_history",{limit:1})`; nút Huỷ → `cancel_job`; Mở thư mục → `open_output_directory`; ✕ và hết giờ → `invoke("hide_progress")`; `mouseenter` dừng đếm, `mouseleave` đếm lại từ đầu; sự kiện `job-update` mới → huỷ hẹn giờ đóng.
 - [ ] **Step 1:** Test vitest: `running_multi_file_shows_count_and_percent` (done 2 total 5 → fileLine `a.mov (2/5 file)`, percent 40), `single_file_is_indeterminate` (percent null), `success_closes_after_4s_with_open_folder`, `failure_stays_with_reason`, `cancel_closes_after_2s`.
