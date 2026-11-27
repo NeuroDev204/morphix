@@ -113,7 +113,7 @@ export default function ComparisonTable() {
                 <td className="p-4 sm:p-5 bg-teal-50/30 border-x border-slate-200/80 font-semibold text-emerald-800">
                   <div className="flex items-center gap-2">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>100% Miễn phí, mã nguồn mở, 0 quảng cáo</span>
+                    <span>100% Miễn phí, mã nguồn mở, ứng dụng 0 quảng cáo</span>
                   </div>
                 </td>
                 <td className="p-4 sm:p-5 text-slate-600">

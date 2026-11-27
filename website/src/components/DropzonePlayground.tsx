@@ -529,12 +529,6 @@ export default function DropzonePlayground() {
                 </div>
               )}
 
-              {shouldShowAd(isRunning, results.length) && (
-                <div className="pt-4">
-                  <AdSlot />
-                </div>
-              )}
-
               {/* Footer Controls */}
               <div className="flex items-center justify-between pt-4 mt-2 border-t border-slate-200/60 text-xs">
                 <div className="flex items-center gap-3">
@@ -569,6 +563,13 @@ export default function DropzonePlayground() {
             </div>
           )}
         </div>
+
+        {/* Outside the dropzone and below every control, so it can't be mistaken for a download button. */}
+        {shouldShowAd(isRunning, results.length) && (
+          <div className="max-w-2xl mx-auto mt-8">
+            <AdSlot />
+          </div>
+        )}
       </div>
     </section>
   );

@@ -40,7 +40,7 @@ export default function TrustMetrics() {
             <span>GPL-3.0</span>
           </div>
           <p className="text-xs text-slate-500 mt-1.5 font-medium">
-            Mã nguồn mở miễn phí mãi mãi, không quảng cáo
+            Mã nguồn mở miễn phí mãi mãi, ứng dụng không quảng cáo
           </p>
         </div>
       </div>
