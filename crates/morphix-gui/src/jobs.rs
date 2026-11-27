@@ -33,6 +33,10 @@ pub struct JobSnapshot {
     pub total: usize,
     /// Trạng thái hiện tại của tác vụ.
     pub state: JobState,
+    /// Việc do menu chuột phải bắt đầu: chỉ những việc này mới có popup tiến trình.
+    pub from_menu: bool,
+    /// Tên file (không đường dẫn) của đầu vào đầu tiên; rỗng khi việc không có đầu vào.
+    pub first_name: String,
 }
 
 /// Thông tin về tác vụ đang chạy trên luồng nền.
@@ -81,6 +85,7 @@ impl JobRunner {
         &self,
         job: Job,
         label: String,
+        from_menu: bool,
         on_update: Arc<dyn Fn(JobSnapshot) + Send + Sync>,
     ) -> Result<u64, String> {
         // Sử dụng unwrap_or_else(|p| p.into_inner()) khi khoá Mutex:
@@ -122,6 +127,12 @@ impl JobRunner {
         // WHY lấy từ lõi: gộp PDF và tạo file nén là một mục; tự đếm ở đây sẽ lệch khi lõi thêm việc mới.
         let total = item_count(&job);
 
+        let first_name = job
+            .inputs
+            .first()
+            .and_then(|path| path.file_name())
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
         let cancel_token = CancelToken::new();
         let initial_snapshot = JobSnapshot {
             id,
@@ -129,6 +140,8 @@ impl JobRunner {
             done: 0,
             total,
             state: JobState::Running,
+            from_menu,
+            first_name: first_name.clone(),
         };
 
         *active_guard = Some(ActiveJob {
@@ -192,6 +205,8 @@ impl JobRunner {
                         done,
                         total,
                         state: final_state,
+                        from_menu,
+                        first_name,
                     }
                 };
 

@@ -104,7 +104,7 @@ pub fn start_action(
     let handle = app.clone();
     let on_update =
         Arc::new(move |snapshot: JobSnapshot| publish_update(&handle, snapshot, &history_job, notify));
-    state.jobs.start(job, label, on_update)
+    state.jobs.start(job, label, notify, on_update)
 }
 
 #[tauri::command]

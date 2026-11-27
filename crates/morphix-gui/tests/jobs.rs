@@ -43,9 +43,9 @@ fn second_job_is_refused_while_one_is_running() {
             release_rx.lock().unwrap().recv().unwrap();
         }
     });
-    let id = runner.start(job(inputs, Quality::High), "Đổi sang JPG".into(), callback).unwrap();
+    let id = runner.start(job(inputs, Quality::High), "Đổi sang JPG".into(), false, callback).unwrap();
     reached_rx.recv_timeout(Duration::from_secs(20)).unwrap();
-    let second = runner.start(job(vec![png(d.path(), "b.png")], Quality::Balanced), "Nén ảnh".into(), Arc::new(|_| {}));
+    let second = runner.start(job(vec![png(d.path(), "b.png")], Quality::Balanced), "Nén ảnh".into(), false, Arc::new(|_| {}));
     assert!(second.is_err(), "việc thứ hai phải bị từ chối khi việc đầu còn chạy");
     release_tx.send(()).unwrap();
     wait_for_report(&runner, id);
@@ -59,7 +59,7 @@ fn updates_reach_the_callback_and_finish_with_counts() {
     let sink = seen.clone();
     let inputs = vec![png(d.path(), "a.png"), png(d.path(), "b.png")];
     let id = runner
-        .start(job(inputs, Quality::Balanced), "Đổi sang JPG".into(), Arc::new(move |s| sink.lock().unwrap().push(s)))
+        .start(job(inputs, Quality::Balanced), "Đổi sang JPG".into(), false, Arc::new(move |s| sink.lock().unwrap().push(s)))
         .unwrap();
     let report = wait_for_report(&runner, id);
     assert_eq!((report.succeeded(), report.failed()), (2, 0));
@@ -81,7 +81,7 @@ fn cancel_marks_pending_items_cancelled() {
             release_rx.lock().unwrap().recv().unwrap();
         }
     });
-    let id = runner.start(job(inputs, Quality::High), "Đổi sang JPG".into(), callback).unwrap();
+    let id = runner.start(job(inputs, Quality::High), "Đổi sang JPG".into(), false, callback).unwrap();
     reached_rx.recv_timeout(Duration::from_secs(20)).unwrap();
     assert!(runner.cancel(id));
     release_tx.send(()).unwrap();
@@ -116,7 +116,7 @@ fn shutdown_cancels_and_joins_the_active_worker() {
             release_rx.lock().unwrap().recv().unwrap();
         }
     });
-    runner.start(job(inputs, Quality::High), "Đổi sang JPG".into(), callback).unwrap();
+    runner.start(job(inputs, Quality::High), "Đổi sang JPG".into(), false, callback).unwrap();
     reached_rx.recv_timeout(Duration::from_secs(20)).unwrap();
     runner.cancel(runner.active().unwrap().id);
     release_tx.send(()).unwrap();
@@ -131,7 +131,7 @@ fn untaken_report_refuses_new_job_until_taken() {
     let runner = JobRunner::new();
     let inputs = vec![png(d.path(), "u.png")];
     let id = runner
-        .start(job(inputs, Quality::Balanced), "Đổi sang JPG".into(), Arc::new(|_| {}))
+        .start(job(inputs, Quality::Balanced), "Đổi sang JPG".into(), false, Arc::new(|_| {}))
         .unwrap();
     let report = wait_for_report(&runner, id);
     assert_eq!(report.succeeded(), 1);
@@ -139,7 +139,7 @@ fn untaken_report_refuses_new_job_until_taken() {
     // Bắt đầu việc thứ hai ngay bây giờ phải thành công vì báo cáo đã được lấy
     let inputs2 = vec![png(d.path(), "u2.png")];
     let id2 = runner
-        .start(job(inputs2, Quality::Balanced), "Đổi sang JPG".into(), Arc::new(|_| {}))
+        .start(job(inputs2, Quality::Balanced), "Đổi sang JPG".into(), false, Arc::new(|_| {}))
         .unwrap();
 
     // Đợi việc 2 xong nhưng KHÔNG lấy báo cáo
@@ -154,7 +154,7 @@ fn untaken_report_refuses_new_job_until_taken() {
 
     // Báo cáo việc 2 vẫn còn trong runner (chưa take_report) -> việc thứ 3 phải bị từ chối!
     let inputs3 = vec![png(d.path(), "u3.png")];
-    let third = runner.start(job(inputs3, Quality::Balanced), "Đổi sang JPG".into(), Arc::new(|_| {}));
+    let third = runner.start(job(inputs3, Quality::Balanced), "Đổi sang JPG".into(), false, Arc::new(|_| {}));
     assert!(third.is_err(), "việc thứ ba phải bị từ chối vì báo cáo việc hai chưa được lấy");
 
     // Lấy báo cáo việc 2
@@ -166,7 +166,7 @@ fn untaken_report_refuses_new_job_until_taken() {
     // Thử lại việc 3, bây giờ phải thành công
     let inputs3 = vec![png(d.path(), "u3.png")];
     let id3 = runner
-        .start(job(inputs3, Quality::Balanced), "Đổi sang JPG".into(), Arc::new(|_| {}))
+        .start(job(inputs3, Quality::Balanced), "Đổi sang JPG".into(), false, Arc::new(|_| {}))
         .unwrap();
     wait_for_report(&runner, id3);
 }
@@ -202,7 +202,7 @@ fn shutdown_captures_panic_and_recovers_state() {
     let callback = Arc::new(|_| {
         panic!("cố ý panic trong callback");
     });
-    runner.start(job(inputs, Quality::Balanced), "Panic job".into(), callback).unwrap();
+    runner.start(job(inputs, Quality::Balanced), "Panic job".into(), false, callback).unwrap();
     // Chờ luồng worker chạy và gặp panic
     std::thread::sleep(Duration::from_millis(50));
     let shutdown_res = runner.shutdown();
@@ -212,7 +212,7 @@ fn shutdown_captures_panic_and_recovers_state() {
     // Sau khi shutdown, runner ở trạng thái sạch, có thể chạy việc mới
     assert!(runner.active().is_none());
     let inputs2 = vec![png(d.path(), "p2.png")];
-    let second = runner.start(job(inputs2, Quality::Balanced), "Việc bình thường".into(), Arc::new(|_| {}));
+    let second = runner.start(job(inputs2, Quality::Balanced), "Việc bình thường".into(), false, Arc::new(|_| {}));
     assert!(second.is_ok());
     wait_for_report(&runner, second.unwrap());
 }
@@ -237,7 +237,7 @@ fn cancelled_running_job_ends_as_cancelled_with_one_final_callback() {
         }
     });
     let id = runner
-        .start(job(inputs, Quality::High), "Đổi sang JPG".into(), callback)
+        .start(job(inputs, Quality::High), "Đổi sang JPG".into(), false, callback)
         .unwrap();
     reached_rx.recv_timeout(Duration::from_secs(20)).unwrap();
     assert!(runner.cancel(id));
@@ -263,4 +263,23 @@ fn cancelled_running_job_ends_as_cancelled_with_one_final_callback() {
     );
     assert_eq!(finals[0].state, JobState::Cancelled);
     assert_eq!(finals[0].id, id);
+}
+
+#[test]
+fn snapshot_carries_menu_origin_and_first_file_name() {
+    let d = tempfile::tempdir().unwrap();
+    let dir = d.path().join("thư mục");
+    std::fs::create_dir_all(&dir).unwrap();
+    let inputs = vec![png(&dir, "ảnh 1.png"), png(&dir, "b.png")];
+    let runner = JobRunner::new();
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&seen);
+    let id = runner
+        .start(job(inputs, Quality::Balanced), "Đổi sang JPG".into(), true, Arc::new(move |s| sink.lock().unwrap().push(s)))
+        .unwrap();
+    wait_for_report(&runner, id);
+    let seen = seen.lock().unwrap();
+    assert!(!seen.is_empty());
+    assert!(seen.iter().all(|s| s.from_menu && s.first_name == "ảnh 1.png"), "{seen:?}");
+    assert_eq!(runner.active().map(|s| s.from_menu), None);
 }
