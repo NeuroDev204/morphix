@@ -16,7 +16,7 @@ const FAQ_ITEMS: FaqItem[] = [
     answer: (
       <>
         Hoàn toàn dùng được bình thường! Rust là ngôn ngữ biên dịch trực tiếp ra mã máy native độc lập (giống như C/C++).
-        Bản cài đặt <code>MorphixSetup.exe</code> trên Windows và các gói Linux (<code>.deb</code>, <code>tarball</code>, lệnh <code>curl</code>) đã được đóng gói và biên dịch sẵn toàn bộ.
+        Bản cài đặt <code>MorphixSetup.exe</code> trên Windows và lệnh cài <code>curl</code> trên Linux đã được đóng gói và biên dịch sẵn toàn bộ.
         Bạn <strong>không cần cài Rust</strong>, không cần Cargo, và không cần bất kỳ môi trường lập trình nào trên máy.
       </>
     ),

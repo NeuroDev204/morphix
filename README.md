@@ -29,7 +29,8 @@ curl -fsSL https://github.com/NeuroDev204/morphix/releases/latest/download/insta
 - Gói Python của Nautilus (`nautilus-python` trên Fedora, Arch, openSUSE; `python3-nautilus` trên Debian, Ubuntu) cho menu động trong Files. Thiếu nó thì Files dùng menu Scripts như trên. `morphix doctor` sẽ in đúng lệnh nếu thiếu.
 - Trên GNOME chưa bật AppIndicator (icon khay), lệnh cài tự bật; nếu chưa cài thì hỏi rồi cài `gnome-shell-extension-appindicator`, sau đó cần đăng nhập lại. openSUSE không có gói này: cài từ extensions.gnome.org, hoặc dùng `morphix tray`.
 - Phím **Alt+C** (mở Morphix với các file đang chọn) chỉ có trên GNOME chạy X11. Trên Wayland và các desktop khác, dùng menu chuột phải.
-- Ubuntu 24.04 còn có gói `.deb` trong mục Releases, kèm menu chuột phải ngay trên desktop.
+- **Menu chuột phải trên desktop GNOME** (Ubuntu và các bản GNOME có desktop icon): lệnh cài dựng một bản chép của DING mang menu Morphix một cấp như trong Files, không cần sudo. Cần đăng xuất rồi đăng nhập lại một lần; Morphix tự kiểm mỗi lần đăng nhập và quay lại DING gốc nếu bản chép lỗi. Muốn ẩn icon desktop khi đang dùng bản chép, tắt "Desktop Icons (Morphix)" trong ứng dụng Extensions.
+- Từng cài gói `.deb` trước đây: chạy `sudo apt remove morphix` rồi chạy lại lệnh curl.
 
 ### Theo từng bản Linux
 
@@ -60,8 +61,7 @@ Cài một phiên bản cụ thể: `curl -fsSL …/install.sh | MORPHIX_VERSION
 morphix uninstall
 ```
 
-Gỡ chương trình và các mục menu; dữ liệu của bạn (`~/.local/share/morphix`: lịch sử, cài đặt, log) được giữ lại. Bản cài bằng `.deb`: `sudo apt remove morphix`.
-
+Gỡ chương trình và các mục menu; dữ liệu của bạn (`~/.local/share/morphix`: lịch sử, cài đặt, log) được giữ lại.
 ## Dòng lệnh
 
 `morphix --help` liệt kê mọi lệnh, ví dụ `morphix convert --to webp ảnh.png`, `morphix doctor` để kiểm tra cài đặt.

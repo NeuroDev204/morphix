@@ -112,7 +112,7 @@ export default function Hero() {
                   </>
                 ) : (
                   <>
-                    Hệ điều hành của bạn: <strong>Linux (x86_64)</strong>. Bạn có thể dùng lệnh curl hoặc tải gói .deb bên dưới.
+                    Hệ điều hành của bạn: <strong>Linux (x86_64)</strong>. Cài bằng lệnh curl bên dưới.
                   </>
                 )}
               </span>

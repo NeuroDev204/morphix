@@ -16,7 +16,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
 
     def test_uploads_fail_when_nothing_was_built(self) -> None:
         # WHY: thiếu file mà upload chỉ cảnh báo thì Release vẫn phát hành install.sh trỏ tới tarball 404.
-        for name in ("tarball", "deb"):
+        for name in ("tarball",):
             uploads = [s for s in self.jobs[name]["steps"] if str(s.get("uses", "")).startswith("actions/upload-artifact")]
             self.assertTrue(uploads, name)
             for step in uploads:
@@ -55,23 +55,21 @@ class ReleaseWorkflowTests(unittest.TestCase):
         publish = self.jobs["publish"]
         self.assertIn("windows", publish["needs"])
         downloaded = [step["with"]["name"] for step in publish["steps"] if str(step.get("uses", "")).startswith("actions/download-artifact")]
-        self.assertEqual(sorted(downloaded), ["deb", "tarball", "windows-setup"])
+        self.assertEqual(sorted(downloaded), ["tarball", "windows-setup"])
         text = self.steps_text(publish)
         self.assertNotIn("msix", text.lower())
         self.assertIn("MorphixSetup.exe", text)
 
 
-class DebChecksumTests(unittest.TestCase):
-    def test_release_publishes_the_deb_checksum(self) -> None:
+class NoDebTests(unittest.TestCase):
+    def test_linux_ships_only_the_curl_installer_and_tarball(self) -> None:
+        # WHY: gói .deb ghim đúng phiên bản DING của Ubuntu 24.04 nên không cài được trên 26.04; Linux chỉ cài bằng install.sh.
         release = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
-        self.assertIn("${{ runner.temp }}/dist/*.deb.sha256", release)
-        self.assertIn("test -f dist/morphix_*_amd64.deb.sha256", release)
-
-    def test_deb_checksum_names_the_file_relatively(self) -> None:
-        # WHY: `sha256sum -c` trên máy người dùng chỉ chạy được khi file ghi tên tương đối, không có đường dẫn máy build.
-        script = (ROOT / "scripts" / "build-deb.sh").read_text(encoding="utf-8")
-        self.assertNotIn('sha256sum "$DEB" > "$DEB.sha256"', script)
-        self.assertIn('(cd "$OUT" && sha256sum "$(basename "$DEB")" > "$(basename "$DEB").sha256")', script)
+        jobs = yaml.safe_load(release)["jobs"]
+        self.assertNotIn("deb", jobs)
+        self.assertNotIn("deb", jobs["publish"]["needs"])
+        self.assertNotIn(".deb", release)
+        self.assertNotIn("build-deb", release)
 
 
 class WindowsSmokeTests(unittest.TestCase):

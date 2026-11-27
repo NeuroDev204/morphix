@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tải ffmpeg gọn đã ghim trong packaging/ffmpeg-static.txt, kiểm SHA256, rồi cài binary và giấy phép của nó.
-# Dùng chung cho tarball (build-tarball.sh) và gói .deb (build-deb.sh), để hai gói Linux mang đúng một bản ffmpeg.
+# Dùng bởi build-tarball.sh để tarball Linux mang bản ffmpeg gọn đã ghim.
 # Usage: scripts/install-ffmpeg-slim.sh <đường dẫn binary đích> <thư mục doc đích> <thư mục làm việc>
 # Biến: MORPHIX_FFMPEG_STATIC_TARBALL (tarball tải sẵn, khỏi tải lại).
 set -euo pipefail
