@@ -17,7 +17,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Morphix — Đổi định dạng, nén & xử lý file 100% Offline (v0.1.5)",
+  title: "Morphix — Đổi định dạng, nén & xử lý file 100% Offline (v0.1.6)",
   description:
     "Chuyển đổi định dạng, nén, tối ưu hoá ảnh, video, âm thanh, tài liệu ngay trên máy của bạn (Windows & Linux). 100% Offline, không gửi dữ liệu ra ngoài.",
   keywords: [

@@ -27,7 +27,7 @@ const COMMANDS: Record<CliTabKey, CommandDetail> = {
         </div>
         <div className="pt-2 space-y-1">
           <div>
-            <span className="text-emerald-400 font-semibold">✔ Động cơ Rust Core:</span> v0.1.5 (x86_64-unknown-linux-gnu)
+            <span className="text-emerald-400 font-semibold">✔ Động cơ Rust Core:</span> v0.1.6 (x86_64-unknown-linux-gnu)
           </div>
           <div>
             <span className="text-emerald-400 font-semibold">✔ Thư viện đồ hoạ:</span> WebKit2GTK 4.1 đã phát hiện
