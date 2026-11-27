@@ -49,7 +49,7 @@ Ubuntu 24.04 và các biến thể (Kubuntu, Xubuntu, Ubuntu MATE, Linux Mint 22
 - Tray (icon khay) trên GNOME: GNOME Fedora, Debian và openSUSE không có sẵn AppIndicator. Cài gnome-shell-extension-appindicator, chạy gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com, rồi đăng nhập lại. Không muốn cài thì dùng morphix tray.
 - Kiểm tra lại: morphix doctor liệt kê từng tích hợp và báo đúng lệnh còn thiếu.
 
-Cài một phiên bản cụ thể: curl -fsSL …/install.sh | MORPHIX_VERSION=v0.1.4 sh.
+Cài một phiên bản cụ thể: curl -fsSL …/install.sh | MORPHIX_VERSION=v0.1.5 sh.
 
 Gỡ cài đặt
 
