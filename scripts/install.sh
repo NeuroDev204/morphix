@@ -107,19 +107,21 @@ fi
 
 # Hỏi một lần rồi cài. WHY /dev/tty: với `curl … | sh`, stdin là phần còn lại của script.
 # WHY </dev/null cho lệnh cài: lệnh con đọc stdin sẽ nuốt mất phần script chưa chạy.
+# Chỉ hỏi khi thực sự cài được: có tty, và là root hoặc có sudo.
 install_pkgs() {
     tty="${MORPHIX_TTY:-/dev/tty}"
     (: <"$tty") 2>/dev/null || return 1
-    printf 'Morphix cần cài thêm:%s\nCài luôn bằng sudo? [Y/n] ' "$pkgs"
-    read -r answer <"$tty" || return 1
-    case "$answer" in ""|y|Y|yes|Yes|c|C|có) ;; *) return 1 ;; esac
-    if [ "$(id -u)" = 0 ]; then
-        $pm_run $pkgs </dev/null
+    if [ "$(id -u 2>/dev/null)" = 0 ]; then
+        runner=""
     elif command -v sudo >/dev/null 2>&1; then
-        sudo $pm_run $pkgs </dev/null
+        runner=sudo
     else
         return 1
     fi
+    printf 'Cài luôn bằng sudo? [Y/n] '
+    read -r answer <"$tty" || return 1
+    case "$answer" in ""|y|Y|yes|Yes|c|C|có) ;; *) return 1 ;; esac
+    $runner $pm_run $pkgs </dev/null
 }
 
 installed_nautilus=""
@@ -131,10 +133,10 @@ if [ -n "$missing$need_nautilus" ]; then
             exit 1
         fi
         printf 'Morphix: hãy cài gói nautilus-python của bản Linux này để có menu chuột phải theo file; tạm thời menu nằm trong mục Scripts.\n' >&2
-    elif install_pkgs; then
+    elif printf 'Morphix cần cài thêm:%s\n' "$pkgs" && install_pkgs; then
         [ -z "$need_nautilus" ] || installed_nautilus=1
     else
-        printf '\nHãy cài bằng lệnh sau rồi chạy lại lệnh cài Morphix:\n  sudo %s%s\n' "$pm" "$pkgs"
+        printf 'Hãy cài bằng lệnh sau rồi chạy lại lệnh cài Morphix:\n  sudo %s%s\n' "$pm" "$pkgs"
         [ -z "$missing" ] || exit 1
         printf 'Tạm thời menu chuột phải của Morphix nằm trong mục Scripts.\n'
     fi

@@ -306,5 +306,38 @@ class InstallScriptTests(unittest.TestCase):
         self.assertNotIn("cần cài thêm", result.stdout + result.stderr)
 
 
+    def test_unknown_distro_missing_library_keeps_old_message(self) -> None:
+        self.os_release.write_text("ID=void\n")
+        self.tty.write_text("\n")
+        result = self.run_install(piped=True, FAKE_NO_WEBKIT="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.sudo_calls(), [])
+        self.assertIn("libwebkit2gtk-4.1.so.0", result.stdout + result.stderr)
+        self.assertFalse(self.prefix.exists())
+
+    def test_unknown_distro_missing_binding_still_installs(self) -> None:
+        self.os_release.write_text("ID=void\n")
+        self.add_nautilus()
+        self.tty.write_text("\n")
+        result = self.run_install(piped=True, MORPHIX_NAUTILUS_DIRS=str(self.empty_dir))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.sudo_calls(), [])
+        self.assertIn("nautilus-python", result.stderr)
+
+    def test_without_sudo_does_not_ask(self) -> None:
+        # Debian chỉ có mật khẩu root, không cài sudo: hỏi "Cài luôn bằng sudo?" rồi bảo chạy sudo là vô lý.
+        (self.fakebin / "sudo").unlink()
+        self.add_nautilus()
+        self.tty.write_text("\n")
+        result = self.run_install(piped=True, PATH=self.basic_path(), MORPHIX_NAUTILUS_DIRS=str(self.empty_dir))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("Cài luôn", result.stdout)
+        self.assertIn("python3-nautilus", result.stdout)
+
+    def test_no_tty_still_names_missing_packages(self) -> None:
+        result = self.run_install(piped=True, FAKE_NO_WEBKIT="1")
+        self.assertIn("Morphix cần cài thêm: libwebkit2gtk-4.1-0", result.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()
