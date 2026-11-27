@@ -560,7 +560,8 @@ export default function DropzonePlayground() {
               </div>
             </div>
           )}
-        </div>      </div>
+        </div>
+      </div>
     </section>
   );
 }
