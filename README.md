@@ -27,7 +27,7 @@ curl -fsSL https://github.com/NeuroDev204/morphix/releases/latest/download/insta
   - Ở hai kiểu sau menu liệt kê mọi việc của nhóm nên có thể có việc không hợp với file cụ thể (ví dụ PNG sang PNG); bấm vào sẽ hiện thông báo lỗi rõ ràng, không làm gì với file. `morphix doctor` cho biết máy bạn đang dùng menu động hay menu tĩnh.
 - Lệnh trên cần `curl` (Kubuntu 24.04 live không có sẵn; cài bằng `sudo apt install curl`).
 - Gói Python của Nautilus (`nautilus-python` trên Fedora, Arch, openSUSE; `python3-nautilus` trên Debian, Ubuntu) cho menu động trong Files. Thiếu nó thì Files dùng menu Scripts như trên. `morphix doctor` sẽ in đúng lệnh nếu thiếu.
-- Trên GNOME không có icon khay (AppIndicator), cài extension `gnome-shell-extension-appindicator` rồi bật bằng `gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com`, hoặc dùng `morphix tray`.
+- Trên GNOME chưa bật AppIndicator (icon khay), lệnh cài tự bật; nếu chưa cài thì hỏi rồi cài `gnome-shell-extension-appindicator` (Ubuntu: `gnome-shell-ubuntu-extensions`), sau đó cần đăng nhập lại. openSUSE không có gói này: cài từ extensions.gnome.org, hoặc dùng `morphix tray`.
 - Phím **Alt+C** (mở Morphix với các file đang chọn) chỉ có trên GNOME chạy X11. Trên Wayland và các desktop khác, dùng menu chuột phải.
 - Ubuntu 24.04 còn có gói `.deb` trong mục Releases, kèm menu chuột phải ngay trên desktop.
 
@@ -40,16 +40,16 @@ Lệnh cài giống nhau cho mọi bản. Khác nhau là thư viện hệ thốn
 | Bản Linux | Thư viện còn thiếu | Gói Nautilus cho menu Files | Đã kiểm trên |
 |---|---|---|---|
 | Fedora 44 | `sudo dnf install webkit2gtk4.1 libayatana-appindicator-gtk3` | `sudo dnf install nautilus-python` | GNOME, Wayland |
-| openSUSE Tumbleweed | `sudo zypper install libwebkit2gtk-4_1-0 libayatana-appindicator3-1` | `sudo zypper install nautilus-python` | GNOME, Wayland |
+| openSUSE Tumbleweed | `sudo zypper install libwebkit2gtk-4_1-0 libayatana-appindicator3-1` | `sudo zypper install python3-nautilus` | GNOME, Wayland |
 | Debian 13 | `sudo apt install libwebkit2gtk-4.1-0 libayatana-appindicator3-1` | `sudo apt install python3-nautilus` | GNOME, Wayland |
-| Arch Linux | `sudo pacman -S webkit2gtk-4.1 libayatana-appindicator` | `sudo pacman -S nautilus-python` (chưa kiểm tên gói này) | XFCE, X11 |
+| Arch Linux | `sudo pacman -S webkit2gtk-4.1 libayatana-appindicator` | `sudo pacman -S nautilus-python` | XFCE, X11 |
 | Ubuntu 24.04 và các biến thể (Kubuntu, Xubuntu, Ubuntu MATE, Linux Mint 22) | `sudo apt install libwebkit2gtk-4.1-0 libayatana-appindicator3-1` | `sudo apt install python3-nautilus` (chưa kiểm trên Ubuntu GNOME) | Kubuntu KDE, Xubuntu XFCE, Ubuntu MATE, Mint Cinnamon, X11 |
 
 - **Lệnh curl cần `curl`.** Kubuntu 24.04 live không có sẵn: `sudo apt update && sudo apt install curl`.
 - **Menu theo trình quản lý file:** GNOME Files → Morphix (có `nautilus-python`) hoặc Scripts → Morphix việc nhanh (không có); KDE Dolphin → Morphix; Xfce Thunar → Morphix; Cinnamon (Nemo) và MATE (Caja) → Scripts → Morphix việc nhanh. Nemo và Caja chưa từng kiểm được vì máy thử không có các trình quản lý này.
 - **GNOME Wayland:** không có phím Alt+C; dùng chuột phải.
 - **GNOME X11:** Alt+C mở Morphix với các file đang chọn (chưa kiểm trên máy thật).
-- **Tray (icon khay) trên GNOME:** GNOME Fedora, Debian và openSUSE không có sẵn AppIndicator. Cài `gnome-shell-extension-appindicator`, chạy `gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com`, rồi đăng nhập lại. Không muốn cài thì dùng `morphix tray`.
+- **Tray (icon khay) trên GNOME:** GNOME Fedora, Debian, Arch và openSUSE không có sẵn AppIndicator. Lệnh cài curl hỏi rồi tự cài và bật (trừ openSUSE, không có gói: cài từ extensions.gnome.org); cài xong đăng nhập lại. Không muốn cài thì dùng `morphix tray`.
 - **Kiểm tra lại:** `morphix doctor` liệt kê từng tích hợp và báo đúng lệnh còn thiếu.
 
 Cài một phiên bản cụ thể: `curl -fsSL …/install.sh | MORPHIX_VERSION=v0.1.5 sh`.

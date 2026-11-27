@@ -1129,7 +1129,7 @@ impl LinuxBackend {
                         ComponentStatus::Missing,
                         false,
                         Some(&file.path),
-                        "thiếu binding Python của Nautilus nên Files không nạp menu Morphix; cài gói nautilus-python (Fedora, Arch, openSUSE) hoặc python3-nautilus (Debian, Ubuntu) rồi mở lại Files",
+                        "thiếu binding Python của Nautilus nên Files không nạp menu Morphix; cài gói nautilus-python (Fedora, Arch) hoặc python3-nautilus (Debian, Ubuntu, openSUSE) rồi mở lại Files",
                     )
                 }
             }
