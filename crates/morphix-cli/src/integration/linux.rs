@@ -1079,7 +1079,8 @@ impl LinuxBackend {
             .is_some_and(|m| m.fingerprint == current && m.morphix_version == ctx.version && m.source == source);
         if !up_to_date {
             if let Err(message) = build_fork(&source, &ctx.extensions_dir(), &binaries.morphix, &ctx.version) {
-                return failed_report(id, &message);
+                // WHY không phải lỗi: DING cũ hơn (vd Ubuntu 22.04) không có mốc để chèn; menu desktop đơn giản không có ở máy đó.
+                return if message.starts_with(ding_fork::UNSUPPORTED_PREFIX) { skip(&message) } else { failed_report(id, &message) };
             }
         }
         let autostart = match self.desktop_check_file(roots, binaries) {

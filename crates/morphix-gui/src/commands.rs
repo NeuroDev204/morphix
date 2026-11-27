@@ -22,6 +22,8 @@ use crate::windows;
 
 pub const JOB_UPDATE_EVENT: &str = "job-update";
 pub const JOB_FINISHED_EVENT: &str = "job-finished";
+/// Báo riêng cho popup tiến trình rằng cửa sổ vừa được hiện, để nó kéo `active_job`.
+const PROGRESS_SHOWN_EVENT: &str = "progress-shown";
 
 /// Chuyển danh sách đường dẫn từ giao diện thành `PathBuf`, từ chối mục rỗng hoặc chỉ có khoảng trắng.
 /// WHY: một đường dẫn rỗng sẽ trỏ vào thư mục hiện tại và xử lý nhầm, nên phải chặn ngay ở biên.
@@ -126,10 +128,11 @@ fn schedule_progress_popup(app: &AppHandle, id: u64) {
                 return;
             }
             match windows::show_progress(&handle) {
-                // WHY phát lại ảnh chụp: trang popup chỉ nhận sự kiện khi một mục xong; việc một file lớn chưa có sự kiện nào.
+                // WHY chỉ báo "đã hiện" (không kèm ảnh chụp): ảnh chụp cũ tới sau sự kiện xong sẽ làm popup kẹt ở "đang chạy";
+                // trang tự kéo `active_job` mới nhất.
                 Ok(()) => {
-                    if let Some(snapshot) = active {
-                        emit_or_log(&handle, JOB_UPDATE_EVENT, snapshot);
+                    if let Err(error) = handle.emit_to(windows::PROGRESS_WINDOW_LABEL, PROGRESS_SHOWN_EVENT, ()) {
+                        tracing::warn!(%error, "không báo được popup tiến trình là đã hiện");
                     }
                 }
                 Err(reason) => tracing::warn!(%reason, "không hiện được popup tiến trình"),

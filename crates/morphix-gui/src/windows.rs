@@ -10,9 +10,9 @@ use crate::state::AppState;
 
 pub const KHAY_WINDOW_LABEL: &str = "khay";
 pub const SETTINGS_WINDOW_LABEL: &str = "settings";
-/// Popup tiến trình của việc chạy từ menu; khai trong `tauri.conf.json` (không tạo lúc chạy: tạo cửa sổ từ luồng khác dễ treo trên Windows).
+/// Popup tiến trình của việc chạy từ menu. Tạo lười ở lần hiện đầu tiên (như Cài đặt): khởi động chỉ dựng Khay.
 pub const PROGRESS_WINDOW_LABEL: &str = "tien-trinh";
-/// Kích thước popup khai trong `tauri.conf.json` (điểm ảnh logic).
+/// Kích thước popup (điểm ảnh logic).
 const PROGRESS_LOGICAL_SIZE: (f64, f64) = (360.0, 120.0);
 /// Khoảng cách logic từ mép vùng làm việc tới khay, để cửa sổ không dính sát viền màn hình.
 const KHAY_MARGIN_LOGICAL_PX: f64 = 16.0;
@@ -79,9 +79,7 @@ pub fn should_show_progress(started_id: u64, active: Option<&crate::jobs::JobSna
 
 /// Hiện popup tiến trình ở góc dưới phải, không lấy focus (người dùng đang làm việc ở cửa sổ khác).
 pub fn show_progress(app: &AppHandle) -> Result<(), String> {
-    let window = app
-        .get_webview_window(PROGRESS_WINDOW_LABEL)
-        .ok_or_else(|| "Không tìm thấy cửa sổ tiến trình.".to_string())?;
+    let window = progress_window(app)?;
     match window.primary_monitor() {
         Ok(Some(monitor)) => {
             let area = monitor.work_area();
@@ -108,11 +106,36 @@ pub fn show_progress(app: &AppHandle) -> Result<(), String> {
         .map_err(|error| format!("Không hiện được popup tiến trình: {error}"))
 }
 
+/// Chưa tạo lần nào thì không có gì để ẩn.
 pub fn hide_progress(app: &AppHandle) -> Result<(), String> {
-    app.get_webview_window(PROGRESS_WINDOW_LABEL)
-        .ok_or_else(|| "Không tìm thấy cửa sổ tiến trình.".to_string())?
-        .hide()
-        .map_err(|error| format!("Không ẩn được popup tiến trình: {error}"))
+    match app.get_webview_window(PROGRESS_WINDOW_LABEL) {
+        Some(window) => window
+            .hide()
+            .map_err(|error| format!("Không ẩn được popup tiến trình: {error}")),
+        None => Ok(()),
+    }
+}
+
+/// WHY gọi từ luồng hẹn giờ riêng: trên Windows tạo cửa sổ từ lệnh đồng bộ hay event handler bị treo (xem `open_settings`).
+fn progress_window(app: &AppHandle) -> Result<WebviewWindow, String> {
+    if let Some(window) = app.get_webview_window(PROGRESS_WINDOW_LABEL) {
+        return Ok(window);
+    }
+    WebviewWindowBuilder::new(
+        app,
+        PROGRESS_WINDOW_LABEL,
+        WebviewUrl::App("progress.html".into()),
+    )
+    .title("Morphix Tiến trình")
+    .inner_size(PROGRESS_LOGICAL_SIZE.0, PROGRESS_LOGICAL_SIZE.1)
+    .decorations(false)
+    .resizable(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .focused(false)
+    .visible(false)
+    .build()
+    .map_err(|error| format!("Không tạo được popup tiến trình: {error}"))
 }
 
 fn khay_window(app: &AppHandle) -> Result<WebviewWindow, String> {

@@ -21,19 +21,6 @@
         "alwaysOnTop": false,
         "skipTaskbar": false,
         "visible": false
-      },
-      {
-        "label": "tien-trinh",
-        "title": "Morphix Tiến trình",
-        "url": "progress.html",
-        "width": 360,
-        "height": 120,
-        "decorations": false,
-        "resizable": false,
-        "alwaysOnTop": true,
-        "skipTaskbar": true,
-        "focus": false,
-        "visible": false
       }
     ],
     "security": {

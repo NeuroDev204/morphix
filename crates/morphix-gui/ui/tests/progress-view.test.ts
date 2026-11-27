@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { progressView } from "../src/progress-view";
+import { isStale, progressView } from "../src/progress-view";
 import type { HistoryEntry, JobSnapshot } from "../src/recent";
 
 const snap = (over: Partial<JobSnapshot> = {}): JobSnapshot => ({
@@ -57,5 +57,14 @@ describe("progressView", () => {
   it("cancel closes after 2s", () => {
     const view = progressView(snap({ state: { kind: "cancelled" } }), null);
     expect(view).toMatchObject({ status: "cancelled", detail: "Đã huỷ", closeAfterMs: 2000, showCancel: false });
+  });
+});
+
+describe("isStale", () => {
+  it("a running snapshot never overrides a finished one of the same job", () => {
+    const finished = progressView(snap({ state: { kind: "finished", ok: 5, failed: 0 } }), entry());
+    expect(isStale({ snapshot: snap({ state: { kind: "finished", ok: 5, failed: 0 } }), view: finished }, snap())).toBe(true);
+    expect(isStale({ snapshot: snap({ id: 1, state: { kind: "finished", ok: 5, failed: 0 } }), view: finished }, snap({ id: 2 }))).toBe(false);
+    expect(isStale(null, snap())).toBe(false);
   });
 });

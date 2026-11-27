@@ -10,12 +10,12 @@ use sha2::{Digest, Sha256};
 
 pub const FORK_UUID: &str = "morphix-desktop@morphix";
 pub const DING_UUID: &str = "ding@rastersoft.com";
+/// Mở đầu thông báo lỗi khi DING của máy khác bản đã kiểm (thiếu mốc); chỗ gọi coi đó là "không áp dụng", không phải lỗi.
+pub const UNSUPPORTED_PREFIX: &str = "DING bản này chưa hỗ trợ";
 const FORK_NAME: &str = "Desktop Icons (Morphix)";
 const MARKER_FILE: &str = "morphix-source.json";
 const MENU_JS: &str = include_str!("../../../../integration/ding/morphixMenu.js");
 const WATCH_JS: &str = include_str!("../../../../integration/ding/morphixWatch.js");
-/// Các file mà bản chép sửa; vân tay lấy từ chính chúng để biết khi nào Ubuntu cập nhật DING.
-const FINGERPRINT_FILES: [&str; 4] = ["metadata.json", "extension.js", "app/fileItemMenu.js", "app/desktopManager.js"];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ForkMarker {
@@ -32,13 +32,29 @@ pub fn find_source(data_home: &Path, data_dirs: &[PathBuf]) -> Option<PathBuf> {
         .find(|path| path.join("metadata.json").is_file())
 }
 
-/// SHA-256 (hex) của tên + nội dung các file mà bản chép sửa.
+fn collect_files(dir: &Path, base: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
+    let entries = fs::read_dir(dir).map_err(|error| format!("không đọc được {}: {error}", dir.display()))?;
+    for entry in entries {
+        let path = entry.map_err(|error| error.to_string())?.path();
+        if path.is_dir() {
+            collect_files(&path, base, out)?;
+        } else if let Ok(relative) = path.strip_prefix(base) {
+            out.push(relative.to_path_buf());
+        }
+    }
+    Ok(())
+}
+
+/// SHA-256 (hex) của tên + nội dung MỌI file trong thư mục DING nguồn: Ubuntu cập nhật bất kỳ file nào cũng phải dựng lại bản chép.
 pub fn fingerprint(source: &Path) -> Result<String, String> {
+    let mut files = Vec::new();
+    collect_files(source, source, &mut files)?;
+    files.sort();
     let mut hasher = Sha256::new();
-    for relative in FINGERPRINT_FILES {
-        let path = source.join(relative);
+    for relative in files {
+        let path = source.join(&relative);
         let bytes = fs::read(&path).map_err(|error| format!("không đọc được {}: {error}", path.display()))?;
-        hasher.update(relative.as_bytes());
+        hasher.update(relative.to_string_lossy().as_bytes());
         hasher.update((bytes.len() as u64).to_le_bytes());
         hasher.update(&bytes);
     }
@@ -61,7 +77,7 @@ pub fn inject(file: &str, anchors: &[&str], line: &str) -> Result<String, String
         out.push_str(&file[line_end..]);
         return Ok(out);
     }
-    Err(format!("DING bản này chưa hỗ trợ: không thấy mốc {anchors:?} đúng một lần"))
+    Err(format!("{UNSUPPORTED_PREFIX}: không thấy mốc {anchors:?} đúng một lần"))
 }
 
 fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
@@ -142,16 +158,26 @@ pub fn build_fork(source: &Path, extensions_dir: &Path, morphix: &Path, morphix_
         let _ = fs::remove_dir_all(&tmp);
         return Err(message);
     }
-    if dest.exists() {
-        fs::remove_dir_all(&dest).map_err(|error| {
+    // WHY đổi tên bản cũ sang thư mục dự phòng rồi mới đặt bản mới: crash giữa chừng không để lại khoảng trống không có bản chép nào.
+    let backup = extensions_dir.join(format!(".morphix-desktop.old-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&backup);
+    let had_old = dest.exists();
+    if had_old {
+        fs::rename(&dest, &backup).map_err(|error| {
             let _ = fs::remove_dir_all(&tmp);
             format!("không thay được bản chép cũ: {error}")
         })?;
     }
-    fs::rename(&tmp, &dest).map_err(|error| {
+    if let Err(error) = fs::rename(&tmp, &dest) {
         let _ = fs::remove_dir_all(&tmp);
-        format!("không đặt được {}: {error}", dest.display())
-    })?;
+        if had_old {
+            let _ = fs::rename(&backup, &dest);
+        }
+        return Err(format!("không đặt được {}: {error}", dest.display()));
+    }
+    if had_old {
+        let _ = fs::remove_dir_all(&backup);
+    }
     Ok(dest)
 }
 
@@ -308,6 +334,26 @@ mod tests {
         let before = fingerprint(&source).unwrap();
         write(&source.join("extension.js"), "changed");
         assert_ne!(before, fingerprint(&source).unwrap());
+    }
+
+    #[test]
+    fn fingerprint_covers_every_file_of_the_source_tree() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = fake_ding(dir.path(), MENU_26);
+        let before = fingerprint(&source).unwrap();
+        write(&source.join("app/other.js"), "changed();\n");
+        assert_ne!(before, fingerprint(&source).unwrap());
+    }
+
+    #[test]
+    fn build_fork_leaves_no_backup_or_temp_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = fake_ding(dir.path(), MENU_26);
+        let ext = dir.path().join("e");
+        build_fork(&source, &ext, Path::new("/x/morphix"), "0.1.6").unwrap();
+        build_fork(&source, &ext, Path::new("/x/morphix"), "0.1.7").unwrap();
+        let names: Vec<_> = fs::read_dir(&ext).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(names, vec![std::ffi::OsString::from(FORK_UUID)]);
     }
 
     #[test]

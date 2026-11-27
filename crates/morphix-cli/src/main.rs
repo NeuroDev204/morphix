@@ -730,6 +730,11 @@ fn run_uninstall() -> ExitCode {
         eprintln!("lỗi: không in được báo cáo tích hợp ({error})");
         return ExitCode::from(1);
     }
+    // WHY dừng: chưa trả được DING gốc về mà xoá chương trình thì không còn gì để sửa lỗi; desktop có thể trống icon.
+    if report.components.iter().any(|c| c.id == integration::ComponentId::DesktopContextMenu && c.status == integration::ComponentStatus::Failed) {
+        eprintln!("lỗi: chưa trả được DING gốc về nên chưa gỡ chương trình; sửa lỗi ở trên rồi chạy lại morphix uninstall");
+        return ExitCode::from(1);
+    }
     if package {
         println!(
             "Morphix được cài bằng gói .deb: chạy `sudo apt remove morphix` để gỡ chương trình."
@@ -946,7 +951,6 @@ fn notify_failure(message: &str) {
     }
 }
 
-/// `morphix quit`: gửi yêu cầu thoát tới GUI đang chạy. Không kết nối được nghĩa là app không chạy, và đó không phải lỗi.
 /// Luôn thoát 0: đây là việc chạy nền lúc đăng nhập, lỗi đã vào log và thông báo.
 fn run_desktop_check() -> ExitCode {
     use morphix_cli::integration::{
@@ -977,6 +981,7 @@ fn run_desktop_check() -> ExitCode {
     ExitCode::SUCCESS
 }
 
+/// `morphix quit`: gửi yêu cầu thoát tới GUI đang chạy. Không kết nối được nghĩa là app không chạy, và đó không phải lỗi.
 fn run_quit() -> ExitCode {
     let request = MenuRequest {
         paths: Vec::new(),

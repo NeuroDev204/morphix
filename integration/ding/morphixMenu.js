@@ -42,10 +42,18 @@ var parseListing = function(stdout) {
     return {tooMany: data.too_many, items};
 };
 
+// WHY bỏ WAYLAND_SOCKET: DING cũng bỏ nó khi mở chương trình khác (getFilteredEnviron); để lại thì ứng dụng con dùng nhầm socket của DING.
+var launcher = function(flags) {
+    const Gio = imports.gi.Gio;
+    let l = new Gio.SubprocessLauncher({flags});
+    l.unsetenv('WAYLAND_SOCKET');
+    return l;
+};
+
 var spawn = function(argv) {
     const Gio = imports.gi.Gio;
     try {
-        Gio.Subprocess.new(argv, Gio.SubprocessFlags.NONE);
+        launcher(Gio.SubprocessFlags.NONE).spawnv(argv);
     } catch (error) {
         log(`Morphix: không mở được: ${error}`);
     }
@@ -54,9 +62,8 @@ var spawn = function(argv) {
 var list = function(uris) {
     const Gio = imports.gi.Gio;
     try {
-        let proc = Gio.Subprocess.new(
-            ['timeout', String(LIST_TIMEOUT_SECONDS), ...listCommand(uris)],
-            Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_SILENCE);
+        let proc = launcher(Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_SILENCE)
+            .spawnv(['timeout', String(LIST_TIMEOUT_SECONDS), ...listCommand(uris)]);
         let [, stdout] = proc.communicate_utf8(null, null);
         return proc.get_successful() ? parseListing(stdout) : null;
     } catch (error) {
@@ -83,10 +90,24 @@ var newItem = function(label, argv) {
     return item;
 };
 
+// WHY bọc try/catch: hàm này chạy ngay đầu showMenu của DING; một lỗi ở đây sẽ làm mất cả menu của DING, không chỉ mục Morphix.
 var addFileItems = function(fileItemMenu, fileItem) {
+    try {
+        buildFileItems(fileItemMenu, fileItem);
+    } catch (error) {
+        log(`Morphix: không thêm được mục vào menu desktop: ${error}`);
+    }
+};
+
+var buildFileItems = function(fileItemMenu, fileItem) {
     const Gtk = imports.gi.Gtk;
+    // WHY: với dấu chồng (stack) `file` là chuỗi kiểu MIME, không phải Gio.File.
+    if (fileItem.isStackMarker)
+        return;
     let selection = fileItemMenu._desktopManager.getCurrentSelection(false);
     let fileItems = selection && selection.length > 0 ? selection : [fileItem];
+    if (!fileItems.every(f => f && f.file && typeof f.file.get_uri === 'function'))
+        return;
     let uris = fileItems.map(f => f.file.get_uri());
     let allRegular = fileItems.every(isRegularLocal);
     let top = new Gtk.MenuItem({label: 'Morphix'});
@@ -122,5 +143,9 @@ var addFileItems = function(fileItemMenu, fileItem) {
 };
 
 var addBackgroundItem = function(menu) {
-    menu.add(newItem('Morphix', commandForSelection([], true)));
+    try {
+        menu.add(newItem('Morphix', commandForSelection([], true)));
+    } catch (error) {
+        log(`Morphix: không thêm được mục vào menu desktop: ${error}`);
+    }
 };

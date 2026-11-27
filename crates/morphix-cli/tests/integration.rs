@@ -2399,6 +2399,38 @@ fn desktop_menu_install_builds_the_copy_and_autostart_without_changing_gnome() {
 
 #[cfg(unix)]
 #[test]
+fn desktop_menu_with_an_unsupported_ding_layout_is_not_applicable() {
+    // WHY: Ubuntu 22.04 có DING cũ không có mốc ESM; đó là "không áp dụng", không phải lỗi làm cả lần cài báo một phần.
+    let f = tempdir().unwrap();
+    let binaries = binaries_in(f.path());
+    let ding = fake_system_ding(f.path());
+    fs::write(ding.join("extension.js"), "const old = imports.ui.main;\n").unwrap();
+    let backend = linux_with(&f.path().join("root"), session_with_ding(f.path()), desktop_tools("ding@rastersoft.com\n", no_calls()));
+    let report = backend.install(ComponentId::DesktopContextMenu, &binaries);
+    assert_eq!(report.status, ComponentStatus::NotApplicable, "{}", report.message);
+}
+
+#[cfg(unix)]
+#[test]
+fn desktop_menu_uninstall_keeps_everything_when_gnome_is_unreachable_after_a_switch() {
+    let f = tempdir().unwrap();
+    let binaries = binaries_in(f.path());
+    let root = f.path().join("root");
+    fake_system_ding(f.path());
+    let backend = linux_with(&root, session_with_ding(f.path()), desktop_tools("ding@rastersoft.com\n", no_calls()));
+    backend.install(ComponentId::DesktopContextMenu, &binaries);
+    let state = root.join("data/morphix/desktop-state.json");
+    fs::create_dir_all(state.parent().unwrap()).unwrap();
+    fs::write(&state, r#"{"switched":true,"ding_was_enabled":true,"fallback":null}"#).unwrap();
+    let blind = linux_with(&root, session_with_ding(f.path()), scripted_tools(Vec::new()));
+    let report = blind.uninstall(ComponentId::DesktopContextMenu);
+    assert_eq!(report.status, ComponentStatus::Failed, "{}", report.message);
+    assert!(root.join("data/gnome-shell/extensions/morphix-desktop@morphix/morphix-source.json").is_file());
+    assert!(state.is_file());
+}
+
+#[cfg(unix)]
+#[test]
 fn desktop_menu_with_ding_disabled_is_not_applicable() {
     let f = tempdir().unwrap();
     let binaries = binaries_in(f.path());
@@ -2438,13 +2470,15 @@ fn desktop_menu_uninstall_removes_copy_autostart_and_state_and_restores_ding() {
     let state = root.join("data/morphix/desktop-state.json");
     fs::create_dir_all(state.parent().unwrap()).unwrap();
     fs::write(&state, r#"{"switched":true,"ding_was_enabled":true,"fallback":null}"#).unwrap();
-    let report = backend.uninstall(ComponentId::DesktopContextMenu);
+    // sau lần đổi, DING gốc đang tắt: lệnh gỡ phải bật lại
+    let after_switch = linux_with(&root, session_with_ding(f.path()), desktop_tools("", calls.clone()));
+    let report = after_switch.uninstall(ComponentId::DesktopContextMenu);
     assert_eq!(report.status, ComponentStatus::Removed, "{}", report.message);
     assert!(!root.join("data/gnome-shell/extensions/morphix-desktop@morphix").exists());
     assert!(!root.join("config/autostart/morphix-desktop-check.desktop").exists());
     assert!(!state.exists());
     assert!(calls.borrow().iter().any(|c| c == "gnome-extensions enable ding@rastersoft.com"), "{:?}", calls.borrow());
-    assert_eq!(backend.uninstall(ComponentId::DesktopContextMenu).status, ComponentStatus::AlreadyAbsent);
+    assert_eq!(after_switch.uninstall(ComponentId::DesktopContextMenu).status, ComponentStatus::AlreadyAbsent);
 }
 
 #[test]

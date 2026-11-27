@@ -87,7 +87,10 @@ pub fn save_state(ctx: &DesktopCtx, state: &DesktopState) -> Result<(), String> 
         std::fs::create_dir_all(parent).map_err(|error| format!("không tạo được {}: {error}", parent.display()))?;
     }
     let json = serde_json::to_string_pretty(state).map_err(|error| error.to_string())?;
-    std::fs::write(&path, json).map_err(|error| format!("không ghi được {}: {error}", path.display()))
+    // WHY ghi file tạm rồi đổi tên: crash giữa chừng không được để lại file cụt (bị đọc thành "chưa đổi", mất dấu DING).
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, json).map_err(|error| format!("không ghi được {}: {error}", tmp.display()))?;
+    std::fs::rename(&tmp, &path).map_err(|error| format!("không đặt được {}: {error}", path.display()))
 }
 
 struct Exts {
@@ -147,7 +150,10 @@ fn verify_fork(tools: &ToolRunner, wait: &dyn Fn(Duration)) -> Result<(), String
 }
 
 /// Tắt bản chép, bật lại DING gốc nếu Morphix đã tắt nó, ghi lý do để không thử lại vô ích.
-fn fall_back(ctx: &DesktopCtx, tools: &ToolRunner, mut state: DesktopState, fingerprint: String, reason: String) -> CheckOutcome {
+/// `block`: ghi vân tay để không thử lại tới khi DING hoặc Morphix đổi. `false` (lỗi ngay sau rebuild, lúc tiến trình đang chạy
+/// còn là bản cũ) để lần đăng nhập sau thử lại.
+fn fall_back(ctx: &DesktopCtx, tools: &ToolRunner, mut state: DesktopState, fingerprint: String, reason: String, block: bool) -> CheckOutcome {
+    let fingerprint = if block { fingerprint } else { String::new() };
     if exts(tools).is_some_and(|e| e.is_enabled(FORK_UUID)) {
         if let Err(error) = set_enabled(tools, FORK_UUID, false) {
             tracing::error!(%error, "không tắt được bản chép DING của Morphix");
@@ -179,8 +185,33 @@ pub fn desktop_check(ctx: &DesktopCtx, tools: &ToolRunner, wait: &dyn Fn(Duratio
         return CheckOutcome::NotApplicable("không hỏi được GNOME Shell (gnome-extensions)".into());
     };
     let fork_dir = ctx.fork_dir();
-    let Some(marker) = read_marker(&fork_dir) else { return CheckOutcome::Nothing };
     let mut state = load_state(ctx);
+    let Some(marker) = read_marker(&fork_dir) else {
+        if !state.switched {
+            return CheckOutcome::Nothing;
+        }
+        // WHY: bản chép biến mất khi đang dùng (xoá trong ứng dụng Extensions, crash giữa lúc thay thư mục): trả DING về, kẻo desktop trống mãi.
+        if listing.is_enabled(FORK_UUID) {
+            if let Err(error) = set_enabled(tools, FORK_UUID, false) {
+                tracing::error!(%error, "không tắt được bản chép DING của Morphix");
+            }
+        }
+        if !listing.is_enabled(DING_UUID) {
+            if let Err(error) = set_enabled(tools, DING_UUID, true) {
+                tracing::error!(%error, "không bật lại được DING gốc");
+            }
+        }
+        state.switched = false;
+        state.fallback = Some(Fallback {
+            fingerprint: String::new(),
+            morphix_version: ctx.version.clone(),
+            reason: "không còn thấy bản chép DING của Morphix".into(),
+        });
+        if let Err(error) = save_state(ctx, &state) {
+            tracing::error!(%error, "không ghi được trạng thái desktop");
+        }
+        return CheckOutcome::FellBack("không còn thấy bản chép DING của Morphix".into());
+    };
 
     // WHY không bao giờ để hai bản cùng bật: hai tiến trình vẽ desktop, trùng tên D-Bus.
     if listing.is_enabled(FORK_UUID) && listing.is_enabled(DING_UUID) {
@@ -192,13 +223,13 @@ pub fn desktop_check(ctx: &DesktopCtx, tools: &ToolRunner, wait: &dyn Fn(Duratio
 
     let Some(source) = find_source(&ctx.data_home, &ctx.data_dirs) else {
         if listing.is_enabled(FORK_UUID) {
-            return fall_back(ctx, tools, state, marker.fingerprint, "không còn thấy DING gốc để chép".into());
+            return fall_back(ctx, tools, state, marker.fingerprint, "không còn thấy DING gốc để chép".into(), true);
         }
         return CheckOutcome::Nothing;
     };
     let current = match fingerprint(&source) {
         Ok(value) => value,
-        Err(reason) => return fall_back(ctx, tools, state, String::new(), reason),
+        Err(reason) => return fall_back(ctx, tools, state, String::new(), reason, true),
     };
     if state.fallback.as_ref().is_some_and(|f| f.fingerprint == current && f.morphix_version == ctx.version) {
         return CheckOutcome::Nothing;
@@ -207,7 +238,7 @@ pub fn desktop_check(ctx: &DesktopCtx, tools: &ToolRunner, wait: &dyn Fn(Duratio
     let mut rebuilt = false;
     if marker.fingerprint != current || marker.morphix_version != ctx.version {
         if let Err(reason) = build_fork(&source, &ctx.extensions_dir(), &ctx.morphix, &ctx.version) {
-            return fall_back(ctx, tools, state, current, reason);
+            return fall_back(ctx, tools, state, current, reason, true);
         }
         rebuilt = true;
     }
@@ -222,11 +253,11 @@ pub fn desktop_check(ctx: &DesktopCtx, tools: &ToolRunner, wait: &dyn Fn(Duratio
             return CheckOutcome::NotApplicable(error);
         }
         if let Err(reason) = set_enabled(tools, DING_UUID, false).and_then(|()| set_enabled(tools, FORK_UUID, true)) {
-            return fall_back(ctx, tools, state, current, reason);
+            return fall_back(ctx, tools, state, current, reason, true);
         }
         return match verify_fork(tools, wait) {
             Ok(()) => CheckOutcome::Switched,
-            Err(reason) => fall_back(ctx, tools, state, current, reason),
+            Err(reason) => fall_back(ctx, tools, state, current, reason, true),
         };
     }
 
@@ -236,19 +267,36 @@ pub fn desktop_check(ctx: &DesktopCtx, tools: &ToolRunner, wait: &dyn Fn(Duratio
     match verify_fork(tools, wait) {
         Ok(()) if rebuilt => CheckOutcome::Rebuilt,
         Ok(()) => CheckOutcome::Nothing,
-        Err(reason) => fall_back(ctx, tools, state, current, reason),
+        // WHY không chặn khi vừa rebuild: tiến trình đang chạy là bản cũ, lỗi này chưa phải của bản mới.
+        Err(reason) => fall_back(ctx, tools, state, current, reason, !rebuilt),
     }
 }
 
-/// Gỡ: tắt bản chép; bật lại DING gốc nếu Morphix đã tắt nó. Không xoá file (việc của lệnh gỡ).
+/// Gỡ: tắt bản chép và bảo đảm DING gốc chạy. Không xoá file (việc của lệnh gỡ). Lỗi thì phải để nguyên bản chép và trạng thái,
+/// để lần gỡ sau còn biết cần trả DING về.
 pub fn restore(ctx: &DesktopCtx, tools: &ToolRunner) -> Result<(), String> {
     let state = load_state(ctx);
-    let Some(listing) = exts(tools) else { return Ok(()) };
-    if listing.is_enabled(FORK_UUID) {
+    let Some(listing) = exts(tools) else {
+        // WHY lỗi chứ không Ok: đã tắt DING gốc mà không hỏi được GNOME thì xoá bản chép sẽ để desktop trống.
+        return if state.switched {
+            Err("không hỏi được GNOME Shell để trả DING gốc về; hãy chạy lại trong phiên GNOME (không qua ssh)".into())
+        } else {
+            Ok(())
+        };
+    };
+    let fork_on = listing.is_enabled(FORK_UUID);
+    let ding_on = listing.is_enabled(DING_UUID);
+    if fork_on {
         set_enabled(tools, FORK_UUID, false)?;
     }
-    if state.switched && state.ding_was_enabled {
-        set_enabled(tools, DING_UUID, true)?;
+    // WHY không chỉ dựa vào file trạng thái: file có thể hỏng/mất, mà bản chép đang chạy một mình nghĩa là DING đang bị tắt.
+    if !ding_on && ((state.switched && state.ding_was_enabled) || fork_on) {
+        if let Err(error) = set_enabled(tools, DING_UUID, true) {
+            if fork_on {
+                let _ = set_enabled(tools, FORK_UUID, true);
+            }
+            return Err(error);
+        }
     }
     Ok(())
 }
@@ -268,6 +316,7 @@ mod tests {
         log: RefCell<Vec<String>>,
         bus_owned: RefCell<bool>,
         no_gnome_extensions: RefCell<bool>,
+        fail_enable: RefCell<BTreeSet<String>>,
     }
 
     impl Fake {
@@ -280,6 +329,9 @@ mod tests {
                 ("gnome-extensions", ["list", "--enabled"]) => ok(self.enabled.borrow().iter().map(|u| format!("{u}\n")).collect()),
                 ("gnome-extensions", [verb @ ("enable" | "disable"), uuid]) => {
                     self.log.borrow_mut().push(format!("{verb} {uuid}"));
+                    if *verb == "enable" && self.fail_enable.borrow().contains(*uuid) {
+                        return ToolOutcome::Exited { code: Some(1), stdout: String::new(), stderr: "fail".into() };
+                    }
                     if *verb == "enable" { self.enabled.borrow_mut().insert((*uuid).into()); } else { self.enabled.borrow_mut().remove(*uuid); }
                     ok(String::new())
                 }
@@ -372,10 +424,36 @@ mod tests {
     }
 
     #[test]
-    fn missing_fork_does_nothing() {
+    fn missing_fork_does_nothing_before_the_first_switch() {
         let r = rig(true, true);
         std::fs::remove_dir_all(r.ctx.fork_dir()).unwrap();
         assert_eq!(r.check(), CheckOutcome::Nothing);
+    }
+
+    #[test]
+    fn missing_fork_while_switched_restores_ding() {
+        // WHY: người dùng bấm "Remove" trong ứng dụng Extensions, hoặc crash giữa lúc thay thư mục: desktop không được trống mãi.
+        let r = rig(true, true);
+        assert_eq!(r.check(), CheckOutcome::Switched);
+        std::fs::remove_dir_all(r.ctx.fork_dir()).unwrap();
+        assert!(matches!(r.check(), CheckOutcome::FellBack(_)));
+        assert!(r.fake.enabled.borrow().contains(DING_UUID) && !r.fake.enabled.borrow().contains(FORK_UUID));
+        assert!(!load_state(&r.ctx).switched);
+        assert_eq!(r.check(), CheckOutcome::Nothing);
+    }
+
+    #[test]
+    fn failed_check_after_a_rebuild_is_retried_at_the_next_login() {
+        // WHY: sau rebuild, tiến trình còn chạy là bản CŨ; lỗi lúc đó không được chặn bản mới vĩnh viễn.
+        let r = rig(true, true);
+        assert_eq!(r.check(), CheckOutcome::Switched);
+        let ext = r.ctx.data_dirs[0].join("gnome-shell/extensions/ding@rastersoft.com/metadata.json");
+        let text = std::fs::read_to_string(&ext).unwrap();
+        std::fs::write(&ext, text.replace("\"47\"", "\"47\", \"48\"")).unwrap();
+        *r.fake.bus_owned.borrow_mut() = false;
+        assert!(matches!(r.check(), CheckOutcome::FellBack(_)));
+        *r.fake.bus_owned.borrow_mut() = true;
+        assert_eq!(r.check(), CheckOutcome::Switched);
     }
 
     #[test]
@@ -465,6 +543,48 @@ mod tests {
         std::fs::create_dir_all(r.ctx.state_path().parent().unwrap()).unwrap();
         std::fs::write(r.ctx.state_path(), "{not json").unwrap();
         assert_eq!(r.check(), CheckOutcome::Switched);
+    }
+
+    #[test]
+    fn restore_puts_ding_back_when_only_the_copy_is_on_even_without_state() {
+        let r = rig(true, true);
+        r.check();
+        std::fs::remove_file(r.ctx.state_path()).unwrap();
+        r.fake.log.borrow_mut().clear();
+        let tools = r.tools();
+        restore(&r.ctx, &tools).unwrap();
+        assert!(r.fake.enabled.borrow().contains(DING_UUID) && !r.fake.enabled.borrow().contains(FORK_UUID));
+    }
+
+    #[test]
+    fn restore_fails_loudly_when_gnome_is_unreachable_after_a_switch() {
+        let r = rig(true, true);
+        r.check();
+        *r.fake.no_gnome_extensions.borrow_mut() = true;
+        let tools = r.tools();
+        assert!(restore(&r.ctx, &tools).is_err());
+        let fresh = rig(true, true);
+        *fresh.fake.no_gnome_extensions.borrow_mut() = true;
+        let tools = fresh.tools();
+        assert!(restore(&fresh.ctx, &tools).is_ok());
+    }
+
+    #[test]
+    fn restore_puts_the_copy_back_when_enabling_ding_fails() {
+        let r = rig(true, true);
+        r.check();
+        r.fake.fail_enable.borrow_mut().insert(DING_UUID.into());
+        let tools = r.tools();
+        assert!(restore(&r.ctx, &tools).is_err());
+        assert!(r.fake.enabled.borrow().contains(FORK_UUID));
+    }
+
+    #[test]
+    fn save_state_is_atomic_and_leaves_no_temp_file() {
+        let r = rig(true, true);
+        save_state(&r.ctx, &DesktopState { switched: true, ding_was_enabled: true, fallback: None }).unwrap();
+        let names: Vec<_> = std::fs::read_dir(r.ctx.state_path().parent().unwrap()).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(names, vec![std::ffi::OsString::from("desktop-state.json")]);
     }
 
     #[test]

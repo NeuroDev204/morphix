@@ -58,3 +58,16 @@ export function progressView(snapshot: JobSnapshot, latest: HistoryEntry | null)
       };
   }
 }
+
+// WHY: một ảnh chụp "đang chạy" tới trễ (kéo qua invoke) không được ghi đè kết quả đã nhận của chính việc đó.
+export function isStale(
+  current: { readonly snapshot: JobSnapshot; readonly view: ProgressView } | null,
+  incoming: JobSnapshot,
+): boolean {
+  return (
+    current !== null &&
+    current.snapshot.id === incoming.id &&
+    current.view.status !== "running" &&
+    incoming.state.kind === "running"
+  );
+}

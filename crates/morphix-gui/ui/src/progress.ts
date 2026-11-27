@@ -2,11 +2,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { truncateName } from "./format";
-import { progressView, type ProgressView } from "./progress-view";
+import { isStale, progressView, type ProgressView } from "./progress-view";
 import type { HistoryEntry, JobSnapshot } from "./recent";
 
 const JOB_UPDATE_EVENT: string = "job-update";
 const JOB_FINISHED_EVENT: string = "job-finished";
+const PROGRESS_SHOWN_EVENT: string = "progress-shown";
 const NAME_MAX_CHARS: number = 40;
 
 let current: { snapshot: JobSnapshot; view: ProgressView; latest: HistoryEntry | null } | null = null;
@@ -35,6 +36,10 @@ function hide(): void {
 
 function scheduleClose(): void {
   clearTimeout(closeTimer);
+  // WHY: nếu con trỏ đang nằm trên popup (không có mouseenter mới khi nội dung dựng lại) thì để nguyên, mouseleave sẽ đặt lại giờ đóng.
+  if (document.querySelector(":hover") !== null && document.querySelector("#app :hover") !== null) {
+    return;
+  }
   if (current?.view.closeAfterMs != null) {
     closeTimer = window.setTimeout(hide, current.view.closeAfterMs);
   }
@@ -95,7 +100,7 @@ function render(): void {
 
 async function onSnapshot(snapshot: JobSnapshot, finished: boolean): Promise<void> {
   // WHY bỏ qua việc không từ menu: việc chạy từ Khay đã có tiến trình ngay trong Khay.
-  if (!snapshot.from_menu) {
+  if (!snapshot.from_menu || isStale(current, snapshot)) {
     return;
   }
   clearTimeout(closeTimer);
@@ -112,6 +117,12 @@ async function onSnapshot(snapshot: JobSnapshot, finished: boolean): Promise<voi
 async function start(): Promise<void> {
   await listen<JobSnapshot>(JOB_UPDATE_EVENT, (event) => void onSnapshot(event.payload, false));
   await listen<JobSnapshot>(JOB_FINISHED_EVENT, (event) => void onSnapshot(event.payload, true));
+  // WHY kéo ảnh chụp khi cửa sổ vừa hiện: lõi chỉ báo khi một mục xong, nên việc một file lớn chưa có sự kiện nào.
+  await listen(PROGRESS_SHOWN_EVENT, () => void pullActiveJob());
+  await pullActiveJob();
+}
+
+async function pullActiveJob(): Promise<void> {
   const job: JobSnapshot | null = await invoke<JobSnapshot | null>("active_job");
   if (job !== null) {
     await onSnapshot(job, false);
