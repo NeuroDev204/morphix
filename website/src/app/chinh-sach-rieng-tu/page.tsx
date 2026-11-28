@@ -30,13 +30,25 @@ export default function PrivacyPolicy() {
 
       <h2 className="mt-8 text-lg font-bold text-slate-900">Quảng cáo trên website</h2>
       <p className="mt-2">
-        Website này hiển thị quảng cáo của Adsterra: một thanh thông báo nổi ở góc màn hình, và một tab quảng cáo
-        có thể mở ra khi bạn bấm vào trang. Adsterra và các đối tác có thể dùng cookie để hiển thị quảng cáo.
+        Website này hiển thị quảng cáo của Google AdSense (một khung quảng cáo trong trang) và của Adsterra: một thanh thông báo nổi ở góc màn hình, và một tab quảng cáo
+        có thể mở ra khi bạn bấm vào trang. Google, Adsterra và các đối tác có thể dùng cookie để hiển thị quảng cáo.
       </p>
       <p className="mt-2">
         Tìm hiểu cách Adsterra dùng dữ liệu:{" "}
         <a href="https://adsterra.com/privacy-policy/" target="_blank" rel="noopener noreferrer" className={link}>
           adsterra.com/privacy-policy
+        </a>
+        .
+      </p>
+
+      <p className="mt-2">
+        Tìm hiểu cách Google dùng dữ liệu:{" "}
+        <a href="https://policies.google.com/technologies/ads" target="_blank" rel="noopener noreferrer" className={link}>
+          policies.google.com/technologies/ads
+        </a>
+        . Bạn có thể tắt quảng cáo cá nhân hoá tại{" "}
+        <a href="https://adssettings.google.com" target="_blank" rel="noopener noreferrer" className={link}>
+          adssettings.google.com
         </a>
         .
       </p>

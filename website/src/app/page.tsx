@@ -9,6 +9,7 @@ import CliDoctorTerminal from "@/components/CliDoctorTerminal";
 import ComparisonTable from "@/components/ComparisonTable";
 import FaqAccordion from "@/components/FaqAccordion";
 import DownloadMatrix from "@/components/DownloadMatrix";
+import AdSlot from "@/components/AdSlot";
 import Footer from "@/components/Footer";
 
 export default function Home() {
@@ -18,6 +19,7 @@ export default function Home() {
       <main className="flex-1">
         <Hero />
         <MarqueeTicker />
+        <AdSlot />
         <TrustMetrics />
         <DropzonePlayground />
         <StorageCalculator />

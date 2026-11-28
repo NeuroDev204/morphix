@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import Script from "next/script";
-import { ADSTERRA } from "@/constants/ads";
+import { ADSENSE, ADSTERRA } from "@/constants/ads";
 
 const plusJakarta = Plus_Jakarta_Sans({
   subsets: ["latin", "vietnamese"],
@@ -52,6 +52,13 @@ export default function RootLayout({
     <html lang="vi" className={`scroll-smooth ${plusJakarta.variable} ${jetbrainsMono.variable}`}>
       <body className="antialiased selection:bg-teal-100 selection:text-teal-900 bg-grid-pattern font-sans">
         {children}
+        {ADSENSE.client && (
+          <Script
+            src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE.client}`}
+            strategy="afterInteractive"
+            crossOrigin="anonymous"
+          />
+        )}
         {ADSTERRA.socialBar && <Script src={ADSTERRA.socialBar} strategy="afterInteractive" />}
         {ADSTERRA.popunder && <Script src={ADSTERRA.popunder} strategy="afterInteractive" />}
       </body>
